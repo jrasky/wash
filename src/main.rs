@@ -1,4 +1,5 @@
 extern crate libc;
+extern crate term;
 
 use libc::{c_uint, c_uchar, c_int};
 use std::io;
@@ -103,15 +104,30 @@ fn empty_escape(esc:&mut Iterator<char>) -> String {
     return out;
 }
 
-fn main() {
+fn prepare_terminal() -> Termios {
     let mut tios = Termios::new();
     tios.get();
-    let old_tios = tios.clone();
+    let tios_clone = tios.clone();
     // turn off canonical mode
     tios.ldisable(ICANON);
     // turn off echo mode
     tios.ldisable(ECHO);
-    tios.set();
+    // set the terminal mode
+    if !tios.set() {
+        io::stderr().write_line("Warning: Could not set terminal mode").unwrap_err();
+    }
+    // return the old terminal mode
+    return tios_clone;
+}
+
+fn restore_terminal(tios:Termios) {
+    if !tios.set() {
+        io::stderr().write_line("Warning: Could not set terminal mode").unwrap_err();
+    }
+}
+
+fn main() {
+    let old_tios = prepare_terminal();
     let mut stdin = io::stdin();
     loop {
         match stdin.read_char() {
@@ -122,8 +138,8 @@ fn main() {
             Ok(c) => {
                 print!("{}", empty_escape(&mut c.escape_default()))
             },
-            Err(_) => {
-                println!("Error: exiting");
+            Err(e) => {
+                println!("Error: {}", e);
                 break;
             }
         }
@@ -131,5 +147,5 @@ fn main() {
     // print so we know we've reached this code
     println!("Exiting");
     // restore old term state
-    old_tios.set();
+    restore_terminal(old_tios);
 }
