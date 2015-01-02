@@ -113,14 +113,12 @@ fn prepare_terminal() -> Termios {
     // turn off echo mode
     tios.ldisable(ECHO);
     // set the terminal mode
-    if !tios.set() {
-        io::stderr().write_line("Warning: Could not set terminal mode").unwrap_err();
-    }
+    update_terminal(tios);
     // return the old terminal mode
     return tios_clone;
 }
 
-fn restore_terminal(tios:Termios) {
+fn update_terminal(tios:Termios) {
     if !tios.set() {
         io::stderr().write_line("Warning: Could not set terminal mode").unwrap_err();
     }
@@ -147,5 +145,5 @@ fn main() {
     // print so we know we've reached this code
     println!("Exiting");
     // restore old term state
-    restore_terminal(old_tios);
+    update_terminal(old_tios);
 }
