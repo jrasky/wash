@@ -105,7 +105,9 @@ fn empty_escape(esc:&mut Iterator<char>) -> String {
 }
 
 fn prepare_terminal() -> Termios {
+    // new terminal mode info
     let mut tios = Termios::new();
+    // populate terminal info
     tios.get();
     let tios_clone = tios.clone();
     // turn off canonical mode
@@ -130,6 +132,7 @@ fn main() {
     let old_tios = prepare_terminal();
     let mut stdin = io::stdin();
     loop {
+        // Note: in non-canonical mode
         match stdin.read_char() {
             Ok(EOF) => break,
             Ok(DEL) => {
