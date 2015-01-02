@@ -5,34 +5,34 @@ use libc::{c_uint, c_uchar, c_int};
 use std::io;
 
 // used in Termios struct
-pub const NCCS:uint = 32;
+const NCCS:uint = 32;
 
 // stdin, stdout, stderr have standard file descriptors
-pub const STDIN:c_int = 0;
+const STDIN:c_int = 0;
 
 // constants for control sequences is useful
-pub const EOF:char = '\u{4}';
-pub const DEL:char = '\u{7f}';
+const EOF:char = '\u{4}';
+const DEL:char = '\u{7f}';
 
 // select termios constants that we use
-pub const ICANON:c_uint   = 2;
-pub const ECHO:c_uint     = 8;
-pub const TCSANOW:c_int   = 0;
-pub const TCSADRAIN:c_int = 1;
-pub const TCSAFLUSH:c_int = 2;
+const ICANON:c_uint   = 2;
+const ECHO:c_uint     = 8;
+const TCSANOW:c_int   = 0;
+const TCSADRAIN:c_int = 1;
+const TCSAFLUSH:c_int = 2;
 
 // types used in Termios struct
 #[allow(non_camel_case_types)]
-pub type cc_t = c_uchar;
+type cc_t = c_uchar;
 #[allow(non_camel_case_types)]
-pub type speed_t = c_uint;
+type speed_t = c_uint;
 #[allow(non_camel_case_types)]
-pub type tcflag_t = c_uint;
+type tcflag_t = c_uint;
 
 #[repr(C)]
 #[deriving(Copy)]
 #[deriving(Clone)]
-pub struct Termios {
+struct Termios {
     c_iflag: tcflag_t,
     c_oflag: tcflag_t,
     c_cflag: tcflag_t,
@@ -44,7 +44,7 @@ pub struct Termios {
 }
 
 impl Termios {
-    pub fn new() -> Termios {
+    fn new() -> Termios {
         Termios {
             c_cc: [0, ..NCCS],
             c_cflag: 0,
@@ -57,39 +57,39 @@ impl Termios {
         }
     }
 
-    pub fn get_from(&mut self, fd:c_int) -> bool {
+    fn get_from(&mut self, fd:c_int) -> bool {
         unsafe {
             return tcgetattr(fd, self) == 0;
         }
     }
 
-    pub fn get(&mut self) -> bool {
+    fn get(&mut self) -> bool {
         self.get_from(STDIN)
     }
 
-    pub fn set_to(&self, fd:c_int) -> bool {
+    fn set_to(&self, fd:c_int) -> bool {
         unsafe {
             return tcsetattr(fd, TCSANOW, self) == 0;
         }
     }
 
-    pub fn set(&self) -> bool {
+    fn set(&self) -> bool {
         self.set_to(STDIN)
     }
 
-    pub fn lenable(&mut self, flag:c_uint) {
+    fn lenable(&mut self, flag:c_uint) {
         self.c_lflag |= flag;
     }
 
-    pub fn ldisable(&mut self, flag:c_uint) {
+    fn ldisable(&mut self, flag:c_uint) {
         self.c_lflag &= !flag;
     }
 }
 
 #[link(name = "c")]
 extern {
-    pub fn tcgetattr(fd: c_int, termios: *mut Termios) -> c_int;
-    pub fn tcsetattr(fd: c_int, optional_actions: c_int, termios: *const Termios) -> c_int;
+    fn tcgetattr(fd: c_int, termios: *mut Termios) -> c_int;
+    fn tcsetattr(fd: c_int, optional_actions: c_int, termios: *const Termios) -> c_int;
 }
 
 fn empty_escape(esc:&mut Iterator<char>) -> String {
