@@ -29,7 +29,6 @@ pub type speed_t = c_uint;
 #[allow(non_camel_case_types)]
 pub type tcflag_t = c_uint;
 
-
 #[repr(C)]
 #[deriving(Copy)]
 #[deriving(Clone)]
