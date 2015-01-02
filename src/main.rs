@@ -118,10 +118,12 @@ fn prepare_terminal() -> Termios {
     return tios_clone;
 }
 
-fn update_terminal(tios:Termios) {
+fn update_terminal(tios:Termios) -> bool {
     if !tios.set() {
         io::stderr().write_line("Warning: Could not set terminal mode").unwrap_err();
+        return true;
     }
+    return false;
 }
 
 fn main() {
