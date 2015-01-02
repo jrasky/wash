@@ -121,9 +121,9 @@ fn prepare_terminal() -> Termios {
 fn update_terminal(tios:Termios) -> bool {
     if !tios.set() {
         io::stderr().write_line("Warning: Could not set terminal mode").unwrap_err();
-        return true;
+        return false;
     }
-    return false;
+    return true;
 }
 
 fn main() {
