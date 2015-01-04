@@ -21,6 +21,8 @@ const EOF:char = '\u{4}';
 const DEL:char = '\u{7f}';
 const NL:char  = '\n';
 const ESC:char = '\u{1b}';
+const ANSI:char = '\u{5b}';
+const BS:char = '\u{8}';
 
 // select termios constants that we use
 const ICANON:c_uint   = 2;
@@ -304,8 +306,79 @@ fn update_terminal(tios:Termios) -> bool {
     return true;
 }
 
-fn handle_escape(stdin:io::stdio::StdinReader) {
+fn handle_escape(stdin:&mut io::stdio::StdinReader,
+                 line:&mut String, part:&mut String) {
     // Handle an ANSI escape sequence
+    if stdin.read_char() != Ok(ANSI) {
+        return;
+    }
+    match stdin.read_char() {
+        Err(_) => return,
+        Ok('D') => {
+            match line.pop() {
+                Some(c) => {
+                    part.push(c);
+                    cursor_left();
+                },
+                None => return
+            }
+        },
+        Ok('C') => {
+            match part.pop() {
+                Some(c) => {
+                    line.push(c);
+                    cursor_right();
+                },
+                None => return
+            }
+        },
+        Ok(_) => return
+    }
+}
+
+fn redraw_line(line:&String, pad_to:uint) {
+    // TODO: make this more optimized
+    print!("\r{}", line);
+    if pad_to > line.len() {
+        let pad_amount = pad_to - line.len();
+        print!("{}", String::from_char(pad_amount, ' '));
+    }
+
+}
+
+fn cursor_left() {
+    print!("{}", DEL);
+}
+
+fn cursor_right() {
+    print!("{}{}C", ESC, ANSI);
+}
+
+fn draw_part(part:&String) {
+    // quick out if part is empty
+    if part.is_empty() {
+        return;
+    }
+    let mut cpart = part.clone();
+    let mut rpart = String::new();
+    loop {
+        match cpart.pop() {
+            Some(c) => rpart.push(c),
+            None => break
+        }
+    }
+    print!("{}", rpart);
+}
+
+fn cursors_left(by:uint) {
+    // move back by a given number of characters
+    print!("{}", String::from_char(by, DEL));
+}
+
+fn idraw_part(part:&String) {
+    // in-place draw of the line part
+    draw_part(part);
+    cursors_left(part.len());
 }
 
 fn main() {
@@ -320,18 +393,32 @@ fn main() {
     }
     let old_tios = prepare_terminal();
     let mut stdin = io::stdin();
+    let mut line = String::new();
+    let mut part = String::new();
     loop {
         // Note: in non-canonical mode
         match stdin.read_char() {
             Ok(EOF) => break,
             Ok(NL) => {
+                line.clear();
+                part.clear();
                 print!("\n");
             },
             Ok(DEL) => {
-                print!("{} {}", DEL, DEL);
+                if line.is_empty() {
+                    continue;
+                }
+                line.pop();
+                cursor_left();
+                draw_part(&part);
+                print!(" ");
+                cursors_left(part.len() + 1);
             },
+            Ok(ESC) => handle_escape(&mut stdin, &mut line, &mut part),
             Ok(c) => {
+                line.push(c);
                 print!("{}", c);
+                idraw_part(&part);
             },
             Err(e) => {
                 println!("Error: {}", e);
