@@ -263,7 +263,7 @@ impl SigInfo {
 #[link(name="c")]
 extern {
     fn sigaction(signum:c_int, act:&SigAction, oldact:*mut SigAction) -> c_int;
-    fn sigfillset(mask:*mut SigSet);
+    fn sigfillset(mask:*mut SigSet) -> c_int;
 }
 
 fn empty_escape(esc:&mut Iterator<char>) -> String {
@@ -381,16 +381,24 @@ fn idraw_part(part:&String) {
     cursors_left(part.len());
 }
 
-fn main() {
+fn prepare_signals() {
     let mut sa = SigAction {
         handler: handle_sigint,
         mask: [0, ..SIGSET_NWORDS],
         flags: SA_RESTART | SA_SIGINFO
     };
     unsafe {
-        sigfillset(&mut sa.mask);
-        assert!(sigaction(SIGINT, &sa, ptr::null_mut::<SigAction>()) == 0);
+        if sigfillset(&mut sa.mask) != 0 {
+            io::stderr().write_line("Warning: could not fill mask set for SIGINT handler").unwrap();
+        }
+        if sigaction(SIGINT, &sa, ptr::null_mut::<SigAction>()) != 0 {
+            io::stderr().write_line("Warning: could not set handler for SIGINT").unwrap();
+        }
     }
+}
+
+fn main() {
+    prepare_signals();
     let old_tios = prepare_terminal();
     let mut stdin = io::stdin();
     let mut line = String::new();
