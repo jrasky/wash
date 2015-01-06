@@ -279,7 +279,8 @@ fn empty_escape(esc:&mut Iterator<char>) -> String {
 
 #[allow(unused_variables)]
 extern fn handle_sigint(signum:c_int, siginfo:*const SigInfo, context:size_t) {
-    println!("Caught SIGINT");
+    print!("^C");
+    io::stdio::flush();
 }
 
 fn prepare_terminal() -> Termios {
@@ -307,7 +308,8 @@ fn update_terminal(tios:Termios) -> bool {
 }
 
 fn handle_escape(stdin:&mut io::stdio::StdinReader,
-                 line:&mut String, part:&mut String) {
+                 line:&mut String, part:&mut String,
+                 bpart:&mut String) {
     // Handle an ANSI escape sequence
     if stdin.read_char() != Ok(ANSI) {
         return;
@@ -317,6 +319,9 @@ fn handle_escape(stdin:&mut io::stdio::StdinReader,
         Ok('D') => {
             match line.pop() {
                 Some(c) => {
+                    if !bpart.is_empty() {
+                        bpart.clear();
+                    }
                     part.push(c);
                     cursor_left();
                 },
@@ -326,6 +331,9 @@ fn handle_escape(stdin:&mut io::stdio::StdinReader,
         Ok('C') => {
             match part.pop() {
                 Some(c) => {
+                    if !bpart.is_empty() {
+                        bpart.clear();
+                    }
                     line.push(c);
                     cursor_right();
                 },
@@ -343,7 +351,6 @@ fn redraw_line(line:&String, pad_to:uint) {
         let pad_amount = pad_to - line.len();
         print!("{}", String::from_char(pad_amount, ' '));
     }
-
 }
 
 fn cursor_left() {
@@ -354,20 +361,22 @@ fn cursor_right() {
     print!("{}{}C", ESC, ANSI);
 }
 
-fn draw_part(part:&String) {
+fn draw_part(part:&String, bpart:&mut String) {
     // quick out if part is empty
     if part.is_empty() {
         return;
     }
-    let mut cpart = part.clone();
-    let mut rpart = String::new();
-    loop {
-        match cpart.pop() {
-            Some(c) => rpart.push(c),
-            None => break
+    if bpart.is_empty() {
+        // only calculate bpart when it needs to be recalculated
+        let mut cpart = part.clone();
+        loop {
+            match cpart.pop() {
+                Some(c) => bpart.push(c),
+                None => break
+            }
         }
     }
-    print!("{}", rpart);
+    print!("{}", bpart);
 }
 
 fn cursors_left(by:uint) {
@@ -375,9 +384,9 @@ fn cursors_left(by:uint) {
     print!("{}", String::from_char(by, DEL));
 }
 
-fn idraw_part(part:&String) {
+fn idraw_part(part:&String, bpart:&mut String) {
     // in-place draw of the line part
-    draw_part(part);
+    draw_part(part, bpart);
     cursors_left(part.len());
 }
 
@@ -403,6 +412,8 @@ fn main() {
     let mut stdin = io::stdin();
     let mut line = String::new();
     let mut part = String::new();
+    // store bpart so we don't need to recalulate it every time
+    let mut bpart = String::new();
     loop {
         // Note: in non-canonical mode
         match stdin.read_char() {
@@ -410,6 +421,7 @@ fn main() {
             Ok(NL) => {
                 line.clear();
                 part.clear();
+                bpart.clear();
                 print!("\n");
             },
             Ok(DEL) => {
@@ -418,15 +430,16 @@ fn main() {
                 }
                 line.pop();
                 cursor_left();
-                draw_part(&part);
+                draw_part(&part, &mut bpart);
                 print!(" ");
                 cursors_left(part.len() + 1);
             },
-            Ok(ESC) => handle_escape(&mut stdin, &mut line, &mut part),
+            Ok(ESC) => handle_escape(&mut stdin, &mut line,
+                                     &mut part, &mut bpart),
             Ok(c) => {
                 line.push(c);
                 print!("{}", c);
-                idraw_part(&part);
+                idraw_part(&part, &mut bpart);
             },
             Err(e) => {
                 println!("Error: {}", e);
