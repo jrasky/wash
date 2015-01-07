@@ -14,6 +14,9 @@ mod termios;
 mod signal;
 mod constants;
 
+type Stdr = io::stdio::StdinReader;
+type Stdw = io::LineBufferedWriter<io::stdio::StdWriter>;
+
 #[allow(unused_variables)]
 extern fn handle_sigint(signum:c_int, siginfo:*const SigInfo, context:size_t) {
     print!("^C");
@@ -25,15 +28,15 @@ fn prepare_terminal(tios:&mut Termios) {
     tios.ldisable(ECHO);
 }
 
-fn update_terminal(tios:Termios) -> bool {
+fn update_terminal(tios:Termios, stderr:&mut Stdw) -> bool {
     if !tios.set() {
-        io::stderr().write_line("Warning: Could not set terminal mode").unwrap();
+        stderr.write_str("Warning: Could not set terminal mode\n").unwrap();
         return false;
     }
     return true;
 }
 
-fn handle_escape(stdin:&mut io::stdio::StdinReader,
+fn handle_escape(stdin:&mut Stdr, stdout:&mut Stdw,
                  line:&mut Vec<String>, word:&mut String,
                  part:&mut String, bpart:&mut String) {
     // Handle an ANSI escape sequence
@@ -50,14 +53,14 @@ fn handle_escape(stdin:&mut io::stdio::StdinReader,
                         bpart.clear();
                     }
                     part.push(c);
-                    cursor_left();
+                    cursor_left(stdout);
                 },
                 None => match line.pop() {
                     Some(s) => {
                         part.push(' ');
                         word.clear();
                         word.push_str(s.as_slice());
-                        cursor_left();
+                        cursor_left(stdout);
                     }
                     None => return
                 }
@@ -72,14 +75,14 @@ fn handle_escape(stdin:&mut io::stdio::StdinReader,
                     }
                     line.push(word.clone());
                     word.clear();
-                    cursor_right();
+                    cursor_right(stdout);
                 },
                 Some(c) => {
                     if !bpart.is_empty() {
                         bpart.clear();
                     }
                     word.push(c);
-                    cursor_right();
+                    cursor_right(stdout);
                 },
                 None => return
             }
@@ -100,12 +103,12 @@ fn build_string(ch:char, count:uint) -> String {
     }
 }
 
-fn cursor_left() {
-    print!("{}", DEL);
+fn cursor_left(stdout:&mut Stdw) {
+    stdout.write_char(DEL).unwrap();
 }
 
-fn cursor_right() {
-    print!("{}{}C", ESC, ANSI);
+fn cursor_right(stdout:&mut Stdw) {
+    stdout.write(&[ESC as u8, ANSI as u8, 'C' as u8]).unwrap();
 }
 
 fn draw_part(part:&String, bpart:&mut String) {
@@ -137,7 +140,7 @@ fn idraw_part(part:&String, bpart:&mut String) {
     cursors_left(part.len());
 }
 
-fn prepare_signals() {
+fn prepare_signals(stderr:&mut Stdw) {
     let mut sa = SigAction {
         handler: handle_sigint,
         mask: [0; SIGSET_NWORDS],
@@ -145,10 +148,10 @@ fn prepare_signals() {
     };
     unsafe {
         if sigfillset(&mut sa.mask) != 0 {
-            io::stderr().write_line("Warning: could not fill mask set for SIGINT handler").unwrap();
+            stderr.write_str("Warning: could not fill mask set for SIGINT handler\n").unwrap();
         }
         if sigaction(SIGINT, &sa, ptr::null_mut::<SigAction>()) != 0 {
-            io::stderr().write_line("Warning: could not set handler for SIGINT").unwrap();
+            stderr.write_str("Warning: could not set handler for SIGINT\n").unwrap();
         }
     }
 }
@@ -161,14 +164,14 @@ fn run_command(line:&Vec<String>) {
     process.stderr(StdioContainer::InheritFd(STDERR));
     let mut child = match process.spawn() {
         Err(e) => {
-            io::stderr().write_line(format!("Couldn't spawn {}: {}", &line[0], e).as_slice()).unwrap();
+            io::stderr().write_fmt(format_args!("Couldn't spawn {}: {}\n", &line[0], e)).unwrap();
             return;
         },
         Ok(child) => child
     };
     match child.wait() {
         Err(e) => {
-            io::stderr().write_line(format!("Couldn't wait for child to exit: {}", e.desc).as_slice()).unwrap();
+            io::stderr().write_fmt(format_args!("Couldn't wait for child to exit: {}\n", e.desc)).unwrap();
         },
         Ok(_) => {
             // nothing
@@ -177,14 +180,15 @@ fn run_command(line:&Vec<String>) {
 }
 
 fn main() {
-    prepare_signals();
+    let mut stdin = io::stdin();
+    let mut stdout = io::stdout();
+    let mut stderr = io::stderr();
+    prepare_signals(&mut stderr);
     let mut tios = Termios::new();
     tios.get();
     let old_tios = tios.clone();
     prepare_terminal(&mut tios);
-    update_terminal(tios);
-    let mut stdin = io::stdin();
-    let mut stdout = io::stdout();
+    update_terminal(tios, &mut stderr);
     let mut line = Vec::<String>::new();
     let mut word = String::new();
     let mut part = String::new();
@@ -205,9 +209,9 @@ fn main() {
                 }
                 if !line.is_empty() {
                     // run command
-                    update_terminal(old_tios);
+                    update_terminal(old_tios, &mut stderr);
                     run_command(&line);
-                    update_terminal(tios);
+                    update_terminal(tios, &mut stderr);
                 }
                 word.clear();
                 line.clear();
@@ -220,18 +224,18 @@ fn main() {
                         Some(s) => s,
                         None => continue
                     };
-                    cursor_left();
+                    cursor_left(&mut stdout);
                 } else {
                     word.pop();
-                    cursor_left();
+                    cursor_left(&mut stdout);
                     draw_part(&part, &mut bpart);
                     stdout.write_char(NL).unwrap();
                     cursors_left(part.len() + 1);
                 }
             },
-            Ok(ESC) => handle_escape(&mut stdin, &mut line,
-                                     &mut word, &mut part,
-                                     &mut bpart),
+            Ok(ESC) => handle_escape(&mut stdin, &mut stdout,
+                                     &mut line, &mut word,
+                                     &mut part, &mut bpart),
             Ok(SPC) => {
                 line.push(word.clone());
                 word.clear();
@@ -253,5 +257,5 @@ fn main() {
     }
     stdout.write_str("Exiting\n").unwrap();
     // restore old term state
-    update_terminal(old_tios);
+    update_terminal(old_tios, &mut stderr);
 }
