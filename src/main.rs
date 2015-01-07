@@ -155,7 +155,7 @@ fn cursor_right(stdout:&mut Stdw) {
     stdout.write(&[ESC as u8, ANSI as u8, 'C' as u8]).unwrap();
 }
 
-fn draw_part(part:&String, bpart:&mut String) {
+fn draw_part(part:&String, bpart:&mut String, stdout:&mut Stdw) {
     // quick out if part is empty
     if part.is_empty() {
         return;
@@ -170,7 +170,7 @@ fn draw_part(part:&String, bpart:&mut String) {
             }
         }
     }
-    print!("{}", bpart);
+    stdout.write_str(bpart.as_slice()).unwrap();
 }
 
 fn cursors_left(by:uint) {
@@ -178,9 +178,9 @@ fn cursors_left(by:uint) {
     print!("{}", build_string(DEL, by));
 }
 
-fn idraw_part(part:&String, bpart:&mut String) {
+fn idraw_part(part:&String, bpart:&mut String, stdout:&mut Stdw) {
     // in-place draw of the line part
-    draw_part(part, bpart);
+    draw_part(part, bpart, stdout);
     cursors_left(part.len());
 }
 
@@ -266,14 +266,13 @@ fn main() {
                         Some(s) => s,
                         None => continue
                     };
-                    cursor_left(&mut stdout);
                 } else {
                     state.word.pop();
-                    cursor_left(&mut stdout);
-                    draw_part(&state.part, &mut state.bpart);
-                    stdout.write_char(NL).unwrap();
-                    cursors_left(state.part.len() + 1);
                 }
+                cursor_left(&mut stdout);
+                draw_part(&state.part, &mut state.bpart, &mut stdout);
+                stdout.write_char(SPC).unwrap();
+                cursors_left(state.part.len() + 1);
             },
             Ok(ESC) => handle_escape(&mut stdin, &mut stdout,
                                      &mut state.line, &mut state.word,
@@ -282,12 +281,12 @@ fn main() {
                 state.line.push(state.word.clone());
                 state.word.clear();
                 stdout.write_char(SPC).unwrap();
-                idraw_part(&state.part, &mut state.bpart);
+                idraw_part(&state.part, &mut state.bpart, &mut stdout);
             },
             Ok(c) => {
                 state.word.push(c);
                 stdout.write_char(c).unwrap();
-                idraw_part(&state.part, &mut state.bpart);
+                idraw_part(&state.part, &mut state.bpart, &mut stdout);
             },
             Err(e) => {
                 stdout.write_fmt(format_args!("Error: {}\n", e)).unwrap();
