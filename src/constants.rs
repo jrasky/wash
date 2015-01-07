@@ -13,6 +13,7 @@ pub const NL:char  = '\n';
 pub const ESC:char = '\u{1b}';
 pub const ANSI:char = '\u{5b}';
 pub const BS:char = '\u{8}';
+pub const SPC:char = ' ';
 
 // select termios constants that we use
 pub const ICANON:c_uint   = 2;

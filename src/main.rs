@@ -38,8 +38,8 @@ fn update_terminal(tios:Termios) -> bool {
 }
 
 fn handle_escape(stdin:&mut io::stdio::StdinReader,
-                 line:&mut String, part:&mut String,
-                 bpart:&mut String) {
+                 line:&mut Vec<String>, word:&mut String,
+                 part:&mut String, bpart:&mut String) {
     // Handle an ANSI escape sequence
     if stdin.read_char() != Ok(ANSI) {
         return;
@@ -47,7 +47,8 @@ fn handle_escape(stdin:&mut io::stdio::StdinReader,
     match stdin.read_char() {
         Err(_) => return,
         Ok('D') => {
-            match line.pop() {
+            // left
+            match word.pop() {
                 Some(c) => {
                     if !bpart.is_empty() {
                         bpart.clear();
@@ -55,16 +56,33 @@ fn handle_escape(stdin:&mut io::stdio::StdinReader,
                     part.push(c);
                     cursor_left();
                 },
-                None => return
+                None => match line.pop() {
+                    Some(s) => {
+                        part.push(' ');
+                        word.clear();
+                        word.push_str(s.as_slice());
+                        cursor_left();
+                    }
+                    None => return
+                }
             }
         },
         Ok('C') => {
+            // right
             match part.pop() {
+                Some(' ') => {
+                    if !bpart.is_empty() {
+                        bpart.clear();
+                    }
+                    line.push(word.clone());
+                    word.clear();
+                    cursor_right();
+                },
                 Some(c) => {
                     if !bpart.is_empty() {
                         bpart.clear();
                     }
-                    line.push(c);
+                    word.push(c);
                     cursor_right();
                 },
                 None => return
@@ -143,7 +161,8 @@ fn main() {
     prepare_signals();
     let old_tios = prepare_terminal();
     let mut stdin = io::stdin();
-    let mut line = String::new();
+    let mut line = Vec::<String>::new();
+    let mut word = String::new();
     let mut part = String::new();
     // store bpart so we don't need to recalulate it every time
     let mut bpart = String::new();
@@ -152,25 +171,38 @@ fn main() {
         match stdin.read_char() {
             Ok(EOF) => break,
             Ok(NL) => {
+                word.clear();
                 line.clear();
                 part.clear();
                 bpart.clear();
                 print!("\n");
             },
             Ok(DEL) => {
-                if line.is_empty() {
-                    continue;
+                if word.is_empty() {
+                    word = match line.pop() {
+                        Some(s) => s,
+                        None => continue
+                    };
+                    cursor_left();
+                } else {
+                    word.pop();
+                    cursor_left();
+                    draw_part(&part, &mut bpart);
+                    print!(" ");
+                    cursors_left(part.len() + 1);
                 }
-                line.pop();
-                cursor_left();
-                draw_part(&part, &mut bpart);
-                print!(" ");
-                cursors_left(part.len() + 1);
             },
             Ok(ESC) => handle_escape(&mut stdin, &mut line,
-                                     &mut part, &mut bpart),
+                                     &mut word, &mut part,
+                                     &mut bpart),
+            Ok(SPC) => {
+                line.push(word.clone());
+                word.clear();
+                print!(" ");
+                idraw_part(&part, &mut bpart);
+            },
             Ok(c) => {
-                line.push(c);
+                word.push(c);
                 print!("{}", c);
                 idraw_part(&part, &mut bpart);
             },
