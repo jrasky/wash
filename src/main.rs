@@ -184,6 +184,7 @@ fn main() {
     prepare_terminal(&mut tios);
     update_terminal(tios);
     let mut stdin = io::stdin();
+    let mut stdout = io::stdout();
     let mut line = Vec::<String>::new();
     let mut word = String::new();
     let mut part = String::new();
@@ -192,9 +193,13 @@ fn main() {
     loop {
         // Note: in non-canonical mode
         match stdin.read_char() {
-            Ok(EOF) => break,
+            Ok(EOF) => {
+                if line.is_empty() && word.is_empty() {
+                    break;
+                }
+            },
             Ok(NL) => {
-                print!("\n");
+                stdout.write_char(NL).unwrap();
                 if !word.is_empty() {
                     line.push(word.clone());
                 }
@@ -220,7 +225,7 @@ fn main() {
                     word.pop();
                     cursor_left();
                     draw_part(&part, &mut bpart);
-                    print!(" ");
+                    stdout.write_char(NL).unwrap();
                     cursors_left(part.len() + 1);
                 }
             },
@@ -230,22 +235,23 @@ fn main() {
             Ok(SPC) => {
                 line.push(word.clone());
                 word.clear();
-                print!(" ");
+                stdout.write_char(SPC).unwrap();
                 idraw_part(&part, &mut bpart);
             },
             Ok(c) => {
                 word.push(c);
-                print!("{}", c);
+                stdout.write_char(c).unwrap();
                 idraw_part(&part, &mut bpart);
             },
             Err(e) => {
-                println!("Error: {}", e);
+                stdout.write_fmt(format_args!("Error: {}\n", e)).unwrap();
                 break;
             }
         }
+        // flush output
+        stdout.flush().unwrap();
     }
-    // print so we know we've reached this code
-    println!("Exiting");
+    stdout.write_str("Exiting\n").unwrap();
     // restore old term state
     update_terminal(old_tios);
 }
