@@ -101,7 +101,8 @@ pub struct SigInfo {
 // Protip: we're calling sigaction with SA_SIGINFO
 // In part because I didn't realize I didn't have to implement
 // all of SigInfo, so I did, and now I want to use that code dammit!
-pub type SigHandler = extern fn(c_int, *const SigInfo, size_t);
+// SigHandler is by definition unsafe, note it as so
+pub type SigHandler = unsafe extern fn(c_int, *const SigInfo, size_t);
 pub type SigSet = [c_ulong; SIGSET_NWORDS];
 
 #[repr(C)]

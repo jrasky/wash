@@ -4,6 +4,7 @@ extern crate libc;
 use libc::{c_int, size_t};
 use std::io;
 use std::ptr;
+use std::mem;
 use std::io::process::{Command, StdioContainer};
 
 use termios::*;
@@ -17,10 +18,53 @@ mod constants;
 type Stdr = io::stdio::StdinReader;
 type Stdw = io::LineBufferedWriter<io::stdio::StdWriter>;
 
+// start off as null pointer
+static mut instate_location:size_t = 0;
+
+struct InputState {
+    line: Vec<String>,
+    word: String,
+    part: String,
+    bpart: String
+}
+
+impl InputState {
+    fn new() -> InputState {
+        InputState {
+            line: Vec::<String>::new(),
+            word: String::new(),
+            part: String::new(),
+            bpart: String::new()
+        }
+    }
+
+    fn clear(&mut self) {
+        self.word.clear();
+        self.line.clear();
+        self.part.clear();
+        self.bpart.clear();
+    }
+}
+
 #[allow(unused_variables)]
-extern fn handle_sigint(signum:c_int, siginfo:*const SigInfo, context:size_t) {
-    print!("^C");
+unsafe extern fn handle_sigint(signum:c_int, siginfo:*const SigInfo, context:size_t) {
+    if instate_location == 0 {
+        panic!("Shell state location uninitialized");
+    }
+    print!("^C\n");
+    // Below: completely disregarding everything Rust stands for
+    let state:&mut InputState = mem::transmute(instate_location);
+    state.clear();
     io::stdio::flush();
+}
+
+fn set_instate_location(state:&mut InputState) {
+    unsafe {
+        if instate_location != 0 {
+            panic!("Tried to set shell state location twice");
+        }
+        instate_location = mem::transmute::<&mut InputState, size_t>(state);
+    }
 }
 
 fn prepare_terminal(tios:&mut Termios) {
@@ -189,63 +233,61 @@ fn main() {
     let old_tios = tios.clone();
     prepare_terminal(&mut tios);
     update_terminal(tios, &mut stderr);
-    let mut line = Vec::<String>::new();
-    let mut word = String::new();
-    let mut part = String::new();
-    // store bpart so we don't need to recalulate it every time
-    let mut bpart = String::new();
+    let mut state = InputState::new();
+    set_instate_location(&mut state);
     loop {
         // Note: in non-canonical mode
         match stdin.read_char() {
             Ok(EOF) => {
-                if line.is_empty() && word.is_empty() {
+                if state.line.is_empty() && state.word.is_empty() {
                     break;
                 }
             },
             Ok(NL) => {
+                // start command output on next line
                 stdout.write_char(NL).unwrap();
-                if !word.is_empty() {
-                    line.push(word.clone());
+                // push any remaining word onto the line
+                if !state.word.is_empty() {
+                    state.line.push(state.word.clone());
                 }
-                if !line.is_empty() {
+                // run command if one was specified
+                if !state.line.is_empty() {
                     // run command
                     update_terminal(old_tios, &mut stderr);
-                    run_command(&line);
+                    run_command(&state.line);
                     update_terminal(tios, &mut stderr);
                 }
-                word.clear();
-                line.clear();
-                part.clear();
-                bpart.clear();
+                // clear the state
+                state.clear();
             },
             Ok(DEL) => {
-                if word.is_empty() {
-                    word = match line.pop() {
+                if state.word.is_empty() {
+                    state.word = match state.line.pop() {
                         Some(s) => s,
                         None => continue
                     };
                     cursor_left(&mut stdout);
                 } else {
-                    word.pop();
+                    state.word.pop();
                     cursor_left(&mut stdout);
-                    draw_part(&part, &mut bpart);
+                    draw_part(&state.part, &mut state.bpart);
                     stdout.write_char(NL).unwrap();
-                    cursors_left(part.len() + 1);
+                    cursors_left(state.part.len() + 1);
                 }
             },
             Ok(ESC) => handle_escape(&mut stdin, &mut stdout,
-                                     &mut line, &mut word,
-                                     &mut part, &mut bpart),
+                                     &mut state.line, &mut state.word,
+                                     &mut state.part, &mut state.bpart),
             Ok(SPC) => {
-                line.push(word.clone());
-                word.clear();
+                state.line.push(state.word.clone());
+                state.word.clear();
                 stdout.write_char(SPC).unwrap();
-                idraw_part(&part, &mut bpart);
+                idraw_part(&state.part, &mut state.bpart);
             },
             Ok(c) => {
-                word.push(c);
+                state.word.push(c);
                 stdout.write_char(c).unwrap();
-                idraw_part(&part, &mut bpart);
+                idraw_part(&state.part, &mut state.bpart);
             },
             Err(e) => {
                 stdout.write_fmt(format_args!("Error: {}\n", e)).unwrap();
