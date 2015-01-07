@@ -4,7 +4,10 @@ extern crate libc;
 
 use libc::{c_int, c_uint};
 
-pub const STDIN:c_int = 0;
+// standard file descriptiors
+pub const STDIN:c_int  = 0;
+pub const STDOUT:c_int = 1;
+pub const STDERR:c_int = 2;
 
 // constants for control sequences is useful
 pub const EOF:char = '\u{4}';

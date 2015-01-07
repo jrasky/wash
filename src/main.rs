@@ -4,6 +4,7 @@ extern crate libc;
 use libc::{c_int, size_t};
 use std::io;
 use std::ptr;
+use std::io::process::{Command, StdioContainer};
 
 use termios::*;
 use signal::*;
@@ -19,14 +20,9 @@ extern fn handle_sigint(signum:c_int, siginfo:*const SigInfo, context:size_t) {
     io::stdio::flush();
 }
 
-fn prepare_terminal() -> Termios {
-    let mut tios = Termios::new();
-    tios.get();
-    let tios_clone = tios.clone();
+fn prepare_terminal(tios:&mut Termios) {
     tios.ldisable(ICANON);
     tios.ldisable(ECHO);
-    update_terminal(tios);
-    return tios_clone;
 }
 
 fn update_terminal(tios:Termios) -> bool {
@@ -157,9 +153,36 @@ fn prepare_signals() {
     }
 }
 
+fn run_command(line:&Vec<String>) {
+    let mut process = Command::new(&line[0]);
+    process.args(line.slice_from(1));
+    process.stdout(StdioContainer::InheritFd(STDOUT));
+    process.stdin(StdioContainer::InheritFd(STDIN));
+    process.stderr(StdioContainer::InheritFd(STDERR));
+    let mut child = match process.spawn() {
+        Err(e) => {
+            io::stderr().write_line(format!("Couldn't spawn {}: {}", &line[0], e).as_slice()).unwrap();
+            return;
+        },
+        Ok(child) => child
+    };
+    match child.wait() {
+        Err(e) => {
+            io::stderr().write_line(format!("Couldn't wait for child to exit: {}", e.desc).as_slice()).unwrap();
+        },
+        Ok(_) => {
+            // nothing
+        }
+    };
+}
+
 fn main() {
     prepare_signals();
-    let old_tios = prepare_terminal();
+    let mut tios = Termios::new();
+    tios.get();
+    let old_tios = tios.clone();
+    prepare_terminal(&mut tios);
+    update_terminal(tios);
     let mut stdin = io::stdin();
     let mut line = Vec::<String>::new();
     let mut word = String::new();
@@ -171,11 +194,20 @@ fn main() {
         match stdin.read_char() {
             Ok(EOF) => break,
             Ok(NL) => {
+                print!("\n");
+                if !word.is_empty() {
+                    line.push(word.clone());
+                }
+                if !line.is_empty() {
+                    // run command
+                    update_terminal(old_tios);
+                    run_command(&line);
+                    update_terminal(tios);
+                }
                 word.clear();
                 line.clear();
                 part.clear();
                 bpart.clear();
-                print!("\n");
             },
             Ok(DEL) => {
                 if word.is_empty() {
