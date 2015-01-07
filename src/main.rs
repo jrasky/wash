@@ -2,7 +2,6 @@
 #![allow(dead_code)]
 
 extern crate libc;
-extern crate term;
 
 use libc::{c_uint, c_uchar, c_int, c_short, c_long, c_ulong};
 use libc::{clock_t, pid_t, uid_t, size_t};
