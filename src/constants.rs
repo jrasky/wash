@@ -17,6 +17,8 @@ pub const ESC:char = '\u{1b}';
 pub const ANSI:char = '\u{5b}';
 pub const BS:char = '\u{8}';
 pub const SPC:char = ' ';
+// we specifically need a constant for "cursor right"
+pub const CRSR_RIGHT:&'static str = "\u{1b}\u{5b}C";
 
 // select termios constants that we use
 pub const ICANON:c_uint   = 2;

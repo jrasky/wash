@@ -25,7 +25,10 @@ struct InputState {
     line: Vec<String>,
     word: String,
     part: String,
-    bpart: String
+    bpart: String,
+    stdin: Stdr,
+    stdout: Stdw,
+    stderr: Stdw
 }
 
 impl InputState {
@@ -34,7 +37,10 @@ impl InputState {
             line: Vec::<String>::new(),
             word: String::new(),
             part: String::new(),
-            bpart: String::new()
+            bpart: String::new(),
+            stdin: io::stdin(),
+            stdout: io::stdout(),
+            stderr: io::stderr()
         }
     }
 
@@ -43,6 +49,22 @@ impl InputState {
         self.line.clear();
         self.part.clear();
         self.bpart.clear();
+    }
+
+    fn flush(&mut self) {
+        self.stdout.flush().unwrap();
+    }
+
+    fn outw(&mut self, msg:&str) {
+        self.stdout.write_str(msg).unwrap();
+    }
+
+    fn outc(&mut self, ch:char) {
+        self.stdout.write_char(ch).unwrap();
+    }
+
+    fn err(&mut self, msg:&str) {
+        self.stderr.write_str(msg).unwrap();
     }
 }
 
@@ -72,39 +94,36 @@ fn prepare_terminal(tios:&mut Termios) {
     tios.ldisable(ECHO);
 }
 
-fn update_terminal(tios:Termios, stderr:&mut Stdw) -> bool {
+fn update_terminal(tios:Termios, state:&mut InputState) -> bool {
     if !tios.set() {
-        stderr.write_str("Warning: Could not set terminal mode\n").unwrap();
+        state.err("Warning: Could not set terminal mode\n");
         return false;
     }
     return true;
 }
 
-fn handle_escape(stdin:&mut Stdr, stdout:&mut Stdw,
-                 line:&mut Vec<String>, word:&mut String,
-                 part:&mut String, bpart:&mut String) {
+fn handle_escape(state:&mut InputState) {
     // Handle an ANSI escape sequence
-    if stdin.read_char() != Ok(ANSI) {
+    if state.stdin.read_char() != Ok(ANSI) {
         return;
     }
-    match stdin.read_char() {
+    match state.stdin.read_char() {
         Err(_) => return,
         Ok('D') => {
             // left
-            match word.pop() {
+            match state.word.pop() {
                 Some(c) => {
-                    if !bpart.is_empty() {
-                        bpart.clear();
-                    }
-                    part.push(c);
-                    cursor_left(stdout);
+                    state.bpart.clear();
+                    state.part.push(c);
+                    cursor_left(state);
                 },
-                None => match line.pop() {
+                None => match state.line.pop() {
                     Some(s) => {
-                        part.push(' ');
-                        word.clear();
-                        word.push_str(s.as_slice());
-                        cursor_left(stdout);
+                        state.bpart.clear();
+                        state.part.push(' ');
+                        state.word.clear();
+                        state.word.push_str(s.as_slice());
+                        cursor_left(state);
                     }
                     None => return
                 }
@@ -112,21 +131,17 @@ fn handle_escape(stdin:&mut Stdr, stdout:&mut Stdw,
         },
         Ok('C') => {
             // right
-            match part.pop() {
+            match state.part.pop() {
                 Some(' ') => {
-                    if !bpart.is_empty() {
-                        bpart.clear();
-                    }
-                    line.push(word.clone());
-                    word.clear();
-                    cursor_right(stdout);
+                    state.bpart.clear();
+                    state.line.push(state.word.clone());
+                    state.word.clear();
+                    cursor_right(state);
                 },
                 Some(c) => {
-                    if !bpart.is_empty() {
-                        bpart.clear();
-                    }
-                    word.push(c);
-                    cursor_right(stdout);
+                    state.bpart.clear();
+                    state.word.push(c);
+                    cursor_right(state);
                 },
                 None => return
             }
@@ -135,6 +150,34 @@ fn handle_escape(stdin:&mut Stdr, stdout:&mut Stdw,
     }
 }
 
+fn cursor_left(state:&mut InputState) {
+    state.outc(DEL);
+}
+
+fn cursor_right(state:&mut InputState) {
+    state.outw(CRSR_RIGHT);
+}
+
+fn draw_part(state:&mut InputState) {
+    // quick out if part is empty
+    if state.part.is_empty() {
+        return;
+    }
+    if state.bpart.is_empty() {
+        // only calculate bpart when it needs to be recalculated
+        let mut cpart = state.part.clone();
+        loop {
+            match cpart.pop() {
+                Some(c) => state.bpart.push(c),
+                None => break
+            }
+        }
+    }
+    let c = state.bpart.clone();
+    state.outw(c.as_slice());
+}
+
+// work around lack of DST
 fn build_string(ch:char, count:uint) -> String {
     let mut s = String::new();
     let mut i = 0u;
@@ -142,49 +185,23 @@ fn build_string(ch:char, count:uint) -> String {
         if i == count {
             return s;
         }
-        i += 1;
         s.push(ch);
+        i += 1;
     }
 }
 
-fn cursor_left(stdout:&mut Stdw) {
-    stdout.write_char(DEL).unwrap();
-}
-
-fn cursor_right(stdout:&mut Stdw) {
-    stdout.write(&[ESC as u8, ANSI as u8, 'C' as u8]).unwrap();
-}
-
-fn draw_part(part:&String, bpart:&mut String, stdout:&mut Stdw) {
-    // quick out if part is empty
-    if part.is_empty() {
-        return;
-    }
-    if bpart.is_empty() {
-        // only calculate bpart when it needs to be recalculated
-        let mut cpart = part.clone();
-        loop {
-            match cpart.pop() {
-                Some(c) => bpart.push(c),
-                None => break
-            }
-        }
-    }
-    stdout.write_str(bpart.as_slice()).unwrap();
-}
-
-fn cursors_left(by:uint) {
+fn cursors_left(by:uint, state:&mut InputState) {
     // move back by a given number of characters
-    print!("{}", build_string(DEL, by));
+    state.outw(build_string(DEL, by).as_slice());
 }
 
-fn idraw_part(part:&String, bpart:&mut String, stdout:&mut Stdw) {
+fn idraw_part(state:&mut InputState) {
     // in-place draw of the line part
-    draw_part(part, bpart, stdout);
-    cursors_left(part.len());
+    draw_part(state);
+    cursors_left(state.part.len(), state);
 }
 
-fn prepare_signals(stderr:&mut Stdw) {
+fn prepare_signals(state:&mut InputState) {
     let mut sa = SigAction {
         handler: handle_sigint,
         mask: [0; SIGSET_NWORDS],
@@ -192,30 +209,31 @@ fn prepare_signals(stderr:&mut Stdw) {
     };
     unsafe {
         if sigfillset(&mut sa.mask) != 0 {
-            stderr.write_str("Warning: could not fill mask set for SIGINT handler\n").unwrap();
+            state.err("Warning: could not fill mask set for SIGINT handler\n");
         }
         if sigaction(SIGINT, &sa, ptr::null_mut::<SigAction>()) != 0 {
-            stderr.write_str("Warning: could not set handler for SIGINT\n").unwrap();
+            state.err("Warning: could not set handler for SIGINT\n");
         }
     }
 }
 
-fn run_command(line:&Vec<String>) {
-    let mut process = Command::new(&line[0]);
-    process.args(line.slice_from(1));
+fn run_command(state:&mut InputState) {
+    let mut process = Command::new(&state.line[0]);
+    process.args(state.line.slice_from(1));
     process.stdout(StdioContainer::InheritFd(STDOUT));
     process.stdin(StdioContainer::InheritFd(STDIN));
     process.stderr(StdioContainer::InheritFd(STDERR));
     let mut child = match process.spawn() {
         Err(e) => {
-            io::stderr().write_fmt(format_args!("Couldn't spawn {}: {}\n", &line[0], e)).unwrap();
+            let s = state.line[0].clone();
+            state.err(format!("Couldn't spawn {}: {}\n", s, e).as_slice());
             return;
         },
         Ok(child) => child
     };
     match child.wait() {
         Err(e) => {
-            io::stderr().write_fmt(format_args!("Couldn't wait for child to exit: {}\n", e.desc)).unwrap();
+            state.err(format!("Couldn't wait for child to exit: {}\n", e.desc).as_slice());
         },
         Ok(_) => {
             // nothing
@@ -224,20 +242,18 @@ fn run_command(line:&Vec<String>) {
 }
 
 fn main() {
-    let mut stdin = io::stdin();
-    let mut stdout = io::stdout();
-    let mut stderr = io::stderr();
-    prepare_signals(&mut stderr);
+    let mut state = &mut InputState::new();
+    prepare_signals(state);
     let mut tios = Termios::new();
     tios.get();
     let old_tios = tios.clone();
     prepare_terminal(&mut tios);
-    update_terminal(tios, &mut stderr);
-    let mut state = InputState::new();
-    set_instate_location(&mut state);
+    update_terminal(tios, state);
+
+    set_instate_location(state);
     loop {
         // Note: in non-canonical mode
-        match stdin.read_char() {
+        match state.stdin.read_char() {
             Ok(EOF) => {
                 if state.line.is_empty() && state.word.is_empty() {
                     break;
@@ -245,17 +261,20 @@ fn main() {
             },
             Ok(NL) => {
                 // start command output on next line
-                stdout.write_char(NL).unwrap();
+                state.outc(NL);
                 // push any remaining word onto the line
                 if !state.word.is_empty() {
                     state.line.push(state.word.clone());
                 }
+                // debug info
+                let numargs = state.line.len();
+                state.outw(format!("Number of arguments: {}\n", numargs).as_slice());
                 // run command if one was specified
                 if !state.line.is_empty() {
                     // run command
-                    update_terminal(old_tios, &mut stderr);
-                    run_command(&state.line);
-                    update_terminal(tios, &mut stderr);
+                    update_terminal(old_tios, state);
+                    run_command(state);
+                    update_terminal(tios, state);
                 }
                 // clear the state
                 state.clear();
@@ -269,34 +288,32 @@ fn main() {
                 } else {
                     state.word.pop();
                 }
-                cursor_left(&mut stdout);
-                draw_part(&state.part, &mut state.bpart, &mut stdout);
-                stdout.write_char(SPC).unwrap();
-                cursors_left(state.part.len() + 1);
+                cursor_left(state);
+                draw_part(state);
+                state.outc(SPC);
+                cursors_left(state.part.len() + 1, state);
             },
-            Ok(ESC) => handle_escape(&mut stdin, &mut stdout,
-                                     &mut state.line, &mut state.word,
-                                     &mut state.part, &mut state.bpart),
+            Ok(ESC) => handle_escape(state),
             Ok(SPC) => {
                 state.line.push(state.word.clone());
                 state.word.clear();
-                stdout.write_char(SPC).unwrap();
-                idraw_part(&state.part, &mut state.bpart, &mut stdout);
+                state.outc(SPC);
+                idraw_part(state);
             },
             Ok(c) => {
                 state.word.push(c);
-                stdout.write_char(c).unwrap();
-                idraw_part(&state.part, &mut state.bpart, &mut stdout);
+                state.outc(c);
+                idraw_part(state);
             },
             Err(e) => {
-                stdout.write_fmt(format_args!("Error: {}\n", e)).unwrap();
+                state.err(format!("Error: {}\n", e).as_slice());
                 break;
             }
         }
         // flush output
-        stdout.flush().unwrap();
+        state.flush();
     }
-    stdout.write_str("Exiting\n").unwrap();
+    state.outw("Exiting\n");
     // restore old term state
-    update_terminal(old_tios, &mut stderr);
+    update_terminal(old_tios, state);
 }
