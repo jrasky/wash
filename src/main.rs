@@ -85,15 +85,14 @@ type SpeedType = c_uint;
 type TCFlag = c_uint;
 
 #[repr(C)]
-#[deriving(Copy)]
-#[deriving(Clone)]
+#[derive(Copy, Clone)]
 struct Termios {
     iflag: TCFlag,
     oflag: TCFlag,
     cflag: TCFlag,
     lflag: TCFlag,
     line: CCType,
-    cc: [c_uchar, ..NCCS],
+    cc: [c_uchar; NCCS],
     ispeed: SpeedType,
     ospeed: SpeedType,
 }
@@ -101,7 +100,7 @@ struct Termios {
 impl Termios {
     fn new() -> Termios {
         Termios {
-            cc: [0, ..NCCS],
+            cc: [0; NCCS],
             cflag: 0,
             iflag: 0,
             ispeed: 0,
@@ -159,21 +158,21 @@ type SigVal = c_int;
 struct KillFields {
     pid: pid_t,
     uid: uid_t,
-    _pad: [c_int, ..(SI_PAD_SIZE - 2)]
+    _pad: [c_int; (SI_PAD_SIZE - 2)]
 }
 
 struct PTimerFields {
     tid: c_int,
     overrun: c_int,
     sigval: SigVal,
-    _pad: [c_int, ..(SI_PAD_SIZE - 3)]
+    _pad: [c_int; (SI_PAD_SIZE - 3)]
 }
 
 struct PSignalFields {
     pid: pid_t,
     uid: uid_t,
     sigval: SigVal,
-    _pad: [c_int, ..(SI_PAD_SIZE - 3)]
+    _pad: [c_int; (SI_PAD_SIZE - 3)]
 }
 
 struct SigChldFields {
@@ -182,29 +181,29 @@ struct SigChldFields {
     status: c_int,
     utime: clock_t,
     stime: clock_t,
-    _pad: [c_int, ..(SI_PAD_SIZE - 8)]
+    _pad: [c_int; (SI_PAD_SIZE - 8)]
 }
 
 struct SigFaultFields {
     addr: size_t, // pointer
     addr_lsb: c_short,
-    _pad: [c_int, ..(SI_PAD_SIZE - 3)]
+    _pad: [c_int; (SI_PAD_SIZE - 3)]
 }
 
 struct SigPollFields {
     band: c_long,
     fd: c_int,
-    _pad: [c_int, ..(SI_PAD_SIZE - 3)]
+    _pad: [c_int; (SI_PAD_SIZE - 3)]
 }
 
 struct SigSysFields {
     _call_addr: size_t, // pointer
     _syscall: c_int,
     _arch: c_uint,
-    _pad: [c_int, ..(SI_PAD_SIZE - 4)]
+    _pad: [c_int; (SI_PAD_SIZE - 4)]
 }
 
-// If only Rust had a C union equivalent...
+// If only Rust had a C union equivalent.
 enum SigFields {
     Kill(KillFields),
     PTimer(PTimerFields),
@@ -225,7 +224,7 @@ struct SigInfo {
     // the best option is to have a generic pad and use
     // transmute to change between types
     // No, you can't just use enums, that would be too easy
-    pad: [c_int, ..SI_PAD_SIZE]
+    pad: [c_int; SI_PAD_SIZE]
 }
 
 // The size_t at the end is a pointer to a ucontext_t
@@ -234,7 +233,7 @@ struct SigInfo {
 // In part because I didn't realize I didn't have to implement
 // all of SigInfo, so I did, and now I want to use that code dammit!
 type SigHandler = extern fn(c_int, *const SigInfo, size_t);
-type SigSet = [c_ulong, ..SIGSET_NWORDS];
+type SigSet = [c_ulong; SIGSET_NWORDS];
 
 #[repr(C)]
 struct SigAction {
@@ -266,7 +265,7 @@ extern {
     fn sigfillset(mask:*mut SigSet) -> c_int;
 }
 
-fn empty_escape(esc:&mut Iterator<char>) -> String {
+fn empty_escape(esc:&mut Iterator<Item=char>) -> String {
     let mut out = String::new();
     loop {
         match esc.next() {
@@ -344,12 +343,24 @@ fn handle_escape(stdin:&mut io::stdio::StdinReader,
     }
 }
 
+fn build_string(ch:char, count:uint) -> String {
+    let mut s = String::new();
+    let mut i = 0u;
+    loop {
+        if i == count {
+            return s;
+        }
+        i += 1;
+        s.push(ch);
+    }
+}
+
 fn redraw_line(line:&String, pad_to:uint) {
     // TODO: make this more optimized
     print!("\r{}", line);
     if pad_to > line.len() {
         let pad_amount = pad_to - line.len();
-        print!("{}", String::from_char(pad_amount, ' '));
+        print!("{}", build_string(' ', pad_amount));
     }
 }
 
@@ -381,7 +392,7 @@ fn draw_part(part:&String, bpart:&mut String) {
 
 fn cursors_left(by:uint) {
     // move back by a given number of characters
-    print!("{}", String::from_char(by, DEL));
+    print!("{}", build_string(DEL, by));
 }
 
 fn idraw_part(part:&String, bpart:&mut String) {
@@ -393,7 +404,7 @@ fn idraw_part(part:&String, bpart:&mut String) {
 fn prepare_signals() {
     let mut sa = SigAction {
         handler: handle_sigint,
-        mask: [0, ..SIGSET_NWORDS],
+        mask: [0; SIGSET_NWORDS],
         flags: SA_RESTART | SA_SIGINFO
     };
     unsafe {

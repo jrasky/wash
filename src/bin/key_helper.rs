@@ -1,6 +1,6 @@
 use std::io;
 
-fn empty_escape(esc:&mut Iterator<char>) -> String {
+fn empty_escape(esc:&mut Iterator<Item=char>) -> String {
     let mut out = String::new();
     loop {
         match esc.next() {
