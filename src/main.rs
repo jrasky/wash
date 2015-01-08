@@ -267,6 +267,28 @@ fn process_word(mut word:String) -> String {
     return word;
 }
 
+fn process_part(state:&mut InputState) {
+    loop {
+        match state.part.pop() {
+            Some(SPC) => {
+                if !state.word.as_slice().starts_with("\"") ||
+                    (state.word.len() > 1 &&
+                     state.word.as_slice().starts_with("\"") &&
+                     state.word.as_slice().ends_with("\"")) {
+                        state.line.push(state.word.clone());
+                        state.word.clear();
+                    } else {
+                        state.word.push(SPC);
+                    }
+            },
+            Some(c) => {
+                state.word.push(c);
+            },
+            None => break
+        }
+    }
+}
+
 fn main() {
     let mut state = &mut InputState::new();
     prepare_signals(state);
@@ -288,6 +310,9 @@ fn main() {
             Ok(NL) => {
                 // start command output on next line
                 state.outc(NL);
+                // process the part, in case user presses enter
+                // in the middle of the line
+                process_part(state);
                 // push any remaining word onto the line
                 if !state.word.is_empty() {
                     state.line.push(state.word.clone());
