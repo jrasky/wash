@@ -265,9 +265,6 @@ fn main() {
                 if !state.word.is_empty() {
                     state.line.push(state.word.clone());
                 }
-                // debug info
-                let numargs = state.line.len();
-                state.outw(format!("Number of arguments: {}\n", numargs).as_slice());
                 // run command if one was specified
                 if !state.line.is_empty() {
                     // run command
