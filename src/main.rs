@@ -119,7 +119,7 @@ fn handle_escape(state:&mut InputState) {
                 None => match state.line.pop() {
                     Some(s) => {
                         state.bpart.clear();
-                        state.part.push(' ');
+                        state.part.push(SPC);
                         state.word.clear();
                         state.word.push_str(s.as_slice());
                         cursor_left(state);
@@ -131,11 +131,20 @@ fn handle_escape(state:&mut InputState) {
         Ok('C') => {
             // right
             match state.part.pop() {
-                Some(' ') => {
-                    state.bpart.clear();
-                    state.line.push(state.word.clone());
-                    state.word.clear();
-                    cursor_right(state);
+                Some(SPC) => {
+                    if !state.word.as_slice().starts_with("\"") ||
+                        (state.word.len() > 1 &&
+                         state.word.as_slice().starts_with("\"") &&
+                         state.word.as_slice().ends_with("\"")) {
+                            state.bpart.clear();
+                            state.line.push(state.word.clone());
+                            state.word.clear();
+                            cursor_right(state);
+                        } else {
+                            state.bpart.clear();
+                            state.word.push(SPC);
+                            cursor_right(state);
+                        }
                 },
                 Some(c) => {
                     state.bpart.clear();
@@ -217,15 +226,15 @@ fn prepare_signals(state:&mut InputState) {
 }
 
 fn run_command(state:&mut InputState) {
-    let mut process = Command::new(&state.line[0]);
-    process.args(state.line.slice_from(1));
+    let line = process_line(state.line.clone());
+    let mut process = Command::new(&line[0]);
+    process.args(line.slice_from(1));
     process.stdout(StdioContainer::InheritFd(STDOUT));
     process.stdin(StdioContainer::InheritFd(STDIN));
     process.stderr(StdioContainer::InheritFd(STDERR));
     let mut child = match process.spawn() {
         Err(e) => {
-            let s = state.line[0].clone();
-            state.err(format!("Couldn't spawn {}: {}\n", s, e).as_slice());
+            state.err(format!("Couldn't spawn {}: {}\n", &line[0], e).as_slice());
             return;
         },
         Ok(child) => child
@@ -238,6 +247,24 @@ fn run_command(state:&mut InputState) {
             // nothing
         }
     };
+}
+
+fn process_line(line:Vec<String>) -> Vec<String> {
+    let mut out = Vec::<String>::new();
+    for word in line.iter() {
+        out.push(process_word(word.clone()));
+    }
+    return out;
+}
+
+fn process_word(mut word:String) -> String {
+    if word.as_slice().starts_with("\"") &&
+        word.as_slice().ends_with("\"") {
+            word.remove(0);
+            let len = word.len();
+            word.remove(len - 1);
+        }
+    return word;
 }
 
 fn main() {
@@ -291,10 +318,20 @@ fn main() {
             },
             Ok(ESC) => handle_escape(state),
             Ok(SPC) => {
-                state.line.push(state.word.clone());
-                state.word.clear();
-                state.outc(SPC);
-                idraw_part(state);
+                if !state.word.as_slice().starts_with("\"") ||
+                    (state.word.len() > 1 &&
+                     state.word.as_slice().starts_with("\"") &&
+                     state.word.as_slice().ends_with("\"")) {
+                        state.line.push(state.word.clone());
+                        state.word.clear();
+                        state.outc(SPC);
+                        idraw_part(state);
+                    } else {
+                        // ignore spaces until next quote
+                        state.word.push(SPC);
+                        state.outc(SPC);
+                        idraw_part(state);
+                    }
             },
             Ok(c) => {
                 state.word.push(c);
