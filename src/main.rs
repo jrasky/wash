@@ -2,7 +2,6 @@ extern crate libc;
 
 use libc::{c_int, size_t};
 use std::io;
-use std::mem;
 use std::fmt;
 use std::io::process::{Command, StdioContainer};
 
@@ -18,7 +17,7 @@ type Stdr = io::stdio::StdinReader;
 type Stdw = io::stdio::StdWriter;
 
 // start off as null pointer
-static mut reader_location:size_t = 0;
+static mut uglobal_reader:*mut LineReader = 0 as *mut LineReader;
 
 struct InputLine {
     words: Vec<String>,
@@ -328,11 +327,12 @@ impl Controls {
 #[allow(unused_variables)]
 unsafe extern fn reader_sigint(signum:c_int, siginfo:*const SigInfo, context:size_t) {
     // This function should only be called when the input line is actually active
-    if reader_location == 0 {
+    if uglobal_reader.is_null() {
+        // More informative than a segfault
         panic!("Line reader location uninitialized");
     }
-    // Below: completely disregarding everything Rust stands for
-    let reader:&mut LineReader = mem::transmute(reader_location);
+    // Hopefully no segfault, this *should* be safe code
+    let ref mut reader:LineReader = *uglobal_reader;
     if reader.line.is_empty() {
         reader.controls.outs("Interrupt\n");
     } else {
@@ -342,12 +342,12 @@ unsafe extern fn reader_sigint(signum:c_int, siginfo:*const SigInfo, context:siz
     reader.clear();
 }
 
-fn set_reader_location(reader:&LineReader) {
+fn set_reader_location(reader:&mut LineReader) {
     unsafe {
-        if reader_location != 0 {
+        if !uglobal_reader.is_null() {
             panic!("Tried to set reader location twice");
         }
-        reader_location = mem::transmute(reader);
+        uglobal_reader = reader as *mut LineReader;
     }
 }
 
@@ -450,7 +450,7 @@ fn main() {
     let mut reader = LineReader::new();
     let (tios, old_tios) = terminal_settings(controls);
     update_terminal(&tios, controls);
-    set_reader_location(&reader);
+    set_reader_location(&mut reader);
     set_reader_sigint(controls);
     let mut line:Vec<String>;
     loop {
