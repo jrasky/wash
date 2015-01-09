@@ -75,6 +75,18 @@ impl InputLine {
         }
     }
 
+    pub fn process_line(line:String) -> Vec<String> {
+        let mut inp = InputLine::new();
+        let mut cline = line.clone();
+        loop {
+            match cline.pop() {
+                Some(c) => inp.part.push(c),
+                None => break
+            }
+        }
+        return inp.process();
+    }
+
     pub fn process(&self) -> Vec<String> {
         let mut part = self.part.clone();
         let mut front = self.front.clone();

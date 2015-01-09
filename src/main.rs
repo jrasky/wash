@@ -1,7 +1,7 @@
 extern crate libc;
 
 use libc::{c_int, size_t};
-use std::io::process::{Command, StdioContainer};
+use std::io::process::{Command, StdioContainer, ProcessOutput};
 
 use reader::*;
 use controls::*;
@@ -9,6 +9,7 @@ use termios::*;
 use signal::*;
 use constants::*;
 use util::*;
+use input::*;
 
 mod constants;
 mod util;
@@ -81,7 +82,7 @@ fn set_reader_sigint(controls:&mut Controls) {
     }
 }
 
-fn run_command(line:Vec<String>, controls:&mut Controls) {
+fn run_command(line:&Vec<String>, controls:&mut Controls) {
     let mut process = Command::new(&line[0]);
     process.args(line.slice_from(1));
     process.stdout(StdioContainer::InheritFd(STDOUT));
@@ -89,19 +90,94 @@ fn run_command(line:Vec<String>, controls:&mut Controls) {
     process.stderr(StdioContainer::InheritFd(STDERR));
     let mut child = match process.spawn() {
         Err(e) => {
-            controls.err(format!("Couldn't spawn {}: {}\n", &line[0], e).as_slice());
+            controls.errf(format_args!("Couldn't spawn {}: {}\n", &line[0], e));
             return;
         },
         Ok(child) => child
     };
     match child.wait() {
         Err(e) => {
-            controls.err(format!("Couldn't wait for child to exit: {}\n", e.desc).as_slice());
+            controls.errf(format_args!("Couldn't wait for child to exit: {}\n", e.desc));
         },
         Ok(_) => {
             // nothing
         }
     };
+}
+
+fn run_command_directed(line:&Vec<String>, controls:&mut Controls) -> Option<ProcessOutput> {
+    let mut process = Command::new(&line[0]);
+    process.args(line.slice_from(1));
+    match process.output() {
+        Err(e) => {
+            controls.errf(format_args!("Couldn't spawn {}: {}\n", &line[0], e));
+            return None;
+        },
+        Ok(out) => Some(out)
+    }
+}
+
+fn process_line(line:Vec<String>, controls:&mut Controls) -> Option<Vec<String>> {
+    let mut out = strip_words(line);
+    out = match process_sublines(out, controls) {
+        None => return None,
+        Some(l) => l
+    };
+    return Some(out);
+}
+
+fn process_sublines(line:Vec<String>, controls:&mut Controls) -> Option<Vec<String>> {
+    let mut out = Vec::<String>::new();
+    for word in line.iter() {
+        if word.as_slice().starts_with("$(") &&
+            word.as_slice().ends_with(")") {
+                let mut subline = InputLine::process_line(String::from_str(word.slice_chars(2, word.len() - 1)));
+                subline = match process_line(subline, controls) {
+                    None => return None,
+                    Some(l) => l
+                };
+                match run_command_directed(&subline, controls) {
+                    None => return None,
+                    Some(ProcessOutput {status, error, output}) => {
+                        if status.success() {
+                            let mut cout = String::from_utf8_lossy(output.as_slice()).into_owned();
+                            if cout.as_slice().ends_with("\n") {
+                                // remove traling newlines, they aren't useful
+                                cout.pop();
+                            }
+                            out.push(cout);
+                        } else {
+                            controls.errf(format_args!("{} failed: {}\n", &subline[0],
+                                                       String::from_utf8_lossy(error.as_slice())));
+                            return None;
+                        }
+                    }
+                }
+            } else {
+                out.push(word.clone());
+            }
+    }
+    return Some(out);
+}
+
+#[allow(unused_variables)]
+fn update(line:&Vec<String>) {
+    // nothing yet
+}
+
+fn process_job(line:&Vec<String>, tios:&Termios, old_tios:&Termios,
+               reader:&mut LineReader, controls:&mut Controls) {
+    if line.is_empty() {
+        return;
+    }
+    update_terminal(old_tios, controls);
+    signal_ignore(SIGINT);
+    controls.outc(NL);
+    controls.flush();
+    run_command(line, controls);
+    set_reader_sigint(controls);
+    update_terminal(tios, controls);
+    reader.clear();
 }
 
 fn main() {
@@ -117,16 +193,17 @@ fn main() {
             None => break,
             Some(l) => l
         };
-        if !line.is_empty() {
-            update_terminal(&old_tios, controls);
-            signal_ignore(SIGINT);
-            controls.outc(NL);
-            controls.flush();
-            run_command(strip_words(line), controls);
-            set_reader_sigint(controls);
-            update_terminal(&tios, controls);
-            reader.clear();
-        }
+        line = match process_line(line, controls) {
+            None => {
+                controls.err("Command failed\n");
+                continue;
+            },
+            Some(l) => l
+        };
+        update(&line);
+        process_job(&line, &tios, &old_tios,
+                    &mut reader, controls);
+        controls.flush();
     }
     controls.outs("Exiting\n");
     update_terminal(&old_tios, controls);
