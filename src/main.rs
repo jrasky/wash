@@ -2,10 +2,8 @@ extern crate libc;
 
 use libc::{c_int, size_t};
 use std::io;
-use std::ptr;
 use std::mem;
 use std::fmt;
-use std::sync::Arc;
 use std::io::process::{Command, StdioContainer};
 
 use termios::*;
@@ -52,6 +50,8 @@ impl InputLine {
                 if is_word(&self.front) {
                     self.words.push(self.front.clone());
                     self.front.clear();
+                } else {
+                    self.front.push(SPC);
                 }
             },
             c => {
@@ -74,7 +74,6 @@ impl InputLine {
     }
 
     fn right(&mut self) -> bool {
-        let part = self.part.clone();
         match self.part.pop() {
             Some(ch) => { 
                 self.push(ch);
@@ -132,10 +131,10 @@ struct LineReader {
 }
 
 impl LineReader {
-    fn new(controls:Controls) -> LineReader {
+    fn new() -> LineReader {
         LineReader {
             line: InputLine::new(),
-            controls: controls,
+            controls: Controls::new(),
             bpart: String::new(),
             escape: false,
             escape_chars: String::new(),
@@ -170,6 +169,7 @@ impl LineReader {
                     break;
                 }
             }
+            self.controls.flush();
         }
         if self.eof {
             return None;
@@ -203,22 +203,6 @@ impl LineReader {
     }
 
     fn handle_ch(&mut self, ch:char) {
-        match ch {
-            SPC => {
-                if is_word(&self.line.front) {
-                    self.line.words.push(self.line.front.clone());
-                    self.line.front.clear();
-                    self.controls.outc(SPC);
-                    self.idraw_part();
-                } else {
-                    self.handle_default(ch);
-                }
-            },
-            _ => self.handle_default(ch)
-        }
-    }
-
-    fn handle_default(&mut self, ch:char) {
         self.line.push(ch);
         self.controls.outc(ch);
         self.idraw_part();
@@ -242,7 +226,7 @@ impl LineReader {
             DEL => {
                 match self.line.pop() {
                     None => return,
-                    Some(ch) => {
+                    Some(_) => {
                         self.controls.cursor_left();
                         self.draw_part();
                         self.controls.outc(SPC);
@@ -268,12 +252,14 @@ impl LineReader {
             },
             'D' => {
                 if self.line.left() {
+                    self.bpart.clear();
                     self.controls.cursor_left();
                 }
                 self.escape = false;
             },
             'C' => {
                 if self.line.right() {
+                    self.bpart.clear();
                     self.controls.cursor_right();
                 }
                 self.escape = false;
@@ -296,46 +282,46 @@ impl Controls {
         Controls {
             stdin: io::stdin(),
             stdout: io::stdio::stdout_raw(),
-            stderr: io::stdio::stderr_raw(),
+            stderr: io::stdio::stderr_raw()
         }
     }
-    
-    fn outc(&self, ch:char) {
+
+    fn outc(&mut self, ch:char) {
         self.stdout.write_char(ch).unwrap()
     }
 
-    fn outs(&self, s:&str) {
+    fn outs(&mut self, s:&str) {
         self.stdout.write_str(s).unwrap()
     }
 
-    fn err(&self, s:&str) {
+    fn err(&mut self, s:&str) {
         self.stderr.write_str(s).unwrap();
     }
 
-    fn errf(&self, args:fmt::Arguments) {
+    fn errf(&mut self, args:fmt::Arguments) {
         self.stderr.write_fmt(args).unwrap();
     }
 
-    fn read(&self) -> io::IoResult<char> {
+    fn read(&mut self) -> io::IoResult<char> {
         self.stdin.read_char()
     }
     
-    fn cursor_left(&self) {
+    fn cursor_left(&mut self) {
         self.outc(DEL);
     }
 
-    fn cursor_right(&self) {
+    fn cursor_right(&mut self) {
         self.outs(CRSR_RIGHT);
     }
     
-    fn cursors_left(&self, by:uint) {
+    fn cursors_left(&mut self, by:uint) {
         // move back by a given number of characters
         self.outs(build_string(DEL, by).as_slice());
     }
 
     fn flush(&mut self) {
-        self.stdout.flush();
-        self.stderr.flush();
+        self.stdout.flush().unwrap();
+        self.stderr.flush().unwrap();
     }
 }
 
@@ -358,7 +344,7 @@ unsafe extern fn reader_sigint(signum:c_int, siginfo:*const SigInfo, context:siz
 
 fn set_reader_location(reader:&LineReader) {
     unsafe {
-        if (reader_location != 0) {
+        if reader_location != 0 {
             panic!("Tried to set reader location twice");
         }
         reader_location = mem::transmute(reader);
@@ -403,7 +389,7 @@ fn strip_word(mut word:String) -> String {
     return word;
 }
 
-fn terminal_settings(controls:Controls) -> (Termios, Termios) {
+fn terminal_settings(controls:&mut Controls) -> (Termios, Termios) {
     let mut tios = match Termios::get() {
         Some(t) => t,
         None => {
@@ -416,28 +402,27 @@ fn terminal_settings(controls:Controls) -> (Termios, Termios) {
     return (tios, ctios);
 }
 
-fn update_terminal(tios:Termios, controls:Controls) {
-    if Termios::set(&tios) {
+fn update_terminal(tios:&Termios, controls:&mut Controls) {
+    if !Termios::set(tios) {
         controls.err("Warning: Could not set terminal mode\n");
     }
 }
 
-fn set_reader_sigint(controls:Controls) {
+fn set_reader_sigint(controls:&mut Controls) {
     let mut sa = SigAction {
         handler: reader_sigint,
         mask: [0; SIGSET_NWORDS],
         flags: SA_RESTART | SA_SIGINFO,
         restorer: 0 // null pointer
     };
-    unsafe {
-        let mask = full_sigset().expect("Could not get a full sigset");
-        if !signal_handle(SIGINT, &sa) {
-            controls.err("Warning: could not set handler for SIGINT\n");
-        }
+    let mask = full_sigset().expect("Could not get a full sigset");
+    sa.mask = mask;
+    if !signal_handle(SIGINT, &sa) {
+        controls.err("Warning: could not set handler for SIGINT\n");
     }
 }
 
-fn run_command(line:Vec<String>, controls:Controls) {
+fn run_command(line:Vec<String>, controls:&mut Controls) {
     let mut process = Command::new(&line[0]);
     process.args(line.slice_from(1));
     process.stdout(StdioContainer::InheritFd(STDOUT));
@@ -461,10 +446,10 @@ fn run_command(line:Vec<String>, controls:Controls) {
 }
 
 fn main() {
-    let controls = Controls::new();
-    let mut reader = LineReader::new(controls);
+    let mut controls = &mut Controls::new();
+    let mut reader = LineReader::new();
     let (tios, old_tios) = terminal_settings(controls);
-    update_terminal(tios, controls);
+    update_terminal(&tios, controls);
     set_reader_location(&reader);
     set_reader_sigint(controls);
     let mut line:Vec<String>;
@@ -474,13 +459,16 @@ fn main() {
             Some(l) => l
         };
         if !line.is_empty() {
-            update_terminal(old_tios, controls);
+            update_terminal(&old_tios, controls);
             signal_ignore(SIGINT);
+            controls.outc(NL);
             controls.flush();
-            run_command(line, controls);
+            run_command(strip_words(line), controls);
             set_reader_sigint(controls);
-            update_terminal(tios, controls);
+            update_terminal(&tios, controls);
             reader.clear();
         }
     }
+    controls.outs("Exiting\n");
+    update_terminal(&old_tios, controls);
 }

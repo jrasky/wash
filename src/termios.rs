@@ -1,7 +1,6 @@
 extern crate libc;
 
 use self::libc::{c_uint, c_uchar, c_int};
-use std::io;
 
 use constants::*;
 
