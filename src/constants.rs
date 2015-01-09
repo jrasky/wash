@@ -9,6 +9,9 @@ pub const STDIN:c_int  = 0;
 pub const STDOUT:c_int = 1;
 pub const STDERR:c_int = 2;
 
+// unicode actually defines "control pictures," use them
+pub const C0_OFFSET:uint = 0x2400;
+
 // constants for control sequences is useful
 pub const EOF:char = '\u{4}';
 pub const DEL:char = '\u{7f}';

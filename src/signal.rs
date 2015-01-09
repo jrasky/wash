@@ -3,12 +3,22 @@ extern crate libc;
 use self::libc::{c_uint, c_int, c_short, c_long, c_ulong};
 use self::libc::{clock_t, pid_t, uid_t, size_t};
 use std::mem;
+use std::ptr;
 
 use constants::*;
 
 // This could also be a pointer,
 // but it probably isn't
 pub type SigVal = c_int;
+
+// The size_t at the end is a pointer to a ucontext_t
+// do I want to implement that type? Lol no
+// Protip: we're calling sigaction with SA_SIGINFO
+// In part because I didn't realize I didn't have to implement
+// all of SigInfo, so I did, and now I want to use that code dammit!
+// SigHandler is by definition unsafe, note it as so
+pub type SigHandler = unsafe extern fn(c_int, *const SigInfo, size_t);
+pub type SigSet = [c_ulong; SIGSET_NWORDS];
 
 // _pad is needed to make all these types the same size
 // this is the case because rust doesn't have an equivalent to C unions
@@ -96,35 +106,32 @@ pub struct SigInfo {
     pad: [c_int; SI_PAD_SIZE]
 }
 
-// The size_t at the end is a pointer to a ucontext_t
-// do I want to implement that type? Lol no
-// Protip: we're calling sigaction with SA_SIGINFO
-// In part because I didn't realize I didn't have to implement
-// all of SigInfo, so I did, and now I want to use that code dammit!
-// SigHandler is by definition unsafe, note it as so
-pub type SigHandler = unsafe extern fn(c_int, *const SigInfo, size_t);
-pub type SigSet = [c_ulong; SIGSET_NWORDS];
-
 #[repr(C)]
 #[derive(Copy)]
 pub struct SigAction {
     pub handler: SigHandler,
     pub mask: SigSet,
-    pub flags: c_int
+    pub flags: c_int,
+    // this is a size_t because the manpage say to
+    // not provide a function, and setting this to
+    // zero is much easier than trying to create a
+    // null pointer in rust
+    pub restorer: size_t
 }
 
 impl SigInfo {
+    // included for completeness, not currently used
     #[allow(dead_code)]
     pub fn determine_sigfields(&self) -> SigFields {
         unsafe {
             match self.signo {
-                SIGKILL => return SigFields::Kill(mem::transmute(self.pad)),
-                SIGALRM | SIGVTALRM | SIGPROF => return SigFields::PTimer(mem::transmute(self.pad)),
-                SIGCHLD => return SigFields::SigChld(mem::transmute(self.pad)),
-                SIGILL | SIGFPE | SIGSEGV | SIGBUS => return SigFields::SigFault(mem::transmute(self.pad)),
-                SIGPOLL => return SigFields::SigPoll(mem::transmute(self.pad)),
-                SIGSYS => return SigFields::SigSys(mem::transmute(self.pad)),
-                _ => return SigFields::PSignal(mem::transmute(self.pad))
+                SIGKILL => SigFields::Kill(mem::transmute(self.pad)),
+                SIGALRM | SIGVTALRM | SIGPROF => SigFields::PTimer(mem::transmute(self.pad)),
+                SIGCHLD => SigFields::SigChld(mem::transmute(self.pad)),
+                SIGILL | SIGFPE | SIGSEGV | SIGBUS => SigFields::SigFault(mem::transmute(self.pad)),
+                SIGPOLL => SigFields::SigPoll(mem::transmute(self.pad)),
+                SIGSYS => SigFields::SigSys(mem::transmute(self.pad)),
+                _ => SigFields::PSignal(mem::transmute(self.pad))
             }
         }
     }
@@ -132,6 +139,35 @@ impl SigInfo {
 
 #[link(name="c")]
 extern {
-    pub fn sigaction(signum:c_int, act:&SigAction, oldact:*mut SigAction) -> c_int;
-    pub fn sigfillset(mask:*mut SigSet) -> c_int;
+    fn sigaction(signum:c_int, act:*const SigAction, oldact:*mut SigAction) -> c_int;
+    fn sigfillset(mask:*mut SigSet) -> c_int;
+}
+
+
+pub fn signal_handle(signal:c_int, action:&SigAction) -> bool {
+    unsafe {
+        return sigaction(signal, action, ptr::null_mut::<SigAction>()) == 0;
+    }
+}
+
+pub fn signal_ignore(signal:c_int) -> bool {
+    unsafe {
+        let action = SigAction {
+            handler: mem::transmute::<size_t, SigHandler>(1),
+            mask: [0; SIGSET_NWORDS],
+            flags: 0,
+            restorer: 0
+        };
+        signal_handle(signal, &action)
+    }
+}
+
+pub fn full_sigset() -> Option<SigSet> {
+    let mut output:SigSet = [0; SIGSET_NWORDS];
+    unsafe {
+        match sigfillset(&mut output as *mut SigSet) {
+            0 => Some(output),
+            _ => None
+        }
+    }
 }

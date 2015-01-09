@@ -1,6 +1,7 @@
 extern crate libc;
 
 use self::libc::{c_uint, c_uchar, c_int};
+use std::io;
 
 use constants::*;
 
@@ -25,6 +26,12 @@ pub struct Termios {
     ospeed: SpeedType,
 }
 
+#[link(name = "c")]
+extern {
+    fn tcgetattr(fd: c_int, termios: *mut Termios) -> c_int;
+    fn tcsetattr(fd: c_int, optional_actions: c_int, termios: *const Termios) -> c_int;
+}
+
 impl Termios {
     pub fn new() -> Termios {
         Termios {
@@ -39,38 +46,38 @@ impl Termios {
         }
     }
 
-    pub fn get_from(&mut self, fd:c_int) -> bool {
+    pub fn get() -> Option<Termios> {
+        let mut tios = Termios::new();
         unsafe {
-            return tcgetattr(fd, self) == 0;
+            match tcgetattr(STDIN, &mut tios) {
+                0 => Some(tios),
+                _ => None
+            }
         }
     }
 
-    pub fn get(&mut self) -> bool {
-        self.get_from(STDIN)
-    }
-
-    pub fn set_to(&self, fd:c_int) -> bool {
+    pub fn set(tios:&Termios) -> bool {
         unsafe {
-            return tcsetattr(fd, TCSANOW, self) == 0;
+            tcsetattr(STDIN, TCSANOW, tios) == 0
         }
     }
 
-    pub fn set(&self) -> bool {
-        self.set_to(STDIN)
-    }
-
+    // Include for completeness
+    // isn't used currently, may be in the future
     #[allow(dead_code)]
-    pub fn lenable(&mut self, flag:c_uint) {
-        self.lflag |= flag;
+    pub fn fenable(&mut self, cflag:TCFlag, iflag:TCFlag,
+                   lflag:TCFlag, oflag:TCFlag) {
+        self.cflag |= cflag;
+        self.iflag |= iflag;
+        self.lflag |= lflag;
+        self.oflag |= oflag;
     }
 
-    pub fn ldisable(&mut self, flag:c_uint) {
-        self.lflag &= !flag;
+    pub fn fdisable(&mut self, cflag:TCFlag, iflag:TCFlag,
+                    lflag:TCFlag, oflag:TCFlag) {
+        self.cflag &= !cflag;
+        self.iflag &= !iflag;
+        self.lflag &= !lflag;
+        self.oflag &= !oflag;
     }
-}
-
-#[link(name = "c")]
-extern {
-    fn tcgetattr(fd: c_int, termios: *mut Termios) -> c_int;
-    fn tcsetattr(fd: c_int, optional_actions: c_int, termios: *const Termios) -> c_int;
 }

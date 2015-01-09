@@ -4,6 +4,8 @@ use libc::{c_int, size_t};
 use std::io;
 use std::ptr;
 use std::mem;
+use std::fmt;
+use std::sync::Arc;
 use std::io::process::{Command, StdioContainer};
 
 use termios::*;
@@ -15,174 +17,359 @@ mod signal;
 mod constants;
 
 type Stdr = io::stdio::StdinReader;
-type Stdw = io::LineBufferedWriter<io::stdio::StdWriter>;
+type Stdw = io::stdio::StdWriter;
 
 // start off as null pointer
-static mut instate_location:size_t = 0;
+static mut reader_location:size_t = 0;
 
-struct InputState {
-    line: Vec<String>,
-    word: String,
-    part: String,
-    bpart: String,
-    stdin: Stdr,
-    stdout: Stdw,
-    stderr: Stdw
+struct InputLine {
+    words: Vec<String>,
+    front: String,
+    part: String
 }
 
-impl InputState {
-    fn new() -> InputState {
-        InputState {
-            line: Vec::<String>::new(),
-            word: String::new(),
-            part: String::new(),
+impl InputLine {
+    fn new() -> InputLine {
+        InputLine {
+            words: Vec::<String>::new(),
+            front: String::new(),
+            part: String::new()
+        }
+    }
+    fn is_empty(&self) -> bool {
+        self.words.is_empty() && self.front.is_empty() && self.part.is_empty()
+    }
+
+    fn clear(&mut self) {
+        self.words.clear();
+        self.front.clear();
+        self.part.clear();
+    }
+    
+    fn push(&mut self, ch:char) {
+        match ch {
+            SPC => {
+                if is_word(&self.front) {
+                    self.words.push(self.front.clone());
+                    self.front.clear();
+                }
+            },
+            c => {
+                self.front.push(c);
+            }
+        }
+    }
+
+    fn pop(&mut self) -> Option<char> {
+        if self.front.is_empty() {
+            self.front = match self.words.pop() {
+                Some(s) => s,
+                None => return None
+            };
+            // there are spaces between words
+            return Some(SPC);
+        } else {
+            return self.front.pop();
+        }
+    }
+
+    fn right(&mut self) -> bool {
+        let part = self.part.clone();
+        match self.part.pop() {
+            Some(ch) => { 
+                self.push(ch);
+                return true;
+            },
+            None => false
+        }
+    }
+
+    fn left(&mut self) -> bool {
+        match self.pop() {
+            None => false,
+            Some(ch) => {
+                self.part.push(ch);
+                return true;
+            }
+        }
+    }
+
+    fn process(&self) -> Vec<String> {
+        let mut part = self.part.clone();
+        let mut front = self.front.clone();
+        let mut words = self.words.clone();
+        loop {
+            match part.pop() {
+                Some(SPC) => {
+                    if is_word(&front) {
+                        words.push(front.clone());
+                        front.clear();
+                    } else {
+                        front.push(SPC);
+                    }
+                },
+                Some(ch) => {
+                    front.push(ch);
+                },
+                None => break
+            }
+        }
+        if !front.is_empty() {
+            words.push(front);
+        }
+        return words;
+    }
+}
+
+struct LineReader {
+    line: InputLine,
+    controls: Controls,
+    bpart: String,
+    escape: bool,
+    escape_chars: String,
+    finished: bool,
+    eof: bool
+}
+
+impl LineReader {
+    fn new(controls:Controls) -> LineReader {
+        LineReader {
+            line: InputLine::new(),
+            controls: controls,
             bpart: String::new(),
-            stdin: io::stdin(),
-            stdout: io::stdout(),
-            stderr: io::stderr()
+            escape: false,
+            escape_chars: String::new(),
+            finished: false,
+            eof: false
         }
     }
 
     fn clear(&mut self) {
-        self.word.clear();
         self.line.clear();
-        self.part.clear();
         self.bpart.clear();
+        self.escape = false;
+        self.escape_chars.clear();
+        self.finished = false;
+        self.eof = false;
+    }
+
+    fn read_line(&mut self) -> Option<Vec<String>> {
+        while !self.finished && !self.eof {
+            match self.controls.read() {
+                Ok(ch) => {
+                    if self.escape {
+                        self.handle_escape(ch);
+                    } else if ch.is_control() {
+                        self.handle_control(ch);
+                    } else {
+                        self.handle_ch(ch);
+                    }
+                },
+                Err(e) => {
+                    self.controls.errf(format_args!("\nError: {}\n", e));
+                    break;
+                }
+            }
+        }
+        if self.eof {
+            return None;
+        } else {
+            return Some(self.line.process());
+        }
+    }
+    
+    fn draw_part(&mut self) {
+        // quick out if part is empty
+        if self.line.part.is_empty() {
+            return;
+        }
+        if self.bpart.is_empty() {
+            // only calculate bpart when it needs to be recalculated
+            let mut cpart = self.line.part.clone();
+            loop {
+                match cpart.pop() {
+                    Some(c) => self.bpart.push(c),
+                    None => break
+                }
+            }
+        }
+        self.controls.outs(self.bpart.as_slice());
+    }
+
+    fn idraw_part(&mut self) {
+        // in-place draw of the line part
+        self.draw_part();
+        self.controls.cursors_left(self.line.part.len());
+    }
+
+    fn handle_ch(&mut self, ch:char) {
+        match ch {
+            SPC => {
+                if is_word(&self.line.front) {
+                    self.line.words.push(self.line.front.clone());
+                    self.line.front.clear();
+                    self.controls.outc(SPC);
+                    self.idraw_part();
+                } else {
+                    self.handle_default(ch);
+                }
+            },
+            _ => self.handle_default(ch)
+        }
+    }
+
+    fn handle_default(&mut self, ch:char) {
+        self.line.push(ch);
+        self.controls.outc(ch);
+        self.idraw_part();
+    }
+
+    fn handle_control(&mut self, ch:char) {
+        match ch {
+            EOF => {
+                if self.line.is_empty() {
+                    self.finished = true;
+                    self.eof = true;
+                }
+            },
+            NL => {
+                self.finished = true;
+            },
+            ESC => {
+                self.escape = true;
+                self.escape_chars = String::new();
+            },
+            DEL => {
+                match self.line.pop() {
+                    None => return,
+                    Some(ch) => {
+                        self.controls.cursor_left();
+                        self.draw_part();
+                        self.controls.outc(SPC);
+                        self.controls.cursors_left(self.line.part.len() + 1);
+                    }
+                }
+            },
+            _ => return
+        }
+    }
+
+    fn handle_escape(&mut self, ch:char) {
+        match ch {
+            ESC => {
+                self.escape = false;
+            },
+            ANSI => {
+                if self.escape_chars.is_empty() {
+                    self.escape_chars.push(ANSI);
+                } else {
+                    self.escape = false;
+                }
+            },
+            'D' => {
+                if self.line.left() {
+                    self.controls.cursor_left();
+                }
+                self.escape = false;
+            },
+            'C' => {
+                if self.line.right() {
+                    self.controls.cursor_right();
+                }
+                self.escape = false;
+            },
+            _ => {
+                self.escape = false;
+            }
+        }
+    }
+}
+
+struct Controls {
+    stdin: Stdr,
+    stdout: Stdw,
+    stderr: Stdw,
+}
+
+impl Controls {
+    fn new() -> Controls {
+        Controls {
+            stdin: io::stdin(),
+            stdout: io::stdio::stdout_raw(),
+            stderr: io::stdio::stderr_raw(),
+        }
+    }
+    
+    fn outc(&self, ch:char) {
+        self.stdout.write_char(ch).unwrap()
+    }
+
+    fn outs(&self, s:&str) {
+        self.stdout.write_str(s).unwrap()
+    }
+
+    fn err(&self, s:&str) {
+        self.stderr.write_str(s).unwrap();
+    }
+
+    fn errf(&self, args:fmt::Arguments) {
+        self.stderr.write_fmt(args).unwrap();
+    }
+
+    fn read(&self) -> io::IoResult<char> {
+        self.stdin.read_char()
+    }
+    
+    fn cursor_left(&self) {
+        self.outc(DEL);
+    }
+
+    fn cursor_right(&self) {
+        self.outs(CRSR_RIGHT);
+    }
+    
+    fn cursors_left(&self, by:uint) {
+        // move back by a given number of characters
+        self.outs(build_string(DEL, by).as_slice());
     }
 
     fn flush(&mut self) {
-        self.stdout.flush().unwrap();
-    }
-
-    fn outw(&mut self, msg:&str) {
-        self.stdout.write_str(msg).unwrap();
-    }
-
-    fn outc(&mut self, ch:char) {
-        self.stdout.write_char(ch).unwrap();
-    }
-
-    fn err(&mut self, msg:&str) {
-        self.stderr.write_str(msg).unwrap();
+        self.stdout.flush();
+        self.stderr.flush();
     }
 }
 
 #[allow(unused_variables)]
-unsafe extern fn handle_sigint(signum:c_int, siginfo:*const SigInfo, context:size_t) {
-    if instate_location == 0 {
-        panic!("Shell state location uninitialized");
+unsafe extern fn reader_sigint(signum:c_int, siginfo:*const SigInfo, context:size_t) {
+    // This function should only be called when the input line is actually active
+    if reader_location == 0 {
+        panic!("Line reader location uninitialized");
     }
-    print!("^C\n");
     // Below: completely disregarding everything Rust stands for
-    let state:&mut InputState = mem::transmute(instate_location);
-    state.clear();
-    io::stdio::flush();
+    let reader:&mut LineReader = mem::transmute(reader_location);
+    if reader.line.is_empty() {
+        reader.controls.outs("Interrupt\n");
+    } else {
+        reader.controls.outs("\nInterrupt\n");
+    }
+    // reset line
+    reader.clear();
 }
 
-fn set_instate_location(state:&mut InputState) {
+fn set_reader_location(reader:&LineReader) {
     unsafe {
-        if instate_location != 0 {
-            panic!("Tried to set shell state location twice");
+        if (reader_location != 0) {
+            panic!("Tried to set reader location twice");
         }
-        instate_location = mem::transmute::<&mut InputState, size_t>(state);
+        reader_location = mem::transmute(reader);
     }
 }
 
-fn prepare_terminal(tios:&mut Termios) {
-    tios.ldisable(ICANON);
-    tios.ldisable(ECHO);
-}
-
-fn update_terminal(tios:Termios, state:&mut InputState) -> bool {
-    if !tios.set() {
-        state.err("Warning: Could not set terminal mode\n");
-        return false;
-    }
-    return true;
-}
-
-fn handle_escape(state:&mut InputState) {
-    // Handle an ANSI escape sequence
-    if state.stdin.read_char() != Ok(ANSI) {
-        return;
-    }
-    match state.stdin.read_char() {
-        Err(_) => return,
-        Ok('D') => {
-            // left
-            match state.word.pop() {
-                Some(c) => {
-                    state.bpart.clear();
-                    state.part.push(c);
-                    cursor_left(state);
-                },
-                None => match state.line.pop() {
-                    Some(s) => {
-                        state.bpart.clear();
-                        state.part.push(SPC);
-                        state.word.clear();
-                        state.word.push_str(s.as_slice());
-                        cursor_left(state);
-                    }
-                    None => return
-                }
-            }
-        },
-        Ok('C') => {
-            // right
-            match state.part.pop() {
-                Some(SPC) => {
-                    if !state.word.as_slice().starts_with("\"") ||
-                        (state.word.len() > 1 &&
-                         state.word.as_slice().starts_with("\"") &&
-                         state.word.as_slice().ends_with("\"")) {
-                            state.bpart.clear();
-                            state.line.push(state.word.clone());
-                            state.word.clear();
-                            cursor_right(state);
-                        } else {
-                            state.bpart.clear();
-                            state.word.push(SPC);
-                            cursor_right(state);
-                        }
-                },
-                Some(c) => {
-                    state.bpart.clear();
-                    state.word.push(c);
-                    cursor_right(state);
-                },
-                None => return
-            }
-        },
-        Ok(_) => return
-    }
-}
-
-fn cursor_left(state:&mut InputState) {
-    state.outc(DEL);
-}
-
-fn cursor_right(state:&mut InputState) {
-    state.outw(CRSR_RIGHT);
-}
-
-fn draw_part(state:&mut InputState) {
-    // quick out if part is empty
-    if state.part.is_empty() {
-        return;
-    }
-    if state.bpart.is_empty() {
-        // only calculate bpart when it needs to be recalculated
-        let mut cpart = state.part.clone();
-        loop {
-            match cpart.pop() {
-                Some(c) => state.bpart.push(c),
-                None => break
-            }
-        }
-    }
-    let c = state.bpart.clone();
-    state.outw(c.as_slice());
+fn is_word(word:&String) -> bool {
+    !word.as_slice().starts_with("\"") ||
+        (word.len() > 1 &&
+         word.as_slice().starts_with("\"") &&
+         word.as_slice().ends_with("\""))
 }
 
 // work around lack of DST
@@ -198,66 +385,15 @@ fn build_string(ch:char, count:uint) -> String {
     }
 }
 
-fn cursors_left(by:uint, state:&mut InputState) {
-    // move back by a given number of characters
-    state.outw(build_string(DEL, by).as_slice());
-}
-
-fn idraw_part(state:&mut InputState) {
-    // in-place draw of the line part
-    draw_part(state);
-    cursors_left(state.part.len(), state);
-}
-
-fn prepare_signals(state:&mut InputState) {
-    let mut sa = SigAction {
-        handler: handle_sigint,
-        mask: [0; SIGSET_NWORDS],
-        flags: SA_RESTART | SA_SIGINFO
-    };
-    unsafe {
-        if sigfillset(&mut sa.mask) != 0 {
-            state.err("Warning: could not fill mask set for SIGINT handler\n");
-        }
-        if sigaction(SIGINT, &sa, ptr::null_mut::<SigAction>()) != 0 {
-            state.err("Warning: could not set handler for SIGINT\n");
-        }
-    }
-}
-
-fn run_command(state:&mut InputState) {
-    let line = process_line(state.line.clone());
-    let mut process = Command::new(&line[0]);
-    process.args(line.slice_from(1));
-    process.stdout(StdioContainer::InheritFd(STDOUT));
-    process.stdin(StdioContainer::InheritFd(STDIN));
-    process.stderr(StdioContainer::InheritFd(STDERR));
-    let mut child = match process.spawn() {
-        Err(e) => {
-            state.err(format!("Couldn't spawn {}: {}\n", &line[0], e).as_slice());
-            return;
-        },
-        Ok(child) => child
-    };
-    match child.wait() {
-        Err(e) => {
-            state.err(format!("Couldn't wait for child to exit: {}\n", e.desc).as_slice());
-        },
-        Ok(_) => {
-            // nothing
-        }
-    };
-}
-
-fn process_line(line:Vec<String>) -> Vec<String> {
+fn strip_words(line:Vec<String>) -> Vec<String> {
     let mut out = Vec::<String>::new();
     for word in line.iter() {
-        out.push(process_word(word.clone()));
+        out.push(strip_word(word.clone()));
     }
     return out;
 }
 
-fn process_word(mut word:String) -> String {
+fn strip_word(mut word:String) -> String {
     if word.as_slice().starts_with("\"") &&
         word.as_slice().ends_with("\"") {
             word.remove(0);
@@ -267,111 +403,84 @@ fn process_word(mut word:String) -> String {
     return word;
 }
 
-fn process_part(state:&mut InputState) {
-    loop {
-        match state.part.pop() {
-            Some(SPC) => {
-                if !state.word.as_slice().starts_with("\"") ||
-                    (state.word.len() > 1 &&
-                     state.word.as_slice().starts_with("\"") &&
-                     state.word.as_slice().ends_with("\"")) {
-                        state.line.push(state.word.clone());
-                        state.word.clear();
-                    } else {
-                        state.word.push(SPC);
-                    }
-            },
-            Some(c) => {
-                state.word.push(c);
-            },
-            None => break
+fn terminal_settings(controls:Controls) -> (Termios, Termios) {
+    let mut tios = match Termios::get() {
+        Some(t) => t,
+        None => {
+            controls.err("Warning: Could not get terminal mode\n");
+            Termios::new()
+        }
+    };
+    let ctios = tios.clone();
+    tios.fdisable(0, 0, ICANON|ECHO, 0);
+    return (tios, ctios);
+}
+
+fn update_terminal(tios:Termios, controls:Controls) {
+    if Termios::set(&tios) {
+        controls.err("Warning: Could not set terminal mode\n");
+    }
+}
+
+fn set_reader_sigint(controls:Controls) {
+    let mut sa = SigAction {
+        handler: reader_sigint,
+        mask: [0; SIGSET_NWORDS],
+        flags: SA_RESTART | SA_SIGINFO,
+        restorer: 0 // null pointer
+    };
+    unsafe {
+        let mask = full_sigset().expect("Could not get a full sigset");
+        if !signal_handle(SIGINT, &sa) {
+            controls.err("Warning: could not set handler for SIGINT\n");
         }
     }
 }
 
-fn main() {
-    let mut state = &mut InputState::new();
-    prepare_signals(state);
-    let mut tios = Termios::new();
-    tios.get();
-    let old_tios = tios.clone();
-    prepare_terminal(&mut tios);
-    update_terminal(tios, state);
-
-    set_instate_location(state);
-    loop {
-        // Note: in non-canonical mode
-        match state.stdin.read_char() {
-            Ok(EOF) => {
-                if state.line.is_empty() && state.word.is_empty() {
-                    break;
-                }
-            },
-            Ok(NL) => {
-                // start command output on next line
-                state.outc(NL);
-                // process the part, in case user presses enter
-                // in the middle of the line
-                process_part(state);
-                // push any remaining word onto the line
-                if !state.word.is_empty() {
-                    state.line.push(state.word.clone());
-                }
-                // run command if one was specified
-                if !state.line.is_empty() {
-                    // run command
-                    update_terminal(old_tios, state);
-                    run_command(state);
-                    update_terminal(tios, state);
-                }
-                // clear the state
-                state.clear();
-            },
-            Ok(DEL) => {
-                if state.word.is_empty() {
-                    state.word = match state.line.pop() {
-                        Some(s) => s,
-                        None => continue
-                    };
-                } else {
-                    state.word.pop();
-                }
-                cursor_left(state);
-                draw_part(state);
-                state.outc(SPC);
-                cursors_left(state.part.len() + 1, state);
-            },
-            Ok(ESC) => handle_escape(state),
-            Ok(SPC) => {
-                if !state.word.as_slice().starts_with("\"") ||
-                    (state.word.len() > 1 &&
-                     state.word.as_slice().starts_with("\"") &&
-                     state.word.as_slice().ends_with("\"")) {
-                        state.line.push(state.word.clone());
-                        state.word.clear();
-                        state.outc(SPC);
-                        idraw_part(state);
-                    } else {
-                        // ignore spaces until next quote
-                        state.word.push(SPC);
-                        state.outc(SPC);
-                        idraw_part(state);
-                    }
-            },
-            Ok(c) => {
-                state.word.push(c);
-                state.outc(c);
-                idraw_part(state);
-            },
-            Err(e) => {
-                state.err(format!("Error: {}\n", e).as_slice());
-                break;
-            }
+fn run_command(line:Vec<String>, controls:Controls) {
+    let mut process = Command::new(&line[0]);
+    process.args(line.slice_from(1));
+    process.stdout(StdioContainer::InheritFd(STDOUT));
+    process.stdin(StdioContainer::InheritFd(STDIN));
+    process.stderr(StdioContainer::InheritFd(STDERR));
+    let mut child = match process.spawn() {
+        Err(e) => {
+            controls.err(format!("Couldn't spawn {}: {}\n", &line[0], e).as_slice());
+            return;
+        },
+        Ok(child) => child
+    };
+    match child.wait() {
+        Err(e) => {
+            controls.err(format!("Couldn't wait for child to exit: {}\n", e.desc).as_slice());
+        },
+        Ok(_) => {
+            // nothing
         }
-        // flush output
-        state.flush();
+    };
+}
+
+fn main() {
+    let controls = Controls::new();
+    let mut reader = LineReader::new(controls);
+    let (tios, old_tios) = terminal_settings(controls);
+    update_terminal(tios, controls);
+    set_reader_location(&reader);
+    set_reader_sigint(controls);
+    let mut line:Vec<String>;
+    loop {
+        line = match reader.read_line() {
+            None => break,
+            Some(l) => l
+        };
+        if !line.is_empty() {
+            update_terminal(old_tios, controls);
+            signal_ignore(SIGINT);
+            controls.flush();
+            run_command(line, controls);
+            set_reader_sigint(controls);
+            update_terminal(tios, controls);
+            reader.clear();
+        }
     }
-    state.outw("Exiting\n");
-    // restore old term state
-    update_terminal(old_tios, state);
 }
