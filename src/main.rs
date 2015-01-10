@@ -9,6 +9,8 @@ use serialize::hex::ToHex;
 
 use std::io::process::{Command, StdioContainer, ProcessOutput};
 use std::io::fs::PathExtensions;
+use std::collections::HashMap;
+
 use std::ffi;
 use std::str;
 use std::mem;
@@ -196,7 +198,7 @@ fn run_wash_script(line:&Vec<String>, controls:&mut Controls) {
     let inf = match io::File::open(&inp) {
         Ok(f) => f,
         Err(e) => {
-            controls.errf(format_args!("File error: {}", e));
+            controls.errf(format_args!("File error: {}\n", e));
             return;
         }
     };
@@ -213,7 +215,7 @@ fn run_wash_script(line:&Vec<String>, controls:&mut Controls) {
         command.args(&["-o", outp.as_str().unwrap(), "-"]);
         let mut child = match command.spawn() {
             Err(e) => {
-                panic!("Error: {}", e);
+                panic!("Error: {}\n", e);
             },
             Ok(c) => c
         };
@@ -226,11 +228,11 @@ fn run_wash_script(line:&Vec<String>, controls:&mut Controls) {
 
         match child.wait_with_output() {
             Err(e) => {
-                controls.errf(format_args!("Could not compile script: {}", e));
+                controls.errf(format_args!("Could not compile script: {}\n", e));
             },
             Ok(o) => {
                 if !o.status.success() {
-                    controls.errf(format_args!("Could not compile script: {}",
+                    controls.errf(format_args!("Could not compile script: {}\n",
                                                String::from_utf8(o.error).unwrap()));
                 }
             }
@@ -241,13 +243,13 @@ fn run_wash_script(line:&Vec<String>, controls:&mut Controls) {
         let handle = dlopen(ffi::CString::from_slice(outp.as_str().unwrap().as_bytes()).as_ptr(),
                             RTLD_LAZY|RTLD_LOCAL);
         if handle.is_null() {
-            controls.errf(format_args!("Could not load script object: {}",
+            controls.errf(format_args!("Could not load script object: {}\n",
                                        str::from_utf8(ffi::c_str_to_bytes(&dlerror())).unwrap()));
             return;
         }
         let ptr = dlsym(handle, ffi::CString::from_slice(ENTRY_SYMBOL.as_bytes()).as_ptr());
         if ptr.is_null() {
-            controls.errf(format_args!("Could not find entry symbol: {}",
+            controls.errf(format_args!("Could not find entry symbol: {}\n",
                                        str::from_utf8(ffi::c_str_to_bytes(&dlerror())).unwrap()));
             dlclose(handle);
             return;
@@ -289,6 +291,7 @@ fn process_job(line:&Vec<String>, tios:&Termios, old_tios:&Termios,
 fn main() {
     let mut controls = &mut Controls::new();
     let mut reader = LineReader::new();
+    let mut map = HashMap::<&str, &fn(Vec<String>) -> Vec<String>>::new();
     let (tios, old_tios) = terminal_settings(controls);
     update_terminal(&tios, controls);
     set_reader_location(&mut reader);
