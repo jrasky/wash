@@ -1,3 +1,4 @@
+#![allow(unstable)]
 use std::io;
 
 fn empty_escape(esc:&mut Iterator<Item=char>) -> String {
