@@ -1,4 +1,20 @@
 [root]
 name = "wash"
 version = "0.0.1"
+dependencies = [
+ "sodiumoxide 0.0.1 (git+https://github.com/dnaq/sodiumoxide.git)",
+]
+
+[[package]]
+name = "libsodium-sys"
+version = "0.0.1"
+source = "git+https://github.com/dnaq/sodiumoxide.git#d56b1f816ae96ca8b2cebbf652ecffa656375ce6"
+
+[[package]]
+name = "sodiumoxide"
+version = "0.0.1"
+source = "git+https://github.com/dnaq/sodiumoxide.git#d56b1f816ae96ca8b2cebbf652ecffa656375ce6"
+dependencies = [
+ "libsodium-sys 0.0.1 (git+https://github.com/dnaq/sodiumoxide.git)",
+]
 

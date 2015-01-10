@@ -1,7 +1,17 @@
+extern crate sodiumoxide;
 extern crate libc;
+extern crate serialize;
 
-use libc::{c_int, size_t};
+use libc::{c_int, size_t, c_void, c_char};
+use sodiumoxide::crypto::hash::sha256;
+use serialize::hex::ToHex;
+
 use std::io::process::{Command, StdioContainer, ProcessOutput};
+use std::io::fs::PathExtensions;
+use std::ffi;
+use std::str;
+use std::mem;
+use std::io;
 
 use reader::*;
 use controls::*;
@@ -19,8 +29,23 @@ mod controls;
 mod input;
 mod reader;
 
+const RTLD_LOCAL:c_int = 0;
+const RTLD_LAZY:c_int = 1;
+
+const ENTRY_SYMBOL:&'static str = "wash_run";
+const WO_PATH:&'static str = "/tmp/wash/";
+
 // start off as null pointer
 static mut uglobal_reader:*mut LineReader = 0 as *mut LineReader;
+
+
+#[link(name = "dl")]
+extern {
+    fn dlopen(filename:*const c_char, flag:c_int) -> *const c_void;
+    fn dlsym(handle:*const c_void, symbol:*const c_char) -> *const c_void;
+    fn dlclose(handle:*const c_void) -> c_int;
+    fn dlerror() -> *const c_char;
+}
 
 #[allow(unused_variables)]
 unsafe extern fn reader_sigint(signum:c_int, siginfo:*const SigInfo, context:size_t) {
@@ -165,19 +190,99 @@ fn update(line:&Vec<String>) {
     // nothing yet
 }
 
+fn run_wash_script(line:&Vec<String>, controls:&mut Controls) {
+    let inp = Path::new(&line[0]);
+    let inf = match io::File::open(&inp) {
+        Ok(f) => f,
+        Err(e) => {
+            controls.errf(format_args!("File error: {}", e));
+            return;
+        }
+    };
+    let mut reader = io::BufferedReader::new(inf);
+    let contents = reader.read_to_end().unwrap();
+    let bytes = contents.as_slice();
+    let mut outname = sha256::hash(bytes).0.to_hex();
+    outname.push_str(".wo");
+    let outp = Path::new(WO_PATH).join(outname);
+    
+    if !outp.exists() {
+        io::fs::mkdir_recursive(&outp.dir_path(), io::USER_RWX).unwrap();
+        let mut command = Command::new("rustc");
+        command.args(&["-o", outp.as_str().unwrap(), "-"]);
+        let mut child = match command.spawn() {
+            Err(e) => {
+                panic!("Error: {}", e);
+            },
+            Ok(c) => c
+        };
+
+        {
+            let mut input = child.stdin.as_mut().unwrap();
+            input.write(bytes);
+            input.flush().unwrap();
+        }
+
+        match child.wait_with_output() {
+            Err(e) => {
+                controls.errf(format_args!("Could not compile script: {}", e));
+            },
+            Ok(o) => {
+                if !o.status.success() {
+                    controls.errf(format_args!("Could not compile script: {}",
+                                               String::from_utf8(o.error).unwrap()));
+                }
+            }
+        }
+    }
+
+    unsafe {
+        let handle = dlopen(ffi::CString::from_slice(outp.as_str().unwrap().as_bytes()).as_ptr(),
+                            RTLD_LAZY|RTLD_LOCAL);
+        if handle.is_null() {
+            controls.errf(format_args!("Could not load script object: {}",
+                                       str::from_utf8(ffi::c_str_to_bytes(&dlerror())).unwrap()));
+            return;
+        }
+        let ptr = dlsym(handle, ffi::CString::from_slice(ENTRY_SYMBOL.as_bytes()).as_ptr());
+        if ptr.is_null() {
+            controls.errf(format_args!("Could not find entry symbol: {}",
+                                       str::from_utf8(ffi::c_str_to_bytes(&dlerror())).unwrap()));
+            dlclose(handle);
+            return;
+        }
+        let func:extern fn() = mem::transmute(ptr);
+        func();
+        dlclose(handle);
+    }
+}
+
+
 fn process_job(line:&Vec<String>, tios:&Termios, old_tios:&Termios,
                reader:&mut LineReader, controls:&mut Controls) {
     if line.is_empty() {
         return;
     }
-    update_terminal(old_tios, controls);
-    signal_ignore(SIGINT);
-    controls.outc(NL);
-    controls.flush();
-    run_command(line, controls);
-    set_reader_sigint(controls);
-    update_terminal(tios, controls);
-    reader.clear();
+    if line[0].as_slice().ends_with(".ws") {
+        // run as wash shell script
+        update_terminal(old_tios, controls);
+        signal_ignore(SIGINT);
+        controls.outc(NL);
+        controls.flush();
+        run_wash_script(line, controls);
+        set_reader_sigint(controls);
+        update_terminal(tios, controls);
+        reader.clear();
+    } else {
+        update_terminal(old_tios, controls);
+        signal_ignore(SIGINT);
+        controls.outc(NL);
+        controls.flush();
+        run_command(line, controls);
+        set_reader_sigint(controls);
+        update_terminal(tios, controls);
+        reader.clear();
+    }
 }
 
 fn main() {
