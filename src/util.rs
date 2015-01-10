@@ -11,9 +11,9 @@ pub fn is_word(word:&String) -> bool {
 }
 
 // work around lack of DST
-pub fn build_string(ch:char, count:uint) -> String {
+pub fn build_string(ch:char, count:usize) -> String {
     let mut s = String::new();
-    let mut i = 0u;
+    let mut i = 0us;
     loop {
         if i == count {
             return s;

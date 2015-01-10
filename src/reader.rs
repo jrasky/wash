@@ -1,3 +1,4 @@
+#![allow(unstable)]
 use input::*;
 use controls::*;
 use constants::*;
@@ -92,7 +93,7 @@ impl LineReader {
 
     pub fn handle_control(&mut self, ch:char) {
         match ch {
-            EOF => {
+            CEOF => {
                 if self.line.is_empty() {
                     self.finished = true;
                     self.eof = true;

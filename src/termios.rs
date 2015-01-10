@@ -1,3 +1,4 @@
+#![allow(unstable)]
 extern crate libc;
 
 use self::libc::{c_uint, c_uchar, c_int};
@@ -5,7 +6,7 @@ use self::libc::{c_uint, c_uchar, c_int};
 use constants::*;
 
 // used in Termios struct
-const NCCS:uint = 32;
+const NCCS:usize = 32;
 
 // types used in Termios struct
 type CCType = c_uchar;

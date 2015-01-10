@@ -50,7 +50,7 @@ impl Controls {
         self.outs(CRSR_RIGHT);
     }
     
-    pub fn cursors_left(&mut self, by:uint) {
+    pub fn cursors_left(&mut self, by:usize) {
         // move back by a given number of characters
         self.outs(build_string(DEL, by).as_slice());
     }

@@ -1,7 +1,6 @@
 extern crate libc;
 
-use self::libc::{c_uint, c_int, c_short, c_long, c_ulong};
-use self::libc::{clock_t, pid_t, uid_t, size_t};
+use libc::*;
 use std::mem;
 use std::ptr;
 

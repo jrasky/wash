@@ -1,8 +1,9 @@
+#![allow(unstable)]
 extern crate sodiumoxide;
 extern crate libc;
 extern crate serialize;
 
-use libc::{c_int, size_t, c_void, c_char};
+use libc::*;
 use sodiumoxide::crypto::hash::sha256;
 use serialize::hex::ToHex;
 
@@ -219,7 +220,7 @@ fn run_wash_script(line:&Vec<String>, controls:&mut Controls) {
 
         {
             let mut input = child.stdin.as_mut().unwrap();
-            input.write(bytes);
+            input.write(bytes).unwrap();
             input.flush().unwrap();
         }
 
