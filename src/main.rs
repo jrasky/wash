@@ -31,7 +31,7 @@ mod script;
 static mut uglobal_reader:*mut LineReader = 0 as *mut LineReader;
 
 #[allow(unused_variables)]
-unsafe extern fn reader_sigint(signum:c_int, siginfo:*const SigInfo, context:size_t) {
+unsafe extern fn reader_sigint(signum:c_int, siginfo:*const SigInfo, context:*const c_void) {
     // Hopefully no segfault, this *should* be safe code
     let reader:&mut LineReader = match uglobal_reader.as_mut() {
         Some(v) => v,

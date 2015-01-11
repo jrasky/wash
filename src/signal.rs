@@ -14,7 +14,7 @@ pub type SigVal = c_int;
 // In part because I didn't realize I didn't have to implement
 // all of SigInfo, so I did, and now I want to use that code dammit!
 // SigHandler is by definition unsafe, note it as so
-pub type SigHandler = unsafe extern fn(c_int, *const SigInfo, size_t);
+pub type SigHandler = unsafe extern fn(c_int, *const SigInfo, *const c_void);
 pub type SigSet = [c_ulong; SIGSET_NWORDS];
 
 // _pad is needed to make all these types the same size
