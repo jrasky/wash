@@ -1,4 +1,3 @@
-#![allow(unstable)]
 use libc::*;
 
 use sodiumoxide::crypto::hash::sha256;
@@ -17,7 +16,15 @@ use std::mem;
 use controls::*;
 use constants::*;
 
-pub type FuncTable<'a> = HashMap<&'a str, fn(&Vec<String>, &mut Controls) -> Vec<String>>;
+// !!!
+// Wash function calling convention
+pub type WashFunc = fn(&Vec<String>, &mut Controls) -> Vec<String>;
+
+// >Dat pointer indirection
+// Sorry bro, Rust doesn't have DSTs yet
+// Once it does they'll turn into a more compact structure
+pub type FuncTable = HashMap<String, WashFunc>;
+pub type ScriptTable = HashMap<String, WashScript>;
 
 type WashLoad = extern fn(*const Vec<String>, *mut FuncTable, *mut Controls);
 type WashRun = extern fn(*const Vec<String>, *mut FuncTable, *mut Controls);

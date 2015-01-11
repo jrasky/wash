@@ -27,8 +27,6 @@ mod input;
 mod reader;
 mod script;
 
-type ScriptTable<'a> = HashMap<String, WashScript>;
-
 // start off as null pointer
 static mut uglobal_reader:*mut LineReader = 0 as *mut LineReader;
 
@@ -175,14 +173,14 @@ fn update(line:&Vec<String>) {
     // nothing yet
 }
 
-fn process_job<'a>(line:&'a Vec<String>, tios:&Termios, old_tios:&Termios,
-                   reader:&mut LineReader, functions:&mut FuncTable,
-                   scripts:&mut ScriptTable<'a>, controls:&mut Controls) {
+fn process_job(line:&Vec<String>, tios:&Termios, old_tios:&Termios,
+               reader:&mut LineReader, functions:&mut FuncTable,
+               scripts:&mut ScriptTable, controls:&mut Controls) {
     if line.is_empty() {
         return;
     }
-    if functions.contains_key(line[0].as_slice()) {
-        let func = functions.get(line[0].as_slice()).unwrap();
+    if functions.contains_key(&line[0]) {
+        let func = functions.get(&line[0]).unwrap();
         let mut args = line.clone();
         args.pop();
         controls.flush();
@@ -190,8 +188,10 @@ fn process_job<'a>(line:&'a Vec<String>, tios:&Termios, old_tios:&Termios,
     } else if line[0].as_slice().ends_with(".ws") {
         // run as wash shell script
         if !scripts.contains_key(&line.clone()[0]) {
-            scripts.insert::<'a>(line[0].clone(),
-                                 WashScript::new(Path::new(&line[0])));
+            // only access script objects by borrowing from the hash map
+            // this is to ensure lifetimes
+            scripts.insert(line[0].clone(),
+                           WashScript::new(Path::new(&line[0])));
         }
         let script = scripts.get_mut(line[0].as_slice()).unwrap();
         if !script.is_compiled() && !script.compile() {
@@ -222,6 +222,8 @@ fn main() {
     let mut controls = &mut Controls::new();
     let mut reader = LineReader::new();
     let mut functions:FuncTable = HashMap::new();
+    // scripts below to ensure the liftime of script objects
+    // otherwise they get deleted, and the script objects unloaded
     let mut scripts:ScriptTable = HashMap::new();
     let (tios, old_tios) = terminal_settings(controls);
     update_terminal(&tios, controls);

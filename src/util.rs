@@ -1,4 +1,3 @@
-
 pub fn is_word(word:&String) -> bool {
     (!word.as_slice().starts_with("\"") ||
      (word.len() > 1 &&
