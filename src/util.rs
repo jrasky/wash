@@ -1,3 +1,6 @@
+use std::cmp::*;
+use std::os;
+
 pub fn is_word(word:&String) -> bool {
     (!word.as_slice().starts_with("\"") ||
      (word.len() > 1 &&
@@ -37,4 +40,29 @@ pub fn strip_word(word:&String) -> String {
         } else {
             return word.clone();
         }
+}
+
+pub fn expand_path(path:Path) -> Path {
+    {
+        // make our lives easier
+        let slc = path.as_vec();
+        if slc == b"~" || slc.slice_to(min(slc.len(), 2)) == b"~/" {
+            return match os::getenv("HOME") {
+                None => Path::new("/"),
+                Some(val) => Path::new(val)
+            }.join(Path::new(slc.slice_from(min(slc.len(), 2))))
+        }
+    }
+    return path;
+}
+
+pub fn condense_path(path:Path) -> Path {
+    let homep = Path::new(match os::getenv("HOME") {
+            None => return path,
+            Some(val) => val
+    });
+    match path.path_relative_from(&homep) {
+        None => path,
+        Some(path) => Path::new("~").join(path)
+    }
 }

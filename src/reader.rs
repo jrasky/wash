@@ -2,6 +2,9 @@
 use input::*;
 use controls::*;
 use constants::*;
+use util::*;
+
+use std::os;
 
 pub struct LineReader {
     pub line: InputLine,
@@ -36,6 +39,8 @@ impl LineReader {
     }
 
     pub fn read_line(&mut self) -> Option<Vec<String>> {
+        let cwd = os::getcwd().unwrap();
+        self.controls.outf(format_args!("{}$ ", condense_path(cwd).display()));
         while !self.finished && !self.eof {
             match self.controls.read() {
                 Ok(ch) => {

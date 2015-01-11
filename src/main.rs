@@ -7,6 +7,7 @@ extern crate unicode;
 use libc::*;
 
 use std::io::process::{Command, StdioContainer, ProcessOutput};
+use std::os;
 
 use reader::*;
 use controls::*;
@@ -16,6 +17,7 @@ use constants::*;
 use util::*;
 use input::*;
 use script::*;
+use builtins::*;
 
 mod constants;
 mod util;
@@ -25,6 +27,7 @@ mod controls;
 mod input;
 mod reader;
 mod script;
+mod builtins;
 
 // start off as null pointer
 static mut uglobal_reader:*mut LineReader = 0 as *mut LineReader;
@@ -39,13 +42,12 @@ unsafe extern fn reader_sigint(signum:c_int, siginfo:*const SigInfo,
             panic!("Line reader location uninitalized");
         }
     };
-    if reader.line.is_empty() {
-        reader.controls.outs("Interrupt\n");
-    } else {
-        reader.controls.outs("\nInterrupt\n");
-    }
+    reader.controls.outs("\nInterrupt\n");
     // reset line
     reader.clear();
+    // re-print PS1
+    let cwd = os::getcwd().unwrap();
+    reader.controls.outf(format_args!("{}$ ", condense_path(cwd).display()));
 }
 
 fn set_reader_location(reader:&mut LineReader) {
@@ -180,33 +182,8 @@ fn process_job(line:&Vec<String>, tios:&Termios, old_tios:&Termios,
     }
     if env.functions.contains_key(&line[0]) {
         let func = env.functions.get(&line[0]).unwrap();
-        let mut args = line.clone();
-        args.pop();
         env.controls.flush();
-        func(&args, env);
-    } else if line[0].as_slice().ends_with(".ws") {
-        // run as wash shell script
-        if !env.scripts.contains_key(&line.clone()[0]) {
-            // only access script objects by borrowing from the hash map
-            // this is to ensure lifetimes
-            env.scripts.insert(line[0].clone(),
-                               WashScript::new(Path::new(&line[0])));
-        }
-        let script = env.scripts.get_mut(line[0].as_slice()).unwrap();
-        if !script.is_compiled() && !script.compile() {
-            env.controls.err("Failed to compile script\n");
-            return;
-        }
-        let mut args = line.clone();
-        args.pop();
-        env.controls.flush();
-        if script.is_runnable() {
-            script.run(&args, env);
-        } else if script.is_loadable() {
-            script.load(&args, env);
-        } else {
-            env.controls.err("Cannot load or run script\n");
-        }
+        func(&line.slice_from(1).to_vec(), env);
     } else {
         update_terminal(old_tios, &mut env.controls);
         signal_ignore(SIGINT);
@@ -225,6 +202,7 @@ fn main() {
     update_terminal(&tios, controls);
     set_reader_location(&mut reader);
     set_reader_sigint(controls);
+    load_builtins(&mut env);
     let mut line:Vec<String>;
     loop {
         line = match reader.read_line() {
@@ -244,6 +222,6 @@ fn main() {
         reader.clear();
         controls.flush();
     }
-    controls.outs("Exiting\n");
+    controls.outs("\nExiting\n");
     update_terminal(&old_tios, controls);
 }
