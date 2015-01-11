@@ -21,16 +21,18 @@ use constants::*;
 // WashEnv has to be an unsafe pointer because functions can modify
 // the state variables we got them from
 // What we're doing is safe, Rust just doesn't BELIEVE
-pub type WashFunc = fn(&Vec<String>, *mut WashEnv) -> Vec<String>;
+pub type WashFunc = fn(&Vec<String>, &mut WashEnv) -> Vec<String>;
 
 // >Dat pointer indirection
 // Sorry bro, Rust doesn't have DSTs yet
 // Once it does they'll turn into a more compact structure
 pub type VarTable = HashMap<String, String>;
 pub type FuncTable = HashMap<String, WashFunc>;
-pub type ScriptTable = HashMap<String, WashScript>;
+pub type ScriptTable = HashMap<Path, WashScript>;
 
-type WashLoad = extern fn(*const Vec<String>, *mut WashEnv);
+// WashLoad returns a vector: [num_funcs, num_vars, funcs..., vars...]
+// list of initialized functions and variables
+type WashLoad = extern fn(*const Vec<String>, *mut WashEnv) -> Vec<String>;
 type WashRun = extern fn(*const Vec<String>, *mut WashEnv);
 
 pub struct WashEnv {
@@ -57,6 +59,65 @@ impl WashEnv {
             functions: HashMap::new(),
             scripts: HashMap::new(),
             controls: Controls::new()
+        }
+    }
+
+    pub fn hasv(&self, name:String) -> bool {
+        self.variables.contains_key(&name)
+    }
+
+    pub fn hasf(&self, name:String) -> bool {
+        self.functions.contains_key(&name)
+    }
+
+    pub fn insv(&mut self, name:String, val:String) {
+        self.variables.insert(name, val);
+    }
+
+    pub fn insf(&mut self, name:String, func:WashFunc) {
+        self.functions.insert(name, func);
+    }
+
+    pub fn get_variable(u_env:*const WashEnv, name:&String) -> Option<String> {
+        // I'm not even returning a pointer calm down rust
+        let env = unsafe{u_env.as_ref()}.unwrap();
+        return match env.variables.get(name) {
+            None => None,
+            Some(val) => Some(val.clone())
+        };
+    }
+
+    pub fn get_function(u_env:*const WashEnv, name:&String) -> Option<&WashFunc> {
+        let env = unsafe{u_env.as_ref()}.unwrap();
+        return env.functions.get(name);
+    }
+
+    pub fn get_script<'a>(u_env:*mut WashEnv, path:&Path) -> Option<&'a mut WashScript> {
+        // this is technically unsafe, but the resulting WashScript has no access to the
+        // WashEnv except through arguments we pass to its function
+        // So really this isn't a borrow, even though Rust thinks it is
+        let env = unsafe{u_env.as_mut()}.unwrap();
+        return env.scripts.get_mut(path);
+    }
+
+    pub fn load_script(&mut self, path:Path, args:&Vec<String>) -> Vec<String> {
+        if !self.scripts.contains_key(&path) {
+            self.scripts.insert(path.clone(), WashScript::new(path.clone()));
+        }
+        let script = WashEnv::get_script(self, &path).unwrap();
+        if !script.is_compiled() && !script.compile() {
+            self.controls.err("Failed to compile script\n");
+            return vec![];
+        }
+        self.controls.flush();
+        if script.is_runnable() {
+            script.run(args, self);
+            return vec![];
+        } else if script.is_loadable() {
+            return script.load(args, self);
+        } else {
+            self.controls.err("Cannot load or run script\n");
+            return vec![];
         }
     }
 }
@@ -92,7 +153,7 @@ impl WashScript {
         !self.handle.is_null()
     }
 
-    pub fn run(&mut self, args:&Vec<String>, u_env:*mut WashEnv) {
+    pub fn run(&mut self, args:&Vec<String>, env:&mut WashEnv) {
         if !self.is_compiled() {
             self.controls.err("Script not compiled\n");
             return;
@@ -109,16 +170,16 @@ impl WashScript {
         };
 
         if !self.loaded && self.is_loadable() {
-            self.load(args, u_env);
+            self.load(args, env);
         }
 
-        run_func(args, u_env);
+        run_func(args, env);
     }
 
-    pub fn load(&mut self, args:&Vec<String>, u_env:*mut WashEnv) {
+    pub fn load(&mut self, args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
         if !self.is_compiled() {
             self.controls.err("Script is not compiled\n");
-            return;
+            return vec![];
         }
         
         let load_func:WashLoad = unsafe {
@@ -126,7 +187,7 @@ impl WashScript {
                 Some(f) => mem::transmute(f),
                 None => {
                     self.controls.err("Script has no load actions\n");
-                    return;
+                    return vec![];
                 }
             }
         };
@@ -135,8 +196,9 @@ impl WashScript {
             self.controls.err("Script already loaded\n");
         }
 
-        load_func(args, u_env);
+        let out = load_func(args, env);
         self.loaded = true;
+        return out;
     }
 
     pub fn close(&mut self) {
@@ -164,6 +226,10 @@ impl WashScript {
         if self.is_compiled() {
             // script is already compiled
             return true;
+        }
+        if !self.path.exists() {
+            self.controls.errf(format_args!("Could not find {}\n", self.path.display()));
+            return false;
         }
         let inf = match io::File::open(&self.path) {
             Ok(f) => f,

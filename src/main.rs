@@ -181,9 +181,12 @@ fn process_job(line:&Vec<String>, tios:&Termios, old_tios:&Termios,
         return;
     }
     if env.functions.contains_key(&line[0]) {
-        let func = env.functions.get(&line[0]).unwrap();
+        let func = WashEnv::get_function(env, &line[0]).unwrap();
         env.controls.flush();
-        func(&line.slice_from(1).to_vec(), env);
+        let out = func(&line.slice_from(1).to_vec(), env);
+        if !out.is_empty() {
+            env.controls.outf(format_args!("{}\n", out.as_slice().connect(" ")));
+        }
     } else {
         update_terminal(old_tios, &mut env.controls);
         signal_ignore(SIGINT);

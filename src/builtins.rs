@@ -6,37 +6,17 @@ use util::*;
 
 // Calling convention:
 // fn(args:&Vec<String>, u_env:*mut WashEnv) -> Vec<String>
-fn source(args:&Vec<String>, u_env:*mut WashEnv) -> Vec<String> {
+fn source_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
     // in this case args is line
-    let env = unsafe {
-        u_env.as_mut().unwrap()
-    };
-    if !env.scripts.contains_key(&args.clone()[0]) {
-        // only access script objects by borrowing from the hash map
-        // this is to ensure lifetimes
-        env.scripts.insert(args[0].clone(),
-                           WashScript::new(Path::new(&args[0])));
+    if args.len() < 1 {
+        env.controls.err("No arguments given");
+        return vec![];
     }
-    let script = env.scripts.get_mut(args[0].as_slice()).unwrap();
-    if !script.is_compiled() && !script.compile() {
-        env.controls.err("Failed to compile script\n");
-        return Vec::new();
-    }
-    env.controls.flush();
-    if script.is_runnable() {
-        script.run(&args.slice_from(1).to_vec(), env);
-    } else if script.is_loadable() {
-        script.load(&args.slice_from(1).to_vec(), env);
-    } else {
-        env.controls.err("Cannot load or run script\n");
-    }
-    return Vec::new();
+    let out = env.load_script(Path::new(args[0].clone()), &args.slice_from(1).to_vec());
+    return out.slice_from(min(2, out.len())).to_vec();
 }
 
-fn cd(args:&Vec<String>, u_env:*mut WashEnv) -> Vec<String> {
-    let env = unsafe {
-        u_env.as_mut().unwrap()
-    };
+fn cd_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
     let newp = {
         if args.len() == 0 {
             expand_path(Path::new("~"))
@@ -56,7 +36,32 @@ fn cd(args:&Vec<String>, u_env:*mut WashEnv) -> Vec<String> {
     return Vec::new();
 }
 
+fn senv_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
+    match args.len() {
+        0 => return vec![],
+        v if v <= 1 || args[1] != "=".to_string() =>
+            match os::getenv(args[0].as_slice()) {
+            Some(val) => return vec![val],
+            None => return vec![]
+        },
+        2 if args[1] == "=".to_string() => {
+            os::unsetenv(args[0].as_slice());
+            return vec![];
+        },
+        _ if args[1] == "=".to_string() => {
+            os::setenv(args[0].as_slice(), args[2].as_slice());
+            return vec![args[2].clone()];
+        },
+        _ => {
+            // something went wrong, this case should never happen
+            env.controls.err("Unreachable case reached\n");
+            return vec![];
+        }
+    }
+}
+
 pub fn load_builtins(env:&mut WashEnv) {
-    env.functions.insert(String::from_str("source"), source);
-    env.functions.insert(String::from_str("cd"), cd);
+    env.functions.insert("source".to_string(), source_func);
+    env.functions.insert("cd".to_string(), cd_func);
+    env.functions.insert("senv".to_string(), senv_func);
 }
