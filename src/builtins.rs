@@ -6,13 +6,18 @@ use util::*;
 
 // Calling convention:
 // fn(args:&Vec<String>, u_env:*mut WashEnv) -> Vec<String>
-fn source_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
+fn load_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
     // in this case args is line
     if args.len() < 1 {
         env.controls.err("No arguments given");
         return vec![];
     }
-    let out = env.load_script(Path::new(args[0].clone()), &args.slice_from(1).to_vec());
+    env.load_script(Path::new(args[0].clone()), &args.slice_from(1).to_vec())
+}
+
+fn source_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
+    // in this case args is line
+    let out = load_func(args, env);
     return out.slice_from(min(2, out.len())).to_vec();
 }
 
@@ -60,8 +65,19 @@ fn senv_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
     }
 }
 
+fn builtins_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
+    return vec![
+        "builtins".to_string(),
+        "cd".to_string(),
+        "load".to_string(),
+        "senv".to_string(),
+        "source".to_string()];
+}
+
 pub fn load_builtins(env:&mut WashEnv) {
-    env.functions.insert("source".to_string(), source_func);
-    env.functions.insert("cd".to_string(), cd_func);
-    env.functions.insert("senv".to_string(), senv_func);
+    env.insf("source", source_func);
+    env.insf("load", load_func);
+    env.insf("cd", cd_func);
+    env.insf("senv", senv_func);
+    env.insf("builtins", builtins_func);
 }

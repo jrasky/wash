@@ -70,12 +70,12 @@ impl WashEnv {
         self.functions.contains_key(&name)
     }
 
-    pub fn insv(&mut self, name:String, val:String) {
-        self.variables.insert(name, val);
+    pub fn insv(&mut self, name:&str, val:String) {
+        self.variables.insert(name.to_string(), val);
     }
 
-    pub fn insf(&mut self, name:String, func:WashFunc) {
-        self.functions.insert(name, func);
+    pub fn insf(&mut self, name:&str, func:WashFunc) {
+        self.functions.insert(name.to_string(), func);
     }
 
     pub fn get_variable(u_env:*const WashEnv, name:&String) -> Option<String> {
