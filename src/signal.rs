@@ -1,5 +1,3 @@
-extern crate libc;
-
 use libc::*;
 use std::mem;
 use std::ptr;

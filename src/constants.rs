@@ -1,7 +1,5 @@
 // ignore unused constants
 #![allow(dead_code)]
-#![allow(unstable)]
-extern crate libc;
 
 use libc::*;
 
@@ -75,3 +73,12 @@ pub const SA_NOCLDSTOP:c_int = 1;
 pub const SA_NOCLDWAIT:c_int = 2;
 pub const SA_SIGINFO:c_int   = 4;
 pub const SA_RESTART:c_int   = 0x10000000;
+
+pub const RTLD_LOCAL:c_int = 0;
+pub const RTLD_LAZY:c_int = 1;
+
+pub const WASH_RUN_SYMBOL:&'static str = "wash_run";
+pub const WASH_LOAD_SYMBOL:&'static str = "wash_load";
+pub const WO_PATH:&'static str = "/tmp/wash/";
+
+pub const NCCS:usize = 32;

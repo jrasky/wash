@@ -1,14 +1,9 @@
 #![allow(unstable)]
-extern crate libc;
 
-use self::libc::{c_uint, c_uchar, c_int};
+use libc::{c_uint, c_uchar, c_int};
 
 use constants::*;
 
-// used in Termios struct
-const NCCS:usize = 32;
-
-// types used in Termios struct
 type CCType = c_uchar;
 type SpeedType = c_uint;
 type TCFlag = c_uint;
@@ -24,12 +19,6 @@ pub struct Termios {
     cc: [c_uchar; NCCS],
     ispeed: SpeedType,
     ospeed: SpeedType,
-}
-
-#[link(name = "c")]
-extern {
-    fn tcgetattr(fd: c_int, termios: *mut Termios) -> c_int;
-    fn tcsetattr(fd: c_int, optional_actions: c_int, termios: *const Termios) -> c_int;
 }
 
 impl Termios {
@@ -80,4 +69,10 @@ impl Termios {
         self.lflag &= !lflag;
         self.oflag &= !oflag;
     }
+}
+
+#[link(name = "c")]
+extern {
+    fn tcgetattr(fd: c_int, termios: *mut Termios) -> c_int;
+    fn tcsetattr(fd: c_int, optional_actions: c_int, termios: *const Termios) -> c_int;
 }

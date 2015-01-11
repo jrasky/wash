@@ -2,19 +2,12 @@
 extern crate sodiumoxide;
 extern crate libc;
 extern crate serialize;
+extern crate unicode;
 
 use libc::*;
-use sodiumoxide::crypto::hash::sha256;
-use serialize::hex::ToHex;
 
 use std::io::process::{Command, StdioContainer, ProcessOutput};
-use std::io::fs::PathExtensions;
 use std::collections::HashMap;
-
-use std::ffi;
-use std::str;
-use std::mem;
-use std::io;
 
 use reader::*;
 use controls::*;
@@ -23,6 +16,7 @@ use signal::*;
 use constants::*;
 use util::*;
 use input::*;
+use script::*;
 
 mod constants;
 mod util;
@@ -31,34 +25,22 @@ mod signal;
 mod controls;
 mod input;
 mod reader;
+mod script;
 
-const RTLD_LOCAL:c_int = 0;
-const RTLD_LAZY:c_int = 1;
-
-const ENTRY_SYMBOL:&'static str = "wash_run";
-const WO_PATH:&'static str = "/tmp/wash/";
+type ScriptTable<'a> = HashMap<String, WashScript>;
 
 // start off as null pointer
 static mut uglobal_reader:*mut LineReader = 0 as *mut LineReader;
 
-
-#[link(name = "dl")]
-extern {
-    fn dlopen(filename:*const c_char, flag:c_int) -> *const c_void;
-    fn dlsym(handle:*const c_void, symbol:*const c_char) -> *const c_void;
-    fn dlclose(handle:*const c_void) -> c_int;
-    fn dlerror() -> *const c_char;
-}
-
 #[allow(unused_variables)]
 unsafe extern fn reader_sigint(signum:c_int, siginfo:*const SigInfo, context:size_t) {
-    // This function should only be called when the input line is actually active
-    if uglobal_reader.is_null() {
-        // More informative than a segfault
-        panic!("Line reader location uninitialized");
-    }
     // Hopefully no segfault, this *should* be safe code
-    let ref mut reader:LineReader = *uglobal_reader;
+    let reader:&mut LineReader = match uglobal_reader.as_mut() {
+        Some(v) => v,
+        None => {
+            panic!("Line reader location uninitalized");
+        }
+    };
     if reader.line.is_empty() {
         reader.controls.outs("Interrupt\n");
     } else {
@@ -193,105 +175,54 @@ fn update(line:&Vec<String>) {
     // nothing yet
 }
 
-fn run_wash_script(line:&Vec<String>, controls:&mut Controls) {
-    let inp = Path::new(&line[0]);
-    let inf = match io::File::open(&inp) {
-        Ok(f) => f,
-        Err(e) => {
-            controls.errf(format_args!("File error: {}\n", e));
-            return;
-        }
-    };
-    let mut reader = io::BufferedReader::new(inf);
-    let contents = reader.read_to_end().unwrap();
-    let bytes = contents.as_slice();
-    let mut outname = sha256::hash(bytes).0.to_hex();
-    outname.push_str(".wo");
-    let outp = Path::new(WO_PATH).join(outname);
-    
-    if !outp.exists() {
-        io::fs::mkdir_recursive(&outp.dir_path(), io::USER_RWX).unwrap();
-        let mut command = Command::new("rustc");
-        command.args(&["-o", outp.as_str().unwrap(), "-"]);
-        let mut child = match command.spawn() {
-            Err(e) => {
-                panic!("Error: {}\n", e);
-            },
-            Ok(c) => c
-        };
-
-        {
-            let mut input = child.stdin.as_mut().unwrap();
-            input.write(bytes).unwrap();
-            input.flush().unwrap();
-        }
-
-        match child.wait_with_output() {
-            Err(e) => {
-                controls.errf(format_args!("Could not compile script: {}\n", e));
-            },
-            Ok(o) => {
-                if !o.status.success() {
-                    controls.errf(format_args!("Could not compile script: {}\n",
-                                               String::from_utf8(o.error).unwrap()));
-                }
-            }
-        }
-    }
-
-    unsafe {
-        let handle = dlopen(ffi::CString::from_slice(outp.as_str().unwrap().as_bytes()).as_ptr(),
-                            RTLD_LAZY|RTLD_LOCAL);
-        if handle.is_null() {
-            controls.errf(format_args!("Could not load script object: {}\n",
-                                       str::from_utf8(ffi::c_str_to_bytes(&dlerror())).unwrap()));
-            return;
-        }
-        let ptr = dlsym(handle, ffi::CString::from_slice(ENTRY_SYMBOL.as_bytes()).as_ptr());
-        if ptr.is_null() {
-            controls.errf(format_args!("Could not find entry symbol: {}\n",
-                                       str::from_utf8(ffi::c_str_to_bytes(&dlerror())).unwrap()));
-            dlclose(handle);
-            return;
-        }
-        let func:extern fn() = mem::transmute(ptr);
-        func();
-        dlclose(handle);
-    }
-}
-
-
-fn process_job(line:&Vec<String>, tios:&Termios, old_tios:&Termios,
-               reader:&mut LineReader, controls:&mut Controls) {
+fn process_job<'a>(line:&'a Vec<String>, tios:&Termios, old_tios:&Termios,
+                   reader:&mut LineReader, functions:&mut FuncTable,
+                   scripts:&mut ScriptTable<'a>, controls:&mut Controls) {
     if line.is_empty() {
         return;
     }
-    if line[0].as_slice().ends_with(".ws") {
-        // run as wash shell script
-        update_terminal(old_tios, controls);
-        signal_ignore(SIGINT);
-        controls.outc(NL);
+    if functions.contains_key(line[0].as_slice()) {
+        let func = functions.get(line[0].as_slice()).unwrap();
+        let mut args = line.clone();
+        args.pop();
         controls.flush();
-        run_wash_script(line, controls);
-        set_reader_sigint(controls);
-        update_terminal(tios, controls);
-        reader.clear();
+        func(&args, controls);
+    } else if line[0].as_slice().ends_with(".ws") {
+        // run as wash shell script
+        if !scripts.contains_key(&line.clone()[0]) {
+            scripts.insert::<'a>(line[0].clone(),
+                                 WashScript::new(Path::new(&line[0])));
+        }
+        let script = scripts.get_mut(line[0].as_slice()).unwrap();
+        if !script.is_compiled() && !script.compile() {
+            controls.err("Failed to compile script\n");
+            return;
+        }
+        let mut args = line.clone();
+        args.pop();
+        controls.flush();
+        if script.is_runnable() {
+            script.run(&args, functions);
+        } else if script.is_loadable() {
+            script.load(&args, functions);
+        } else {
+            controls.err("Cannot load or run script\n");
+        }
     } else {
         update_terminal(old_tios, controls);
         signal_ignore(SIGINT);
-        controls.outc(NL);
         controls.flush();
         run_command(line, controls);
         set_reader_sigint(controls);
         update_terminal(tios, controls);
-        reader.clear();
     }
 }
 
 fn main() {
     let mut controls = &mut Controls::new();
     let mut reader = LineReader::new();
-    let mut map = HashMap::<&str, &fn(Vec<String>) -> Vec<String>>::new();
+    let mut functions:FuncTable = HashMap::new();
+    let mut scripts:ScriptTable = HashMap::new();
     let (tios, old_tios) = terminal_settings(controls);
     update_terminal(&tios, controls);
     set_reader_location(&mut reader);
@@ -311,7 +242,9 @@ fn main() {
         };
         update(&line);
         process_job(&line, &tios, &old_tios,
-                    &mut reader, controls);
+                    &mut reader, &mut functions,
+                    &mut scripts, controls);
+        reader.clear();
         controls.flush();
     }
     controls.outs("Exiting\n");

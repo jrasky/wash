@@ -100,6 +100,7 @@ impl LineReader {
                 }
             },
             NL => {
+                self.controls.outc(NL);
                 self.finished = true;
             },
             ESC => {
