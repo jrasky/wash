@@ -7,7 +7,6 @@ extern crate unicode;
 use libc::*;
 
 use std::io::process::{Command, StdioContainer, ProcessOutput};
-use std::collections::HashMap;
 
 use reader::*;
 use controls::*;
@@ -31,7 +30,8 @@ mod script;
 static mut uglobal_reader:*mut LineReader = 0 as *mut LineReader;
 
 #[allow(unused_variables)]
-unsafe extern fn reader_sigint(signum:c_int, siginfo:*const SigInfo, context:*const c_void) {
+unsafe extern fn reader_sigint(signum:c_int, siginfo:*const SigInfo,
+                               context:*const c_void) {
     // Hopefully no segfault, this *should* be safe code
     let reader:&mut LineReader = match uglobal_reader.as_mut() {
         Some(v) => v,
@@ -174,57 +174,53 @@ fn update(line:&Vec<String>) {
 }
 
 fn process_job(line:&Vec<String>, tios:&Termios, old_tios:&Termios,
-               reader:&mut LineReader, functions:&mut FuncTable,
-               scripts:&mut ScriptTable, controls:&mut Controls) {
+               reader:&mut LineReader, env:&mut WashEnv) {
     if line.is_empty() {
         return;
     }
-    if functions.contains_key(&line[0]) {
-        let func = functions.get(&line[0]).unwrap();
+    if env.functions.contains_key(&line[0]) {
+        let func = env.functions.get(&line[0]).unwrap();
         let mut args = line.clone();
         args.pop();
-        controls.flush();
-        func(&args, controls);
+        env.controls.flush();
+        func(&args, env);
     } else if line[0].as_slice().ends_with(".ws") {
         // run as wash shell script
-        if !scripts.contains_key(&line.clone()[0]) {
+        if !env.scripts.contains_key(&line.clone()[0]) {
             // only access script objects by borrowing from the hash map
             // this is to ensure lifetimes
-            scripts.insert(line[0].clone(),
-                           WashScript::new(Path::new(&line[0])));
+            env.scripts.insert(line[0].clone(),
+                               WashScript::new(Path::new(&line[0])));
         }
-        let script = scripts.get_mut(line[0].as_slice()).unwrap();
+        let script = env.scripts.get_mut(line[0].as_slice()).unwrap();
         if !script.is_compiled() && !script.compile() {
-            controls.err("Failed to compile script\n");
+            env.controls.err("Failed to compile script\n");
             return;
         }
         let mut args = line.clone();
         args.pop();
-        controls.flush();
+        env.controls.flush();
         if script.is_runnable() {
-            script.run(&args, functions);
+            script.run(&args, env);
         } else if script.is_loadable() {
-            script.load(&args, functions);
+            script.load(&args, env);
         } else {
-            controls.err("Cannot load or run script\n");
+            env.controls.err("Cannot load or run script\n");
         }
     } else {
-        update_terminal(old_tios, controls);
+        update_terminal(old_tios, &mut env.controls);
         signal_ignore(SIGINT);
-        controls.flush();
-        run_command(line, controls);
-        set_reader_sigint(controls);
-        update_terminal(tios, controls);
+        env.controls.flush();
+        run_command(line, &mut env.controls);
+        set_reader_sigint(&mut env.controls);
+        update_terminal(tios, &mut env.controls);
     }
 }
 
 fn main() {
     let mut controls = &mut Controls::new();
     let mut reader = LineReader::new();
-    let mut functions:FuncTable = HashMap::new();
-    // scripts below to ensure the liftime of script objects
-    // otherwise they get deleted, and the script objects unloaded
-    let mut scripts:ScriptTable = HashMap::new();
+    let mut env = WashEnv::new();
     let (tios, old_tios) = terminal_settings(controls);
     update_terminal(&tios, controls);
     set_reader_location(&mut reader);
@@ -244,8 +240,7 @@ fn main() {
         };
         update(&line);
         process_job(&line, &tios, &old_tios,
-                    &mut reader, &mut functions,
-                    &mut scripts, controls);
+                    &mut reader, &mut env);
         reader.clear();
         controls.flush();
     }

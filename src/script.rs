@@ -18,16 +18,27 @@ use constants::*;
 
 // !!!
 // Wash function calling convention
-pub type WashFunc = fn(&Vec<String>, &mut Controls) -> Vec<String>;
+// WashEnv has to be an unsafe pointer because functions can modify
+// the state variables we got them from
+// What we're doing is safe, Rust just doesn't BELIEVE
+pub type WashFunc = fn(&Vec<String>, *mut WashEnv) -> Vec<String>;
 
 // >Dat pointer indirection
 // Sorry bro, Rust doesn't have DSTs yet
 // Once it does they'll turn into a more compact structure
+pub type VarTable = HashMap<String, String>;
 pub type FuncTable = HashMap<String, WashFunc>;
 pub type ScriptTable = HashMap<String, WashScript>;
 
-type WashLoad = extern fn(*const Vec<String>, *mut FuncTable, *mut Controls);
-type WashRun = extern fn(*const Vec<String>, *mut FuncTable, *mut Controls);
+type WashLoad = extern fn(*const Vec<String>, *mut WashEnv);
+type WashRun = extern fn(*const Vec<String>, *mut WashEnv);
+
+pub struct WashEnv {
+    pub variables: VarTable,
+    pub functions: FuncTable,
+    pub scripts: ScriptTable,
+    pub controls: Controls
+}
 
 pub struct WashScript {
     pub path: Path,
@@ -37,6 +48,17 @@ pub struct WashScript {
     run_ptr: *const c_void,
     load_ptr: *const c_void,
     pub loaded: bool
+}
+
+impl WashEnv {
+    pub fn new() -> WashEnv {
+        WashEnv {
+            variables: HashMap::new(),
+            functions: HashMap::new(),
+            scripts: HashMap::new(),
+            controls: Controls::new()
+        }
+    }
 }
 
 impl Drop for WashScript {
@@ -70,7 +92,7 @@ impl WashScript {
         !self.handle.is_null()
     }
 
-    pub fn run(&mut self, args:&Vec<String>, functions:&mut FuncTable) {
+    pub fn run(&mut self, args:&Vec<String>, u_env:*mut WashEnv) {
         if !self.is_compiled() {
             self.controls.err("Script not compiled\n");
             return;
@@ -87,13 +109,13 @@ impl WashScript {
         };
 
         if !self.loaded && self.is_loadable() {
-            self.load(args, functions);
+            self.load(args, u_env);
         }
 
-        run_func(args, functions, &mut self.controls);
+        run_func(args, u_env);
     }
 
-    pub fn load(&mut self, args:&Vec<String>, functions:&mut FuncTable) {
+    pub fn load(&mut self, args:&Vec<String>, u_env:*mut WashEnv) {
         if !self.is_compiled() {
             self.controls.err("Script is not compiled\n");
             return;
@@ -113,7 +135,7 @@ impl WashScript {
             self.controls.err("Script already loaded\n");
         }
 
-        load_func(args, functions, &mut self.controls);
+        load_func(args, u_env);
         self.loaded = true;
     }
 
