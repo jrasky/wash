@@ -194,7 +194,8 @@ fn process_job(line:&Vec<String>, tios:&Termios, old_tios:&Termios,
     }
 }
 
-fn main() {
+// public so no warnings when we run tests
+pub fn main() {
     let mut controls = &mut Controls::new();
     let mut reader = LineReader::new();
     let mut env = WashEnv::new();

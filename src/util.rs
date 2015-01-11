@@ -43,17 +43,14 @@ pub fn strip_word(word:&String) -> String {
 }
 
 pub fn expand_path(path:Path) -> Path {
-    {
-        // make our lives easier
-        let slc = path.as_vec();
-        if slc == b"~" || slc.slice_to(min(slc.len(), 2)) == b"~/" {
-            return match os::getenv("HOME") {
-                None => Path::new("/"),
-                Some(val) => Path::new(val)
-            }.join(Path::new(slc.slice_from(min(slc.len(), 2))))
-        }
+    if Path::new("~").is_ancestor_of(&path) {
+        return match os::getenv("HOME") {
+            None => Path::new("/"),
+            Some(val) => Path::new(val)
+        }.join(Path::new(path.as_vec().slice_from(min(path.as_vec().len(), 2))));
+    } else {
+        return path;
     }
-    return path;
 }
 
 pub fn condense_path(path:Path) -> Path {
@@ -61,8 +58,57 @@ pub fn condense_path(path:Path) -> Path {
             None => return path,
             Some(val) => val
     });
-    match path.path_relative_from(&homep) {
-        None => path,
-        Some(path) => Path::new("~").join(path)
+    if homep.is_ancestor_of(&path) {
+        match path.path_relative_from(&homep) {
+            None => path,
+            Some(path) => Path::new("~").join(path)
+        }
+    } else {
+        return path;
     }
+}
+
+#[test]
+fn build_string_test() {
+    assert!(build_string('a', 5) == String::from_str("aaaaa"));
+}
+
+#[test]
+fn is_word_test() {
+    assert!(is_word(&String::from_str("hello")));
+    assert!(is_word(&String::from_str("\"hello world\"")));
+    assert!(is_word(&String::from_str("$(test command)")));
+
+    assert!(!is_word(&String::from_str("\"hello wor")));
+    assert!(!is_word(&String::from_str("$(test com")));
+}
+
+#[test]
+fn strip_word_test() {
+    assert!(strip_word(&String::from_str("\"hello world\"")) == String::from_str("hello world"));
+    assert!(strip_word(&String::from_str("hello")) == String::from_str("hello"));
+}
+
+#[test]
+fn strip_words_test() {
+    assert!(strip_words(vec![String::from_str("\"hello world\""), String::from_str("hello")])
+            == vec![String::from_str("hello world"), String::from_str("hello")]);
+}
+
+#[test]
+fn expand_path_test() {
+    // tests require the HOME env set
+    let homep = Path::new(os::getenv("HOME").unwrap());
+    assert!(expand_path(Path::new("~/Documents/scripts/")) == homep.join("Documents/scripts/"));
+    assert!(expand_path(Path::new("/etc/wash/")) == Path::new("/etc/wash/"));
+}
+
+#[test]
+fn condense_path_test() {
+    // tests require the HOME env set
+    let homep = Path::new(os::getenv("HOME").unwrap());
+    assert!(condense_path(homep.join("Documents/scripts/")) ==
+            Path::new("~/Documents/scripts/"));
+    assert!(condense_path(Path::new("/home/")) == Path::new("/home/"));
+    assert!(condense_path(Path::new("/etc/wash/")) == Path::new("/etc/wash/"));
 }

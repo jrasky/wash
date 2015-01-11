@@ -40,6 +40,9 @@ fn cd(args:&Vec<String>, u_env:*mut WashEnv) -> Vec<String> {
     let newp = {
         if args.len() == 0 {
             expand_path(Path::new("~"))
+        } else if args[0].slice_to(min(args[0].len(), 2)) == "./" {
+            // this specifical case can't be put through expand_path
+            Path::new(&args[0])
         } else {
             expand_path(Path::new(&args[0]))
         }
