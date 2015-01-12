@@ -1,8 +1,12 @@
 #![allow(unstable)]
+#![feature(plugin)]
 extern crate sodiumoxide;
 extern crate libc;
 extern crate serialize;
 extern crate unicode;
+extern crate regex;
+#[plugin] #[no_link]
+extern crate regex_macros;
 
 use libc::*;
 

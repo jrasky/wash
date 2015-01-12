@@ -29,7 +29,7 @@ impl InputLine {
     pub fn push(&mut self, ch:char) {
         match ch {
             SPC => {
-                if is_word(&self.front) {
+                if is_word(self.front.as_slice()) {
                     self.words.push(self.front.clone());
                     self.front.clear();
                 } else {
@@ -94,7 +94,7 @@ impl InputLine {
         loop {
             match part.pop() {
                 Some(SPC) => {
-                    if is_word(&front) {
+                    if is_word(front.as_slice()) {
                         words.push(front.clone());
                         front.clear();
                     } else {

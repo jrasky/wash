@@ -42,29 +42,33 @@ fn cd_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
 }
 
 fn senv_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
-    match args.len() {
-        0 => return vec![],
-        v if v <= 1 || args[1] != "=".to_string() =>
-            match os::getenv(args[0].as_slice()) {
-            Some(val) => return vec![val],
-            None => return vec![]
-        },
-        2 if args[1] == "=".to_string() => {
-            os::unsetenv(args[0].as_slice());
+    if args.len() == 0 {
+        return vec![];
+    }
+    if regex!(r"^\S+[=]").is_match(args[0].as_slice()) {
+        let re = regex!("=");
+        let parts = collect(re.splitn(args[0].as_slice(), 2));
+        // note: parts will have length of exactly 2
+        if parts[1] == "" {
+            os::unsetenv(parts[0]);
             return vec![];
-        },
-        _ if args[1] == "=".to_string() => {
-            os::setenv(args[0].as_slice(), args[2].as_slice());
-            return vec![args[2].clone()];
-        },
-        _ => {
-            // something went wrong, this case should never happen
-            env.controls.err("Unreachable case reached\n");
-            return vec![];
+        } else {
+            os::setenv(parts[0], parts[1]);
+            return vec![parts[1].to_string()];
         }
+    } else if regex!(r"^\S+$").is_match(args[0].as_slice()) {
+        match os::getenv(args[0].as_slice()) {
+            None => return vec![],
+            Some(val) => return vec![val]
+        }
+    } else {
+        // user supplied some variable name with spaces in it
+        // which isn't allowed
+        return vec![];
     }
 }
 
+#[allow(unused_variables)]
 fn builtins_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
     return vec![
         "builtins".to_string(),

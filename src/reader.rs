@@ -63,7 +63,7 @@ impl LineReader {
             return None;
         } else {
             return Some(self.line.process());
-        }
+        }        
     }
     
     pub fn draw_part(&mut self) {

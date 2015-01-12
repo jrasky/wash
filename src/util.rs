@@ -1,15 +1,10 @@
 use std::cmp::*;
 use std::os;
 
-pub fn is_word(word:&String) -> bool {
-    (!word.as_slice().starts_with("\"") ||
-     (word.len() > 1 &&
-      word.as_slice().starts_with("\"") &&
-      word.as_slice().ends_with("\""))) &&
-        (!word.as_slice().starts_with("$(") ||
-         (word.len() > 2 &&
-          word.as_slice().starts_with("$(") &&
-          word.as_slice().ends_with(")")))
+pub fn is_word(word:&str) -> bool {
+    // Word must either contain no double quotes,
+    // or must have a quote on the end
+    regex!("^.+\"$|^[^\"]+$").is_match(word)
 }
 
 // work around lack of DST
@@ -34,12 +29,9 @@ pub fn strip_words(line:Vec<String>) -> Vec<String> {
 }
 
 pub fn strip_word(word:&String) -> String {
-    if word.as_slice().starts_with("\"") &&
-        word.as_slice().ends_with("\"") {
-            return String::from_str(word.slice_chars(1, word.len() - 1));
-        } else {
-            return word.clone();
-        }
+    let first_removed = collect(regex!("\"").splitn(word.as_slice(), 2).map(|x| {x.to_string()})).as_slice().concat();
+    let second_removed = collect(regex!("\"$").splitn(first_removed.as_slice(), 2).map(|x| {x.to_string()})).as_slice().concat();
+    return second_removed.to_string();
 }
 
 pub fn expand_path(path:Path) -> Path {
@@ -68,6 +60,15 @@ pub fn condense_path(path:Path) -> Path {
     }
 }
 
+// work around compiler bug
+pub fn collect<T:Iterator>(mut from:T) -> Vec<T::Item> {
+    let mut bucket = Vec::<T::Item>::new();
+    for item in from {
+        bucket.push(item);
+    }
+    return bucket;
+}
+
 #[test]
 fn build_string_test() {
     assert!(build_string('a', 5) == String::from_str("aaaaa"));
@@ -75,12 +76,13 @@ fn build_string_test() {
 
 #[test]
 fn is_word_test() {
-    assert!(is_word(&String::from_str("hello")));
-    assert!(is_word(&String::from_str("\"hello world\"")));
-    assert!(is_word(&String::from_str("$(test command)")));
+    assert!(is_word("hello"));
+    assert!(is_word("\"hello world\""));
+    assert!(is_word("TEST=\"hello world\""));
+    //assert!(is_word("$(test command)"));
 
-    assert!(!is_word(&String::from_str("\"hello wor")));
-    assert!(!is_word(&String::from_str("$(test com")));
+    assert!(!is_word("TEST=\"hello"));
+    //assert!(!is_word("$(test com"));
 }
 
 #[test]
@@ -91,8 +93,8 @@ fn strip_word_test() {
 
 #[test]
 fn strip_words_test() {
-    assert!(strip_words(vec![String::from_str("\"hello world\""), String::from_str("hello")])
-            == vec![String::from_str("hello world"), String::from_str("hello")]);
+    assert!(strip_words(vec![String::from_str("\"hel\"lo world\""), String::from_str("hello")])
+            == vec![String::from_str("hel\"lo world"), String::from_str("hello")]);
 }
 
 #[test]
