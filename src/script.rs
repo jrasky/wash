@@ -18,9 +18,6 @@ use constants::*;
 
 // !!!
 // Wash function calling convention
-// WashEnv has to be an unsafe pointer because functions can modify
-// the state variables we got them from
-// What we're doing is safe, Rust just doesn't BELIEVE
 pub type WashFunc = fn(&Vec<String>, &mut WashEnv) -> Vec<String>;
 
 // >Dat pointer indirection
@@ -62,23 +59,23 @@ impl WashEnv {
         }
     }
 
-    pub fn hasv(&self, name:String) -> bool {
-        self.variables.contains_key(&name)
+    pub fn hasv(&self, name:&str) -> bool {
+        self.variables.contains_key(&name.to_string())
     }
 
-    pub fn hasf(&self, name:String) -> bool {
-        self.functions.contains_key(&name)
+    pub fn hasf(&self, name:&str) -> bool {
+        self.functions.contains_key(&name.to_string())
     }
 
-    pub fn insv(&mut self, name:&str, val:String) {
-        self.variables.insert(name.to_string(), val);
+    pub fn insv(&mut self, name:&str, val:&str) {
+        self.variables.insert(name.to_string(), val.to_string());
     }
 
     pub fn insf(&mut self, name:&str, func:WashFunc) {
         self.functions.insert(name.to_string(), func);
     }
 
-    pub fn get_variable(u_env:*const WashEnv, name:&String) -> Option<String> {
+    pub fn getv(u_env:*const WashEnv, name:&String) -> Option<String> {
         // I'm not even returning a pointer calm down rust
         let env = unsafe{u_env.as_ref()}.unwrap();
         return match env.variables.get(name) {
@@ -87,7 +84,7 @@ impl WashEnv {
         };
     }
 
-    pub fn get_function(u_env:*const WashEnv, name:&String) -> Option<&WashFunc> {
+    pub fn getf(u_env:*const WashEnv, name:&String) -> Option<&WashFunc> {
         let env = unsafe{u_env.as_ref()}.unwrap();
         return env.functions.get(name);
     }
@@ -290,11 +287,11 @@ impl WashScript {
             }
         }
 
-        let path_cstr = ffi::CString::from_slice(outp.as_str().unwrap().as_bytes()).as_ptr();
-        let run_cstr = ffi::CString::from_slice(WASH_RUN_SYMBOL.as_bytes()).as_ptr();
-        let load_cstr = ffi::CString::from_slice(WASH_LOAD_SYMBOL.as_bytes()).as_ptr();
+        let path_cstr = ffi::CString::from_slice(outp.as_str().unwrap().as_bytes());
+        let run_cstr = ffi::CString::from_slice(WASH_RUN_SYMBOL.as_bytes());
+        let load_cstr = ffi::CString::from_slice(WASH_LOAD_SYMBOL.as_bytes());
         unsafe {
-            self.handle = dlopen(path_cstr, RTLD_LAZY|RTLD_LOCAL);
+            self.handle = dlopen(path_cstr.as_ptr(), RTLD_LAZY|RTLD_LOCAL);
             if self.handle.is_null() {
                 let c = dlerror();
                 let e = str::from_utf8(ffi::c_str_to_bytes(&c)).unwrap();
@@ -302,14 +299,14 @@ impl WashScript {
                 return false;
             }
             
-            self.run_ptr = dlsym(self.handle, run_cstr);
+            self.run_ptr = dlsym(self.handle, run_cstr.as_ptr());
             if self.run_ptr.is_null() {
                 // this script isn't run directly
                 // clear error message
                 dlerror();
             }
             
-            self.load_ptr = dlsym(self.handle, load_cstr);
+            self.load_ptr = dlsym(self.handle, load_cstr.as_ptr());
             if self.load_ptr.is_null() {
                 // this script is only run directly
                 // clear error message
@@ -317,7 +314,7 @@ impl WashScript {
             }
         }
         if self.load_ptr.is_null() && self.run_ptr.is_null() {
-            self.controls.err("No load or run function found in script object");
+            self.controls.err("No load or run function found in script object\n");
             self.close();
             return false;
         }

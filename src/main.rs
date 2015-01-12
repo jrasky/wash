@@ -184,8 +184,8 @@ fn process_job(line:&Vec<String>, tios:&Termios, old_tios:&Termios,
     if line.is_empty() {
         return;
     }
-    if env.functions.contains_key(&line[0]) {
-        let func = WashEnv::get_function(env, &line[0]).unwrap();
+    if env.hasf(line[0].as_slice()) {
+        let func = WashEnv::getf(env, &line[0]).unwrap();
         env.controls.flush();
         let out = func(&line.slice_from(1).to_vec(), env);
         if !out.is_empty() {

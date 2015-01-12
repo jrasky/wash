@@ -3,6 +3,7 @@ use std::cmp::*;
 
 use script::*;
 use util::*;
+use constants::*;
 
 // Calling convention:
 // fn(args:&Vec<String>, u_env:*mut WashEnv) -> Vec<String>
@@ -45,22 +46,14 @@ fn senv_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
     if args.len() == 0 {
         return vec![];
     }
-    if regex!(r"^\S+[=]").is_match(args[0].as_slice()) {
+    if regex!(r"^\S+=").is_match(args[0].as_slice()) {
         let re = regex!("=");
-        let parts = collect(re.splitn(args[0].as_slice(), 2));
-        // note: parts will have length of exactly 2
-        if parts[1] == "" {
-            os::unsetenv(parts[0]);
-            return vec![];
-        } else {
-            os::setenv(parts[0], parts[1]);
-            return vec![parts[1].to_string()];
-        }
+        let parts = re.splitn(args[0].as_slice(), 2).collect::<Vec<&str>>();
+        os::setenv(parts[0], parts[1]);
+        return vec![parts[1].to_string()];
     } else if regex!(r"^\S+$").is_match(args[0].as_slice()) {
-        match os::getenv(args[0].as_slice()) {
-            None => return vec![],
-            Some(val) => return vec![val]
-        }
+        os::unsetenv(args[0].as_slice());
+        return vec![];
     } else {
         // user supplied some variable name with spaces in it
         // which isn't allowed
@@ -68,11 +61,31 @@ fn senv_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
     }
 }
 
+fn genv_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
+    if args.len() == 0 {
+        return vec![];
+    }
+    if !regex!(r"^\S+$").is_match(args[0].as_slice()) {
+        return vec![];
+    }
+    match os::getenv(args[0].as_slice()) {
+        None => return vec![],
+        Some(val) => return vec![val]
+    }
+}
+
+fn outs_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
+    env.controls.outs(args[0].as_slice());
+    env.controls.outc(NL);
+    return vec![];
+}
+
 #[allow(unused_variables)]
 fn builtins_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
     return vec![
         "builtins".to_string(),
         "cd".to_string(),
+        "genv".to_string(),
         "load".to_string(),
         "senv".to_string(),
         "source".to_string()];
@@ -84,4 +97,6 @@ pub fn load_builtins(env:&mut WashEnv) {
     env.insf("cd", cd_func);
     env.insf("senv", senv_func);
     env.insf("builtins", builtins_func);
+    env.insf("genv", genv_func);
+    env.insf("outs", outs_func);
 }

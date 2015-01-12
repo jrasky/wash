@@ -4,7 +4,7 @@ use std::os;
 pub fn is_word(word:&str) -> bool {
     // Word must either contain no double quotes,
     // or must have a quote on the end
-    regex!("^.+\"$|^[^\"]+$").is_match(word)
+    regex!("^.*\".+\"$|^[^\"]+$").is_match(word)
 }
 
 // work around lack of DST
@@ -29,8 +29,8 @@ pub fn strip_words(line:Vec<String>) -> Vec<String> {
 }
 
 pub fn strip_word(word:&String) -> String {
-    let first_removed = collect(regex!("\"").splitn(word.as_slice(), 2).map(|x| {x.to_string()})).as_slice().concat();
-    let second_removed = collect(regex!("\"$").splitn(first_removed.as_slice(), 2).map(|x| {x.to_string()})).as_slice().concat();
+    let first_removed:String = regex!("\"").splitn(word.as_slice(), 2).collect::<Vec<&str>>().as_slice().concat();
+    let second_removed:String = regex!("\"$").splitn(first_removed.as_slice(), 2).collect::<Vec<&str>>().as_slice().concat();
     return second_removed.to_string();
 }
 
@@ -58,15 +58,6 @@ pub fn condense_path(path:Path) -> Path {
     } else {
         return path;
     }
-}
-
-// work around compiler bug
-pub fn collect<T:Iterator>(mut from:T) -> Vec<T::Item> {
-    let mut bucket = Vec::<T::Item>::new();
-    for item in from {
-        bucket.push(item);
-    }
-    return bucket;
 }
 
 #[test]

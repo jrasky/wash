@@ -12,7 +12,7 @@ fn empty_escape(esc:&mut Iterator<Item=char>) -> String {
     return out;
 }
 
-fn main() {
+pub fn main() {
     let mut stdin = io::stdin();
 
     print!("Type a key: ");
