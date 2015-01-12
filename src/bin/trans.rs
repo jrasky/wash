@@ -108,8 +108,8 @@ fn process_line(line:String) -> String {
 }
 
 fn process_lvalue(val:String) -> Vec<String> {
-    if regex!("\\$(\\S+):(\\S+)").is_match(val.as_slice()) {
-        let caps = regex!("\\$(\\S+):(\\S+)").captures(val.as_slice()).unwrap();
+    if regex!("\\$([^ \t\n\r,\"()]+):([^ \t\n\r,\"()]+)").is_match(val.as_slice()) {
+        let caps = regex!("\\$([^ \t\n\r,\"()]+):([^ \t\n\r,\"()]+)").captures(val.as_slice()).unwrap();
         match caps.at(1).unwrap() {
             "env" => {
                 let val = caps.at(2).unwrap();
@@ -118,8 +118,8 @@ fn process_lvalue(val:String) -> Vec<String> {
             },
             _ => panic!("Unknown variable identifier")
         }
-    } else if regex!("\\$(\\S+)").is_match(val.as_slice()) {
-        let val = regex!("\\$(\\S+)").captures(val.as_slice()).unwrap().at(1).unwrap();
+    } else if regex!("\\$([^ \t\n\r,\"()]+)").is_match(val.as_slice()) {
+        let val = regex!("\\$([^ \t\n\r,\"()]+)").captures(val.as_slice()).unwrap().at(1).unwrap();
         let pre = format!("env.insv(\"{}\".to_string(), ", val).to_string();
         return vec![pre, ");".to_string()];
     } else {
@@ -131,8 +131,8 @@ fn process_rvalue(val:String) -> String {
     if regex!("^\\s*\"[^\"]*\"\\s*$").is_match(val.as_slice()) {
         let val = regex!("\"[^\"]*\"").captures(val.as_slice()).unwrap().at(0).unwrap();
         return format!("{}.to_string()", val.to_string());
-    } if regex!("^\\s*\\$(\\S+):(\\S+)\\s*$").is_match(val.as_slice()) {
-        let caps = regex!("\\$(\\S+):(\\S+)").captures(val.as_slice()).unwrap();
+    } if regex!("^\\s*\\$([^ \t\n\r,\"()]+):([^ \t\n\r,\"()]+)\\s*$").is_match(val.as_slice()) {
+        let caps = regex!("\\$([^ \t\n\r,\"()]+):([^ \t\n\r,\"()]+)").captures(val.as_slice()).unwrap();
         match caps.at(1).unwrap() {
             "env" => {
                 let val = caps.at(2).unwrap();
@@ -140,26 +140,19 @@ fn process_rvalue(val:String) -> String {
             },
             _ => panic!("Unknown variable identifier")
         }
-    } else if regex!("^\\s*\\$(\\S+)\\s*$").is_match(val.as_slice()) {
-        let val = regex!("\\$(\\S+)").captures(val.as_slice()).unwrap().at(1).unwrap();
+    } else if regex!("^\\s*\\$([^ \t\n\r,\"()]+)\\s*$").is_match(val.as_slice()) {
+        let val = regex!("\\$([^ \t\n\r,\"()]+)").captures(val.as_slice()).unwrap().at(1).unwrap();
         return format!("WashEnv::getv(env, \"{}\".to_string())", val).to_string();
-    } else if regex!("^\\s*(\\S+)\\((.*)\\)\\s*$").is_match(val.as_slice()) {
-        let caps = regex!("(\\S+)\\((.*)\\)").captures(val.as_slice()).unwrap();
+    } else if regex!("^\\s*([^ \t\n\r,\"()]+)\\((.*)\\)\\s*$").is_match(val.as_slice()) {
+        let caps = regex!("([^ \t\n\r,\"()]+)\\((.*)\\)").captures(val.as_slice()).unwrap();
         let name = caps.at(1).unwrap();
-        let re = regex!(",");
+        let re = regex!("(\".+\"|[^ \t\n\r,\"()]+)");
         let args_cap = caps.at(2).unwrap();
-        let args_str;
-        if re.is_match(args_cap) {
-            let mut cap_args = re.split(caps.at(2).unwrap());
-            let mut args = Vec::<String>::new();
-            for arg in cap_args {
-                args.push(process_rvalue(arg.to_string()));
-            }
-            args_str = args.connect(", ");
-        } else {
-            args_str = process_rvalue(args_cap.to_string());
+        let mut args = Vec::<String>::new();
+        for cap in re.captures_iter(args_cap) {
+            args.push(process_rvalue(cap.at(1).unwrap().to_string()));
         }
-        return format!("WashEnv::getf(env, \"{}\".to_string())(&vec![{}], env);", name, args_str).to_string()
+        return format!("WashEnv::getf(env, \"{}\".to_string())(&vec![{}], env);", name, args.connect(", ")).to_string()
     } else {
         return "".to_string();
     }
