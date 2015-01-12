@@ -2,9 +2,9 @@ use std::cmp::*;
 use std::os;
 
 pub fn is_word(word:&str) -> bool {
-    // Word must either contain no double quotes,
-    // or must have a quote on the end
-    regex!("^.*\".+\"$|^[^\"]+$").is_match(word)
+    // defines the following "container" sequences: (.*) and ".*"
+    // words cannot end when either are unclosed
+    regex!("^([^ \t\n\r\"()]*|\".*\"|\\(.*\\))*$").is_match(word)
 }
 
 // work around lack of DST
@@ -67,13 +67,16 @@ fn build_string_test() {
 
 #[test]
 fn is_word_test() {
+    assert!(is_word(""));
     assert!(is_word("hello"));
     assert!(is_word("\"hello world\""));
     assert!(is_word("TEST=\"hello world\""));
-    //assert!(is_word("$(test command)"));
+    assert!(is_word("func(test function)"));
+    assert!(is_word("this(is)a\"complex\"series"));
 
     assert!(!is_word("TEST=\"hello"));
-    //assert!(!is_word("$(test com"));
+    assert!(!is_word("func(test fun"));
+    assert!(!is_word("this(is)a\"complex\"series(with no end"));
 }
 
 #[test]
