@@ -12,13 +12,16 @@ use std::io;
 use std::ffi;
 use std::str;
 use std::mem;
+use std::cmp::*;
 
 use controls::*;
 use constants::*;
 
+use self::WashArgs::*;
+
 // !!!
 // Wash function calling convention
-pub type WashFunc = fn(&Vec<String>, &mut WashEnv) -> Vec<String>;
+pub type WashFunc = fn(&WashArgs, &mut WashEnv) -> WashArgs;
 
 // >Dat pointer indirection
 // Sorry bro, Rust doesn't have DSTs yet
@@ -27,10 +30,17 @@ pub type VarTable = HashMap<String, String>;
 pub type FuncTable = HashMap<String, WashFunc>;
 pub type ScriptTable = HashMap<Path, WashScript>;
 
-// WashLoad returns a vector: [num_funcs, num_vars, funcs..., vars...]
-// list of initialized functions and variables
-type WashLoad = extern fn(*const Vec<String>, *mut WashEnv) -> Vec<String>;
-type WashRun = extern fn(*const Vec<String>, *mut WashEnv);
+// WashLoad returns two lists, the first of initialized functions,
+// the second the same of variables
+type WashLoad = extern fn(*const WashArgs, *mut WashEnv) -> WashArgs;
+type WashRun = extern fn(*const WashArgs, *mut WashEnv) -> WashArgs;
+
+#[derive(Clone)]
+pub enum WashArgs {
+    Flat(String),
+    Long(Vec<WashArgs>),
+    Empty
+}
 
 pub struct WashEnv {
     pub variables: VarTable,
@@ -47,6 +57,83 @@ pub struct WashScript {
     run_ptr: *const c_void,
     load_ptr: *const c_void,
     pub loaded: bool
+}
+
+impl WashArgs {
+    pub fn flatten_with(&self, with:&str) -> String {
+        match self {
+            &Flat(ref s) => s.clone(),
+            &Long(ref v) => {
+                let mut out = String::new();
+                for item in v.iter() {
+                    out.push_str(item.flatten_with(with).as_slice());
+                    out.push(NL);
+                }
+                // remove last NL
+                out.pop();
+                return out;
+            },
+            &Empty => {
+                return String::new();
+            }
+        }
+    }
+
+    pub fn flatten(&self) -> String {
+        return self.flatten_with("\n");
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            &Flat(ref v) => v.len(),
+            &Long(ref v) => v.len(),
+            &Empty => 0
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            &Flat(_) => false,
+            &Long(_) => false,
+            &Empty => true
+        }
+    }
+
+    pub fn get(&self, index:usize) -> WashArgs {
+        if index >= self.len() {
+            return Empty;
+        }
+        match self {
+            &Flat(ref v) => Flat(v.clone()),
+            &Long(ref v) => v[index].clone(),
+            &Empty => Empty
+        }
+    }
+
+    pub fn get_flat(&self, index:usize) -> String {
+        match self.get(index) {
+            Flat(ref v) => v.clone(),
+            Long(_) | Empty => "".to_string()
+        }
+    }
+
+    pub fn slice(&self, u_from:isize, u_to:isize) -> WashArgs {
+        let from = max(0, u_from) as usize;
+        let to = {
+            match u_to {
+                v if v < 0 => self.len(),
+                _ => min(from, self.len())
+            }
+        };
+        if to <= from {
+            return Long(vec![]);
+        }
+        match self {
+            &Flat(_) => Empty,
+            &Empty => Empty,
+            &Long(ref v) => Long(v[from..to].to_vec())
+        }
+    }
 }
 
 impl WashEnv {
@@ -97,24 +184,24 @@ impl WashEnv {
         return env.scripts.get_mut(path);
     }
 
-    pub fn load_script(&mut self, path:Path, args:&Vec<String>) -> Vec<String> {
+    pub fn load_script(&mut self, path:Path, args:&WashArgs) -> WashArgs {
         if !self.scripts.contains_key(&path) {
             self.scripts.insert(path.clone(), WashScript::new(path.clone()));
         }
         let script = WashEnv::get_script(self, &path).unwrap();
         if !script.is_compiled() && !script.compile() {
             self.controls.err("Failed to compile script\n");
-            return vec![];
+            return Empty;
         }
         self.controls.flush();
         if script.is_runnable() {
             script.run(args, self);
-            return vec![];
+            return Empty;
         } else if script.is_loadable() {
             return script.load(args, self);
         } else {
             self.controls.err("Cannot load or run script\n");
-            return vec![];
+            return Empty;
         }
     }
 }
@@ -150,10 +237,10 @@ impl WashScript {
         !self.handle.is_null()
     }
 
-    pub fn run(&mut self, args:&Vec<String>, env:&mut WashEnv) {
+    pub fn run(&mut self, args:&WashArgs, env:&mut WashEnv) -> WashArgs {
         if !self.is_compiled() {
             self.controls.err("Script not compiled\n");
-            return;
+            return Empty;
         }
         
         let run_func:WashRun = unsafe {
@@ -161,7 +248,7 @@ impl WashScript {
                 Some(f) => mem::transmute(f),
                 None => {
                     self.controls.err("Script cannot be run directly\n");
-                    return;
+                    return Empty;
                 }
             }
         };
@@ -170,13 +257,13 @@ impl WashScript {
             self.load(args, env);
         }
 
-        run_func(args, env);
+        return run_func(args, env);
     }
 
-    pub fn load(&mut self, args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
+    pub fn load(&mut self, args:&WashArgs, env:&mut WashEnv) -> WashArgs {
         if !self.is_compiled() {
             self.controls.err("Script is not compiled\n");
-            return vec![];
+            return Empty;
         }
         
         let load_func:WashLoad = unsafe {
@@ -184,7 +271,7 @@ impl WashScript {
                 Some(f) => mem::transmute(f),
                 None => {
                     self.controls.err("Script has no load actions\n");
-                    return vec![];
+                    return Empty;
                 }
             }
         };

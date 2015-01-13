@@ -1,36 +1,36 @@
 use std::os;
 use std::cmp::*;
 
+use script::WashArgs::*;
 use script::*;
 use util::*;
 use constants::*;
 
 // Calling convention:
 // fn(args:&Vec<String>, u_env:*mut WashEnv) -> Vec<String>
-fn load_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
+fn source_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     // in this case args is line
-    if args.len() < 1 {
+    if args.is_empty() {
         env.controls.err("No arguments given");
-        return vec![];
+        return Empty;
     }
-    env.load_script(Path::new(args[0].clone()), &args.slice_from(1).to_vec())
+    let name = match args {
+        &Empty => return Empty,
+        &Long(_) => return Empty,
+        &Flat(ref v) => v.clone()
+    };
+    env.load_script(Path::new(name), &args.slice(1, -1))
 }
 
-fn source_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
-    // in this case args is line
-    let out = load_func(args, env);
-    return out.slice_from(min(2, out.len())).to_vec();
-}
-
-fn cd_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
+fn cd_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     let newp = {
-        if args.len() == 0 {
+        if args.is_empty() {
             expand_path(Path::new("~"))
-        } else if args[0].slice_to(min(args[0].len(), 2)) == "./" {
+        } else if args.get_flat(0).slice_to(min(args.get_flat(0).len(), 2)) == "./" {
             // this specifical case can't be put through expand_path
-            Path::new(&args[0])
+            Path::new(&args.get_flat(0))
         } else {
-            expand_path(Path::new(&args[0]))
+            expand_path(Path::new(&args.get_flat(0)))
         }
     };
     match os::change_dir(&newp) {
@@ -39,61 +39,61 @@ fn cd_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
             env.controls.errf(format_args!("Failed: {}: {}\n", newp.display(), e));
         }
     }
-    return Vec::new();
+    return Empty;
 }
 
-fn senv_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
-    if args.len() == 0 {
-        return vec![];
-    }
-    if regex!(r"^\S+=").is_match(args[0].as_slice()) {
+fn senv_func(args:&WashArgs, _:&mut WashEnv) -> WashArgs {
+    let farg = args.get_flat(0);
+    let arg = farg.as_slice();
+    if regex!(r"^\S+=").is_match(arg) {
         let re = regex!("=");
-        let parts = re.splitn(args[0].as_slice(), 2).collect::<Vec<&str>>();
+        let parts = re.splitn(arg, 2).collect::<Vec<&str>>();
         os::setenv(parts[0], parts[1]);
-        return vec![parts[1].to_string()];
-    } else if regex!(r"^\S+$").is_match(args[0].as_slice()) {
-        os::unsetenv(args[0].as_slice());
-        return vec![];
+        return Flat(parts[1].to_string());
+    } else if regex!(r"^\S+$").is_match(arg) {
+        os::unsetenv(arg);
+        return Empty;
     } else {
         // user supplied some variable name with spaces in it
         // which isn't allowed
-        return vec![];
+        return Empty;
     }
 }
 
-fn genv_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
-    if args.len() == 0 {
-        return vec![];
+fn genv_func(args:&WashArgs, _:&mut WashEnv) -> WashArgs {
+    let fname = args.get_flat(0);
+    let name = fname.as_slice();
+    if !regex!(r"^\S+$").is_match(name) {
+        // takes care of all bad arguments
+        return Empty;
     }
-    if !regex!(r"^\S+$").is_match(args[0].as_slice()) {
-        return vec![];
-    }
-    match os::getenv(args[0].as_slice()) {
-        None => return vec![],
-        Some(val) => return vec![val]
+    match os::getenv(name) {
+        None => return Empty,
+        Some(val) => return Flat(val)
     }
 }
 
-fn outs_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
-    env.controls.outs(args[0].as_slice());
-    env.controls.outc(NL);
-    return vec![];
+fn outs_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+    let mut argf = args.flatten();
+    env.controls.outs(argf.as_slice());
+    if argf.pop() != Some(NL) {
+        env.controls.outc(NL);
+    }
+    return Empty;
 }
 
 #[allow(unused_variables)]
-fn builtins_func(args:&Vec<String>, env:&mut WashEnv) -> Vec<String> {
-    return vec![
-        "builtins".to_string(),
-        "cd".to_string(),
-        "genv".to_string(),
-        "load".to_string(),
-        "senv".to_string(),
-        "source".to_string()];
+fn builtins_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+    return Long(vec![
+        Flat("builtins".to_string()),
+        Flat("cd".to_string()),
+        Flat("genv".to_string()),
+        Flat("senv".to_string()),
+        Flat("source".to_string())]);
 }
 
 pub fn load_builtins(env:&mut WashEnv) {
     env.insf("source", source_func);
-    env.insf("load", load_func);
     env.insf("cd", cd_func);
     env.insf("senv", senv_func);
     env.insf("builtins", builtins_func);

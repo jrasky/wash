@@ -23,6 +23,8 @@ use input::*;
 use script::*;
 use builtins::*;
 
+use script::WashArgs::*;
+
 mod constants;
 mod util;
 mod termios;
@@ -179,17 +181,17 @@ fn update(line:&Vec<String>) {
     // nothing yet
 }
 
-fn process_job(line:&Vec<String>, tios:&Termios, old_tios:&Termios,
-               reader:&mut LineReader, env:&mut WashEnv) {
+fn process_job(line:&Vec<String>, tios:&Termios,
+               old_tios:&Termios,  env:&mut WashEnv) {
     if line.is_empty() {
         return;
     }
     if env.hasf(line[0].as_slice()) {
         let func = WashEnv::getf(env, &line[0]).unwrap();
         env.controls.flush();
-        let out = func(&line.slice_from(1).to_vec(), env);
+        let out = func(&Long(line.slice_from(1).to_vec().iter().map(|x| {Flat(x.clone())}).collect::<Vec<WashArgs>>()), env);
         if !out.is_empty() {
-            env.controls.outf(format_args!("{}\n", out.as_slice().connect(" ")));
+            env.controls.outf(format_args!("{}\n", out.flatten()));
         }
     } else {
         update_terminal(old_tios, &mut env.controls);
@@ -225,8 +227,7 @@ pub fn main() {
             Some(l) => l
         };
         update(&line);
-        process_job(&line, &tios, &old_tios,
-                    &mut reader, &mut env);
+        process_job(&line, &tios, &old_tios, &mut env);
         reader.clear();
         controls.flush();
     }
