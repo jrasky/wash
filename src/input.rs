@@ -75,7 +75,7 @@ impl InputLine {
         }
     }
 
-    pub fn process_line(line:String) -> Vec<String> {
+    pub fn process_line(line:String) -> Option<Vec<String>> {
         let mut inp = InputLine::new();
         let mut cline = line.clone();
         loop {
@@ -87,7 +87,7 @@ impl InputLine {
         return inp.process();
     }
 
-    pub fn process(&self) -> Vec<String> {
+    pub fn process(&self) -> Option<Vec<String>> {
         let mut part = self.part.clone();
         let mut front = self.front.clone();
         let mut words = self.words.clone();
@@ -108,8 +108,13 @@ impl InputLine {
             }
         }
         if !front.is_empty() {
-            words.push(front);
+            if is_word(front.as_slice()) {
+                words.push(front);
+            } else {
+                return None;
+            }
         }
-        return words;
+        return Some(words);
     }
 }
+

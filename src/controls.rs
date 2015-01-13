@@ -88,3 +88,4 @@ impl Controls {
         self.stderr.flush().unwrap();
     }
 }
+

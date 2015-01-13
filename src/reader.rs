@@ -1,10 +1,35 @@
 #![allow(unstable)]
+use libc::*;
+
+use std::os;
+
 use input::*;
 use controls::*;
 use constants::*;
 use util::*;
+use signal::*;
 
-use std::os;
+// start off as null pointer
+static mut uglobal_reader:*mut LineReader = 0 as *mut LineReader;
+
+unsafe extern fn reader_sigint(_:c_int, _:*const SigInfo,
+                               _:*const c_void) {
+    // Hopefully no segfault, this *should* be safe code
+    let reader:&mut LineReader = match uglobal_reader.as_mut() {
+        Some(v) => v,
+        None => {
+            // this handler should never be called when the reader
+            // isn't active
+            panic!("Reader signal interrupt called when reader not active");
+        }
+    };
+    reader.controls.outs("\nInterrupt\n");
+    // reset line
+    reader.clear();
+    // re-print PS1
+    let cwd = os::getcwd().unwrap();
+    reader.controls.outf(format_args!("{}$ ", condense_path(cwd).display()));
+}
 
 pub struct LineReader {
     pub line: InputLine,
@@ -29,6 +54,46 @@ impl LineReader {
         }
     }
 
+    fn set_pointer(&mut self) {
+        unsafe {
+            if !uglobal_reader.is_null() {
+                panic!("Tried to set reader location twice");
+            }
+            uglobal_reader = self as *mut LineReader;
+        }
+    }
+
+    fn unset_pointer(&self) {
+        unsafe {
+            if uglobal_reader.is_null() {
+                panic!("Tried to unset reader location twice");
+            }
+            uglobal_reader = 0 as *mut LineReader;
+        }
+    }
+
+    fn handle_sigint(&mut self) {
+        self.set_pointer();
+        let mut sa = SigAction {
+            handler: reader_sigint,
+            mask: [0; SIGSET_NWORDS],
+            flags: SA_RESTART | SA_SIGINFO,
+            restorer: 0 // null pointer
+        };
+        let mask = full_sigset().expect("Could not get a full sigset");
+        sa.mask = mask;
+        if !signal_handle(SIGINT, &sa) {
+            self.controls.err("Warning: could not set handler for SIGINT\n");
+        }
+    }
+
+    fn unhandle_sigint(&mut self) {
+        self.unset_pointer();
+        if !signal_ignore(SIGINT) {
+            self.controls.err("Warning: could not unset handler for SIGINT\n");
+        }
+    }
+
     pub fn clear(&mut self) {
         self.line.clear();
         self.bpart.clear();
@@ -41,6 +106,8 @@ impl LineReader {
     pub fn read_line(&mut self) -> Option<Vec<String>> {
         let cwd = os::getcwd().unwrap();
         self.controls.outf(format_args!("{}$ ", condense_path(cwd).display()));
+        // handle sigint
+        self.handle_sigint();
         while !self.finished && !self.eof {
             match self.controls.read() {
                 Ok(ch) => {
@@ -59,10 +126,12 @@ impl LineReader {
             }
             self.controls.flush();
         }
+        // unhandle sigint
+        self.unhandle_sigint();
         if self.eof {
             return None;
         } else {
-            return Some(self.line.process());
+            return self.line.process();
         }        
     }
     
@@ -105,7 +174,6 @@ impl LineReader {
                 }
             },
             NL => {
-                self.controls.outc(NL);
                 self.finished = true;
             },
             ESC => {
@@ -159,3 +227,4 @@ impl LineReader {
         }
     }
 }
+

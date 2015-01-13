@@ -14,7 +14,7 @@ pub fn is_word(word:&str) -> bool {
     }
 
     // ok, it's going to be more difficult
-    let re = regex!("\"[^\"]*\"|\\([^()]*\\)");
+    let re = regex!("\"[^\"]*\"|[^ \t\r\n\"()]+\\([^()]*\\)");
     let check_re = regex!("^[^\"()]*$");
     let mut val = re.replace_all(word, NoExpand(""));
     let mut nval = re.replace_all(val.as_slice(), NoExpand(""));
@@ -33,6 +33,40 @@ pub fn is_word(word:&str) -> bool {
     }
 }
 
+pub fn split_at(word:String, at:Vec<usize>) -> Vec<String> {
+    let mut last = 0; let mut pclone;
+    let mut out = Vec::<String>::new();
+    for pos in at.iter() {
+        pclone = pos.clone();
+        out.push(word[last..pclone].to_string());
+        last = pclone;
+    }
+    out.push(word[last..word.len()].to_string());
+    return out;
+}
+
+pub fn comma_intersect(commas:Vec<(usize, usize)>, words:Vec<(usize, usize)>) -> Vec<usize> {
+    let mut out = Vec::<usize>::new();
+    let mut iter;
+    for &(pos, _) in commas.iter() {
+        iter = words.iter();
+        loop {
+            match iter.next() {
+                None => {
+                    out.push(pos);
+                    break;
+                },
+                Some(&(start, end)) => {
+                    if start < pos || pos < end {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    return out;
+}
+
 // work around lack of DST
 pub fn build_string(ch:char, count:usize) -> String {
     let mut s = String::new();
@@ -44,20 +78,6 @@ pub fn build_string(ch:char, count:usize) -> String {
         s.push(ch);
         i += 1;
     }
-}
-
-pub fn strip_words(line:Vec<String>) -> Vec<String> {
-    let mut out = Vec::<String>::new();
-    for word in line.iter() {
-        out.push(strip_word(word));
-    }
-    return out;
-}
-
-pub fn strip_word(word:&String) -> String {
-    let first_removed:String = regex!("\"").splitn(word.as_slice(), 2).collect::<Vec<&str>>().as_slice().concat();
-    let second_removed:String = regex!("\"$").splitn(first_removed.as_slice(), 2).collect::<Vec<&str>>().as_slice().concat();
-    return second_removed.to_string();
 }
 
 pub fn expand_path(path:Path) -> Path {
@@ -103,6 +123,7 @@ fn is_word_test() {
     assert!(!is_word("TEST=\"hello"));
     assert!(!is_word("func(test fun"));
     assert!(!is_word("this(is a \"complex series\" with (unbalanced parens)"));
+    assert!(!is_word("(invalid func call)"));
 }
 
 #[test]
@@ -134,3 +155,4 @@ fn condense_path_test() {
     assert!(condense_path(Path::new("/home/")) == Path::new("/home/"));
     assert!(condense_path(Path::new("/etc/wash/")) == Path::new("/etc/wash/"));
 }
+

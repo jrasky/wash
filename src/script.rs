@@ -16,12 +16,13 @@ use std::cmp::*;
 
 use controls::*;
 use constants::*;
+use command::*;
 
 use self::WashArgs::*;
 
 // !!!
 // Wash function calling convention
-pub type WashFunc = fn(&WashArgs, &mut WashEnv) -> WashArgs;
+pub type WashFunc = fn(&WashArgs, &mut WashEnv, &mut TermState) -> WashArgs;
 
 // >Dat pointer indirection
 // Sorry bro, Rust doesn't have DSTs yet
@@ -60,6 +61,24 @@ pub struct WashScript {
 }
 
 impl WashArgs {
+    pub fn flatten_vec(&self) -> Vec<String> {
+        match self {
+            &Flat(ref s) => vec![s.clone()],
+            &Long(ref v) => {
+                let mut out:Vec<String> = vec![];
+                for item in v.iter() {
+                    out = vec![out, item.flatten_vec()].concat();
+                }
+                return out;
+            },
+            &Empty => vec![]
+        }
+    }
+
+    pub fn from_vec(vec:Vec<String>) -> WashArgs {
+        return Long(vec.iter().map(|x| {Flat(x.clone())}).collect::<Vec<WashArgs>>());
+    }
+    
     pub fn flatten_with(&self, with:&str) -> String {
         match self {
             &Flat(ref s) => s.clone(),
@@ -91,10 +110,16 @@ impl WashArgs {
         }
     }
 
+    pub fn is_flat(&self) -> bool {
+        match self {
+            &Empty | &Long(_) => false,
+            &Flat(_) => true
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         match self {
-            &Flat(_) => false,
-            &Long(_) => false,
+            &Flat(_) | &Long(_) => false,
             &Empty => true
         }
     }
@@ -150,8 +175,8 @@ impl WashEnv {
         self.variables.contains_key(&name.to_string())
     }
 
-    pub fn hasf(&self, name:&str) -> bool {
-        self.functions.contains_key(&name.to_string())
+    pub fn hasf(&self, name:&String) -> bool {
+        self.functions.contains_key(name)
     }
 
     pub fn insv(&mut self, name:&str, val:WashArgs) {
@@ -171,8 +196,9 @@ impl WashEnv {
         };
     }
 
-    pub fn getf(u_env:*const WashEnv, name:&String) -> Option<&WashFunc> {
+    pub fn getf<'a>(u_env:*const WashEnv, u_name:*const String) -> Option<&'a WashFunc> {
         let env = unsafe{u_env.as_ref()}.unwrap();
+        let name = unsafe{u_name.as_ref()}.unwrap();
         return env.functions.get(name);
     }
 
@@ -418,3 +444,4 @@ extern {
     fn dlclose(handle:*const c_void) -> c_int;
     fn dlerror() -> *const c_char;
 }
+
