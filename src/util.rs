@@ -1,10 +1,36 @@
+use regex::NoExpand;
+
 use std::cmp::*;
 use std::os;
 
 pub fn is_word(word:&str) -> bool {
-    // defines the following "container" sequences: (.*) and ".*"
-    // words cannot end when either are unclosed
-    regex!("^([^ \t\n\r\"()]*|\".*\"|\\(.*\\))*$").is_match(word)
+    // try easy outs
+    if regex!("^[^ \t\r\n\"()]*(\"[^\"]*\"|\\([^()]*\\))$").is_match(word) {
+        // no nested delimiters means we can check with one regex call
+        return true;
+    } else if !regex!("^[^ \t\r\n\"()]*(\\(.*\\)|\".*\")*$").is_match(word) {
+        // basic delimiter check, if this doesn't match then this is definitely not a word
+        return false;
+    }
+
+    // ok, it's going to be more difficult
+    let re = regex!("\"[^\"]*\"|\\([^()]*\\)");
+    let check_re = regex!("^[^\"()]*$");
+    let mut val = re.replace_all(word, NoExpand(""));
+    let mut nval = re.replace_all(val.as_slice(), NoExpand(""));
+    loop {
+        if check_re.is_match(nval.as_slice()) {
+            // all delimiters are balanced
+            return true;
+        } else if val == nval {
+            // there are unbalanced delimiters
+            return false;
+        }
+        // keep trying
+        // Do two at a time to speed things up
+        val = re.replace_all(nval.as_slice(), NoExpand(""));
+        nval = re.replace_all(val.as_slice(), NoExpand(""));
+    }
 }
 
 // work around lack of DST
@@ -72,11 +98,11 @@ fn is_word_test() {
     assert!(is_word("\"hello world\""));
     assert!(is_word("TEST=\"hello world\""));
     assert!(is_word("func(test function)"));
-    assert!(is_word("this(is)a\"complex\"series"));
+    assert!(is_word("this(is a \"complex series\" with nested (delimiters))"));
 
     assert!(!is_word("TEST=\"hello"));
     assert!(!is_word("func(test fun"));
-    assert!(!is_word("this(is)a\"complex\"series(with no end"));
+    assert!(!is_word("this(is a \"complex series\" with (unbalanced parens)"));
 }
 
 #[test]
