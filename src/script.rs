@@ -26,7 +26,7 @@ pub type WashFunc = fn(&WashArgs, &mut WashEnv) -> WashArgs;
 // >Dat pointer indirection
 // Sorry bro, Rust doesn't have DSTs yet
 // Once it does they'll turn into a more compact structure
-pub type VarTable = HashMap<String, String>;
+pub type VarTable = HashMap<String, WashArgs>;
 pub type FuncTable = HashMap<String, WashFunc>;
 pub type ScriptTable = HashMap<Path, WashScript>;
 
@@ -154,15 +154,15 @@ impl WashEnv {
         self.functions.contains_key(&name.to_string())
     }
 
-    pub fn insv(&mut self, name:&str, val:&str) {
-        self.variables.insert(name.to_string(), val.to_string());
+    pub fn insv(&mut self, name:&str, val:WashArgs) {
+        self.variables.insert(name.to_string(), val);
     }
 
     pub fn insf(&mut self, name:&str, func:WashFunc) {
         self.functions.insert(name.to_string(), func);
     }
 
-    pub fn getv(u_env:*const WashEnv, name:&String) -> Option<String> {
+    pub fn getv(u_env:*const WashEnv, name:&String) -> Option<WashArgs> {
         // I'm not even returning a pointer calm down rust
         let env = unsafe{u_env.as_ref()}.unwrap();
         return match env.variables.get(name) {
