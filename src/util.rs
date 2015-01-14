@@ -45,6 +45,14 @@ pub fn split_at(word:String, at:Vec<usize>) -> Vec<String> {
     return out;
 }
 
+pub fn get_index<T>(mut vec:&mut Vec<T>, index:usize) -> Option<&mut T> {
+    if index >= vec.len() {
+        return None;
+    } else {
+        return Some(&mut vec[index]);
+    }
+}
+
 pub fn comma_intersect(commas:Vec<(usize, usize)>, words:Vec<(usize, usize)>) -> Vec<usize> {
     let mut out = Vec::<usize>::new();
     let mut iter;

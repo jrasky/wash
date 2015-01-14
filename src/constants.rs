@@ -13,9 +13,13 @@ pub const CEOF:char = '\u{4}';
 pub const DEL:char = '\u{7f}';
 pub const NL:char  = '\n';
 pub const ESC:char = '\u{1b}';
-pub const ANSI:char = '\u{5b}';
+pub const ANSI:char = '\u{5b}'; // [
 pub const BS:char = '\u{8}';
 pub const SPC:char = ' ';
+pub const CMA:char = ',';
+pub const QUT:char = '\"';
+pub const OPR:char = '\u{28}'; // (
+pub const CPR:char = '\u{29}'; // )
 pub const BEL:char = '\u{7}';
 // we specifically need a constant for "cursor right"
 pub const CRSR_RIGHT:&'static str = "\u{1b}\u{5b}C";

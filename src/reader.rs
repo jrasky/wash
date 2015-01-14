@@ -38,7 +38,8 @@ pub struct LineReader {
     pub escape: bool,
     pub escape_chars: String,
     pub finished: bool,
-    pub eof: bool
+    pub eof: bool,
+    pub restarted: bool
 }
 
 impl LineReader {
@@ -50,7 +51,8 @@ impl LineReader {
             escape: false,
             escape_chars: String::new(),
             finished: false,
-            eof: false
+            eof: false,
+            restarted: false
         }
     }
 
@@ -101,23 +103,37 @@ impl LineReader {
         self.escape_chars.clear();
         self.finished = false;
         self.eof = false;
+        self.restarted = false;
     }
 
-    pub fn read_line(&mut self) -> Option<Vec<String>> {
-        let cwd = os::getcwd().unwrap();
-        self.controls.outf(format_args!("{}$ ", condense_path(cwd).display()));
+    pub fn restart(&mut self) {
+        self.finished = false;
+        self.eof = false;
+        self.restarted = true;
+    }
+
+    pub fn read_line(&mut self) -> Option<InputValue> {
+        if !self.restarted {
+            let cwd = os::getcwd().unwrap();
+            self.controls.outf(format_args!("{}$ ", condense_path(cwd).display()));
+            self.restarted = false;
+        }
         // handle sigint
         self.handle_sigint();
         while !self.finished && !self.eof {
             match self.controls.read() {
                 Ok(ch) => {
-                    if self.escape {
-                        self.handle_escape(ch);
-                    } else if ch.is_control() {
-                        self.handle_control(ch);
-                    } else {
-                        self.handle_ch(ch);
-                    }
+                    match
+                        if self.escape {
+                            self.handle_escape(ch)
+                        } else if ch.is_control() {
+                            self.handle_control(ch)
+                        } else {
+                            self.handle_ch(ch)
+                        } {
+                            false => self.controls.outc(BEL),
+                            _ => {}
+                        }
                 },
                 Err(e) => {
                     self.controls.errf(format_args!("\nError: {}\n", e));
@@ -159,13 +175,17 @@ impl LineReader {
         self.controls.cursors_left(self.line.part.len());
     }
 
-    pub fn handle_ch(&mut self, ch:char) {
-        self.line.push(ch);
-        self.controls.outc(ch);
-        self.idraw_part();
+    pub fn handle_ch(&mut self, ch:char) -> bool {
+        if self.line.push(ch) {
+            self.controls.outc(ch);
+            self.idraw_part();
+            return true;
+        } else {
+            return false;
+        }
     }
 
-    pub fn handle_control(&mut self, ch:char) {
+    pub fn handle_control(&mut self, ch:char) -> bool {
         match ch {
             CEOF => {
                 if self.line.is_empty() {
@@ -182,7 +202,7 @@ impl LineReader {
             },
             DEL => {
                 match self.line.pop() {
-                    None => return,
+                    None => return false,
                     Some(_) => {
                         self.controls.cursor_left();
                         self.draw_part();
@@ -191,11 +211,12 @@ impl LineReader {
                     }
                 }
             },
-            _ => return
+            _ => return false
         }
+        return true;
     }
 
-    pub fn handle_escape(&mut self, ch:char) {
+    pub fn handle_escape(&mut self, ch:char) -> bool {
         match ch {
             ESC => {
                 self.escape = false;
@@ -223,8 +244,10 @@ impl LineReader {
             },
             _ => {
                 self.escape = false;
+                return false;
             }
         }
+        return true;
     }
 }
 
