@@ -335,6 +335,27 @@ impl InputLine {
     pub fn pop(&mut self) -> Option<char> {
         let mut cfront = self.front.clone();
         let out = match cfront {
+            Split(ref mut s) if s.len() == 1 => {
+                let t = self.back.pop();
+                let out = s.pop().unwrap();
+                let mut push_back = false;
+                match t {
+                    Some(Short(ref s)) => {
+                        self.front = Short(s.clone());
+                    },
+                    None => {
+                        self.front = Short(String::new());
+                    },
+                    _ => {
+                        self.front = Short(String::new());
+                        push_back = true;
+                    }
+                }
+                if push_back {
+                    self.back.push(t.unwrap());
+                }
+                return Some(out);
+            },
             Short(ref mut s) | Split(ref mut s) => {
                 match s.pop() {
                     Some(v) => Some(v),
@@ -574,6 +595,23 @@ fn test_input_against(line:String, against:InputValue) -> bool {
                     input.front.print();
                     return false;
                 }
+                if input.back != ooinput.back ||
+                    input.front != ooinput.front ||
+                    input.part != ooinput.part {
+                        println!("\nPopping didn't return to state before pushing: \"{}\"", ch);
+                        Long(ooinput.back).print();
+                        println!("--------");
+                        Long(oinput.back).print();
+                        println!("--------");
+                        Long(input.back).print();
+                        println!("--------");
+                        ooinput.front.print();
+                        println!("--------");
+                        oinput.front.print();
+                        println!("--------");
+                        input.front.print();
+                        return false;
+                    }
                 let binput = input.clone();
                 input.push(ch);
                 if input.back != oinput.back ||
