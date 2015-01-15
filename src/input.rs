@@ -142,9 +142,11 @@ impl InputLine {
                 },
                 Short(ref s) if *s == "".to_string()  => {
                     // ignore empty shorts
-                    let mut t = String::new();
-                    t.push(ch);
-                    Split(t)
+                    //let mut t = String::new();
+                    //t.push(ch);
+                    //Split(t)
+                    // invalid input
+                    return false;
                 },
                 ref s if match s {
                     &Short(_) | &Long(_) | &Function(_, _) => true,
@@ -251,6 +253,39 @@ impl InputLine {
                     v.push(ch);
                     Literal(v.clone())
                 },
+                Split(ref mut s) => {
+                    let len = self.back.len();
+                    let mut end_args = false;
+                    match get_index(&mut self.back, len - 1) {
+                        Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
+                            let len = v.len();
+                            match get_index(v, len - 1) {
+                                Some(&mut Literal(_)) => {
+                                    end_args = true;
+                                }, _ => return false
+                            }
+                        }, _ => return false
+                    }
+                    if end_args {
+                        // special case, it's ok to type a CPR here
+                        let func = self.back.pop().unwrap();
+                        let mut after_borrow = false;
+                        match get_index(&mut self.back, len - 1) {
+                            Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
+                                v.push(func.clone());
+                            }
+                            _ => {
+                                after_borrow = true;
+                            }
+                        }
+                        if after_borrow {
+                            self.back.push(func);
+                        }
+                        self.back.pop().unwrap()
+                    } else {
+                        return false;
+                    }
+                },
                 _ => {
                     // invalid input
                     return false;
@@ -289,7 +324,7 @@ impl InputLine {
                     if after_borrow {
                         self.back.push(Literal(s.clone()));
                     }
-                    Short(String::new())
+                    Split(String::new())
                 },
                 Long(_) | Function(_, _) => {
                     // invalid input
@@ -297,6 +332,10 @@ impl InputLine {
                 }
             },
             ch => match self.front.clone() {
+                Split(ref mut s) if s.is_empty() => {
+                    // invalid input
+                    return false;
+                },
                 Split(ref mut s) => {
                     let len = self.back.len();
                     let mut after_borrow = false;
@@ -336,13 +375,59 @@ impl InputLine {
         let mut cfront = self.front.clone();
         let out = match cfront {
             Split(ref mut s) if s.len() == 1 => {
-                let t = self.back.pop();
+                let mut t = self.back.pop();
                 let out = s.pop().unwrap();
                 let mut push_back = false;
                 match t {
-                    Some(Short(ref s)) => {
-                        self.front = Short(s.clone());
+                    Some(Short(ref v)) => {
+                        self.front = Short(v.clone());
                     },
+                    Some(Literal(_)) => {
+                        self.front = Split(String::new());
+                        push_back = true;
+                    }
+                    Some(Function(_, ref mut v)) | Some(Long(ref mut v))
+                        if !v.is_empty() => {
+                            let mut inner_push = false;
+                            let t = v.pop().unwrap();
+                            self.front = match t {
+                                Literal(_) => {
+                                    inner_push = true;
+                                    Split(String::new())
+                                },
+                                ref v => v.clone()
+                            };
+                            if inner_push {
+                                v.push(t);
+                            }
+                            push_back = true;
+                        },
+                    None => {
+                        self.front = Short(String::new());
+                    },
+                    _ => {
+                        self.front = Short(String::new());
+                        push_back = true;
+                    }
+                }
+                if push_back {
+                    self.back.push(t.unwrap());
+                }
+                return Some(out);
+            },
+            Short(ref mut s) if s.len() == 1 => {
+                let mut t = self.back.pop();
+                let out = s.pop().unwrap();
+                let mut push_back = false;
+                match t {
+                    Some(Split(ref s)) => {
+                        self.front = Split(s.clone());
+                    },
+                    Some(Function(_, ref mut v)) | Some(Long(ref mut v))
+                        if !v.is_empty() => {
+                            self.front = v.pop().unwrap();
+                            push_back = true;
+                        },
                     None => {
                         self.front = Short(String::new());
                     },
@@ -389,6 +474,11 @@ impl InputLine {
                                     Literal(_) => return Some(QUT),
                                     _ => return self.pop()
                                 }
+                            },
+                            Some(Function(ref mut n, _)) => {
+                                // in this case the function's args are empty
+                                self.front = Short((*n).clone());
+                                return Some(OPR);
                             },
                             Some(v) => {
                                 self.front = v;
@@ -437,38 +527,45 @@ impl InputLine {
             Long(ref mut v) => {
                 match v {
                     ref v if **v == vec![] => {
-                        /*
                         let mut t = self.back.pop();
-                        self.front = match t {
-                            None => Short("".to_string()),
-                            Some(Long(ref mut s)) if !s.is_empty() => {
-                                self.front = s.pop().unwrap();
-                                self.back.push(Long((*s).clone()));
-                                return Some(OPR);
+                        let mut push_back = false;
+                        match t {
+                            Some(Split(ref s)) => {
+                                self.front = Split(s.clone());
                             },
-                            Some(Function(ref mut n, ref mut s)) if !s.is_empty() => {
-                                self.front = s.pop().unwrap();
-                                self.back.push(Function((*n).clone(), (*s).clone()));
-                                return Some(OPR);
+                            Some(Function(_, ref mut v)) | Some(Long(ref mut v))
+                                if !v.is_empty() => {
+                                    self.front = v.pop().unwrap();
+                                    push_back = true;
+                                },
+                            None => {
+                                self.front = Short(String::new());
+                            },
+                            _ => {
+                                self.front = Short(String::new());
+                                push_back = true;
                             }
-                            Some(v) => v
-                        };
-                        match self.front {
-                            Function(_, _) => return self.pop(),
-                            _ => return Some(OPR)
-                        }*/
-                        self.front = Short(String::new());
+                        }
+                        if push_back {
+                            self.back.push(t.unwrap());
+                        }
                         return Some(OPR);
                     },
                     ref v => {
                         let mut nv = (**v).clone();
                         let s = nv.pop().unwrap();
-                        self.back.push(Long(nv));
                         let out = match s {
                             Split(_) => None,
                             _ => Some(CPR)
                         };
-                        self.front = s;
+                        self.front = match s {
+                            Literal(_) => {
+                                nv.push(s.clone());
+                                Split(String::new())
+                            },
+                            t => t
+                        };
+                        self.back.push(Long(nv));
                         match out {
                             Some(v) => return Some(v),
                             None => return self.pop()
@@ -479,8 +576,29 @@ impl InputLine {
             Function(ref mut n, ref mut v) => {
                 match v {
                     ref v if **v == vec![] => {
-                        self.front = Short(n.clone());
-                        return Some(OPR)
+                        let mut t = self.back.pop();
+                        let mut push_back = false;
+                        match t {
+                            Some(Split(ref s)) => {
+                                self.front = Split(s.clone());
+                            },
+                            Some(Function(_, ref mut v)) | Some(Long(ref mut v))
+                                if !v.is_empty() => {
+                                    self.front = v.pop().unwrap();
+                                    push_back = true;
+                                },
+                            None => {
+                                self.front = Short((*n).clone());
+                            },
+                            _ => {
+                                self.front = Short((*n).clone());
+                                push_back = true;
+                            }
+                        }
+                        if push_back {
+                            self.back.push(t.unwrap());
+                        }
+                        return Some(OPR);
                     },
                     ref v => {
                         let mut t = (**v).clone();
@@ -489,7 +607,13 @@ impl InputLine {
                             Split(_) => None,
                             _ => Some(CPR)
                         };
-                        self.front = popped;
+                        self.front = match popped {
+                            Literal(_) => {
+                                t.push(popped.clone());
+                                Split(String::new())
+                            },
+                            t => t
+                        };
                         self.back.push(Function(n.clone(), t));
                         match out {
                             Some(v) => return Some(v),
@@ -581,7 +705,13 @@ fn test_input_against(line:String, against:InputValue) -> bool {
             Some(ch) => {
                 print!("{}", ch);
                 let ooinput = input.clone();
-                input.push(ch);
+                if !input.push(ch) {
+                    println!("\nRefused to push character: \"{}\"", ch);
+                    Long(ooinput.back).print();
+                    println!("--------");
+                    ooinput.front.print();
+                    return false;
+                }
                 let oinput = input.clone();
                 let popped = input.pop();
                 if popped != Some(ch) {
@@ -692,16 +822,14 @@ fn test_input() {
             ])));
     
     // test function
-    assert!(test_input_against("test_func(hello_world, \"hello world\", another arg)".to_string(),
+    assert!(test_input_against("test_func(hello_world, \"hello world\", \"another arg\")".to_string(),
                                Function("test_func".to_string(), vec![
                                    Short("hello_world".to_string()),
                                    Split(", ".to_string()),
                                    Literal("hello world".to_string()),
                                    Split(", ".to_string()),
-                                   Short("another".to_string()),
-                                   Split(" ".to_string()),
-                                   Short("arg".to_string())
-                                       ])));
+                                   Literal("another arg".to_string()),
+                                   ])));
     
     // test nested lists
     assert!(test_input_against("list (within (lists (within lists)))".to_string(), Long(vec![
@@ -752,14 +880,14 @@ fn test_input() {
                                        ])));
 
     // harder test
-    assert!(test_input_against("function(with, (more args))".to_string(),
+    assert!(test_input_against("function(with, (more \"args\"))".to_string(),
                                Function("function".to_string(), vec![
                                    Short("with".to_string()),
                                    Split(", ".to_string()),
                                    Long(vec![
                                        Short("more".to_string()),
                                        Split(" ".to_string()),
-                                       Short("args".to_string())
+                                       Literal("args".to_string())
                                            ])
                                        ])
                                ));
