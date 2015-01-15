@@ -146,12 +146,13 @@ impl InputLine {
                     Literal(s.clone())
                 },
                 Short(ref s) if *s == "".to_string()  => {
-                    // ignore empty shorts
-                    //let mut t = String::new();
-                    //t.push(ch);
-                    //Split(t)
-                    // invalid input
-                    return false;
+                    if ch == CMA {
+                        let mut t = String::new();
+                        t.push(ch);
+                        Split(t)
+                    } else {
+                        return false;
+                    }
                 },
                 ref s if match s {
                     &Short(_) | &Long(_) | &Function(_, _) => true,
