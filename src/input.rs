@@ -147,6 +147,19 @@ impl InputLine {
                 },
                 Short(ref s) if *s == "".to_string()  => {
                     if ch == CMA {
+                        let len = self.back.len();
+                        let mut after_borrow = false;
+                        match get_index(&mut self.back, len - 1) {
+                            Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
+                                v.push(Split(s.clone()));
+                                v.push(Short(String::new()));
+                            },
+                            _ => after_borrow = true
+                        };
+                        if after_borrow {
+                            self.back.push(Split(s.clone()));
+                            self.back.push(Short(String::new()));
+                        }
                         let mut t = String::new();
                         t.push(ch);
                         Split(t)
