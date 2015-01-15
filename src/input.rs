@@ -10,6 +10,9 @@ pub enum InputValue {
     Short(String),
     Literal(String),
     Split(String),
+    // Empty lists are denoted as lists containing a
+    // single, empty short
+    // There is really no simpler way around this
 }
 
 impl InputValue {
@@ -367,7 +370,6 @@ impl InputLine {
                                 }
                             },
                             Some(v) => {
-                                // Long and Function
                                 self.front = v;
                                 return self.pop();
                             }
@@ -414,6 +416,7 @@ impl InputLine {
             Long(ref mut v) => {
                 match v {
                     ref v if **v == vec![] => {
+                        /*
                         let mut t = self.back.pop();
                         self.front = match t {
                             None => Short("".to_string()),
@@ -432,7 +435,9 @@ impl InputLine {
                         match self.front {
                             Function(_, _) => return self.pop(),
                             _ => return Some(OPR)
-                        }
+                        }*/
+                        self.front = Short(String::new());
+                        return Some(OPR);
                     },
                     ref v => {
                         let mut nv = (**v).clone();
@@ -562,9 +567,11 @@ fn test_input_against(line:String, against:InputValue) -> bool {
                     println!("\nDidn't pop out the same character: pushed \"{}\" got \"{}\"", ch, popped.unwrap());
                     Long(ooinput.back).print();
                     println!("--------");
-                    Long(oinput.back).print();
-                    println!("--------");
                     Long(input.back).print();
+                    println!("--------");
+                    ooinput.front.print();
+                    println!("--------");
+                    input.front.print();
                     return false;
                 }
                 let binput = input.clone();
@@ -683,6 +690,7 @@ fn test_input() {
             Long(vec![
                 Long(vec![
                     Long(vec![
+                        Short(String::new()) // there is no way around an empty short in here
                         ])
                     ])
                 ])
