@@ -516,8 +516,9 @@ impl InputLine {
                                 return Some(QUT);
                             },
                             Some(v) => {
-                                // Function and empty long
-                                self.front = v;
+                                // Function with empty args and empty long
+                                self.back.push(v);
+                                self.front = Short(String::new());
                                 return Some(QUT);
                             }
                         }
@@ -830,6 +831,12 @@ fn test_input() {
                                    Split(", ".to_string()),
                                    Literal("another arg".to_string()),
                                    ])));
+
+    // test function
+    assert!(test_input_against("test_func(\"hello world\")".to_string(),
+                               Function("test_func".to_string(), vec![
+                                   Literal("hello world".to_string()),
+                                   ])));
     
     // test nested lists
     assert!(test_input_against("list (within (lists (within lists)))".to_string(), Long(vec![
@@ -857,11 +864,24 @@ fn test_input() {
                 Long(vec![
                     Long(vec![
                         Short(String::new()) // there is no way around an empty short in here
+                            ])
                         ])
                     ])
                 ])
-            ])
-        ])));
+            ])));
+
+    // more complex list testing
+    assert!(test_input_against("(((((\"test arg\")))))".to_string(), Long(vec![
+        Long(vec![
+            Long(vec![
+                Long(vec![
+                    Long(vec![
+                        Literal("test arg".to_string())
+                            ])
+                        ])
+                    ])
+                ])
+            ])));
     
     // test nested functions
     assert!(test_input_against("functions(calling functions(calling functions(with args)))".to_string(),
