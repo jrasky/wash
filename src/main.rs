@@ -32,34 +32,24 @@ mod script;
 mod builtins;
 mod command;
 
-fn run_line(line:InputValue, term:&mut TermState, env:&mut WashEnv) -> WashArgs {
-    // this needs to be re-written, it will be soon
-    match line {
-        Short(v) | Literal(v) => {
-            print!("{}\n", v);
-        },
-        Long(v) => {
-            print!("(");
-            for item in v.iter() {
-                run_line(item.clone(), term, env);
-            }
-            print!(")\n");
-        },
-        Function(n, v) => {
-            print!("{}(", n);
-            for item in v.iter() {
-                run_line(item.clone(), term, env);
-            }
-            print!(")\n");
-        },
-        _ => {}
-    }
-    return WashArgs::Long(vec![]);
-}
-
 fn process_line(line:InputValue, term:&mut TermState, env:&mut WashEnv) -> WashArgs {
-    // this needs to be re-written, it will be soon
-    return WashArgs::Empty;
+    match line {
+        Function(n, a) => {
+            if env.hasf(&n) {
+                let func = WashEnv::getf(env, &n).unwrap();
+                let mut args = vec![];
+                for item in a.iter() {
+                    args.push(process_line(item.clone(), term, env));
+                }
+                return func(&WashArgs::Long(args), env, term);
+            } else {
+                return WashArgs::Empty;
+            }
+        },
+        Short(s) => return WashArgs::Flat(s),
+        Literal(s) => return WashArgs::Flat(s),
+        _ => return WashArgs::Empty
+    }
 }
 
 // public so no warnings when we run tests
@@ -86,7 +76,7 @@ pub fn main() {
             },
             Some(line) => {
                 controls.outc(NL);
-                match run_line(line, &mut term, &mut env) {
+                match process_line(line, &mut term, &mut env) {
                     WashArgs::Empty => controls.err("Command failed\n"),
                     v => {
                         controls.outs(v.flatten().as_slice());
