@@ -119,6 +119,7 @@ fn build_string_test() {
     assert!(build_string('a', 5) == String::from_str("aaaaa"));
 }
 
+/*
 #[test]
 fn is_word_test() {
     assert!(is_word(""));
@@ -132,19 +133,7 @@ fn is_word_test() {
     assert!(!is_word("func(test fun"));
     assert!(!is_word("this(is a \"complex series\" with (unbalanced parens)"));
     assert!(!is_word("(invalid func call)"));
-}
-
-#[test]
-fn strip_word_test() {
-    assert!(strip_word(&String::from_str("\"hello world\"")) == String::from_str("hello world"));
-    assert!(strip_word(&String::from_str("hello")) == String::from_str("hello"));
-}
-
-#[test]
-fn strip_words_test() {
-    assert!(strip_words(vec![String::from_str("\"hel\"lo world\""), String::from_str("hello")])
-            == vec![String::from_str("hel\"lo world"), String::from_str("hello")]);
-}
+}*/
 
 #[test]
 fn expand_path_test() {
