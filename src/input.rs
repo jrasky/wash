@@ -10,9 +10,14 @@ pub enum InputValue {
     Short(String),
     Literal(String),
     Split(String),
-    // Empty lists are denoted as lists containing a
-    // single, empty short
-    // There is really no simpler way around this
+    // There is but one blemish on this otherwise
+    // beautiful, perfect data type:
+    // Empty lists are Long(Short(""))
+    // There is not really any way around this
+    // which wouldn't have a special case in the
+    // data type, and the only way to get a list
+    // with an empty short is to type an empty list
+    // so this solution isn't terrible
 }
 
 impl InputValue {
