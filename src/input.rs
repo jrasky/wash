@@ -34,7 +34,7 @@ impl InputValue {
         *self = Short(String::new());
     }
 
-    
+    #[cfg(test)]
     pub fn print(&self) {
         match self {
             &Short(ref v) => {
@@ -239,7 +239,7 @@ impl InputLine {
                 } => {
                     // end of argument list
                     let len = self.back.len();
-                    let mut pop_push_back = false;
+                    let mut pop_push_back;
                     match get_index(&mut self.back, len - 1) {
                         Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
                             v.push(s.clone());
@@ -273,9 +273,9 @@ impl InputLine {
                     v.push(ch);
                     Literal(v.clone())
                 },
-                Split(ref mut s) => {
+                Split(_) => {
                     let len = self.back.len();
-                    let mut end_args = false;
+                    let mut end_args;
                     match get_index(&mut self.back, len - 1) {
                         Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
                             let len = v.len();
@@ -668,19 +668,6 @@ impl InputLine {
         }
     }
 
-    pub fn process_line(line:String) -> Option<InputValue> {
-        let mut inp = InputLine::new();
-        let mut cline = line.clone();
-        loop {
-            match cline.pop() {
-                Some(c) => inp.part.push(c),
-                None => break
-            }
-        }
-        return inp.process();
-    }
-
-
     pub fn process(&self) -> Option<InputValue> {
         let mut cself = self.clone();
         loop {
@@ -706,6 +693,7 @@ impl InputLine {
     }
 }
 
+#[cfg(test)]
 fn test_input_against(line:String, against:InputValue) -> bool {
     // test winding
     let mut input = InputLine::new();

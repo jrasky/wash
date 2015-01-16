@@ -8,12 +8,9 @@ extern crate regex;
 #[plugin] #[no_link]
 extern crate regex_macros;
 
-use regex::NoExpand;
-
 use reader::*;
 use controls::*;
 use constants::*;
-use util::*;
 use script::*;
 use builtins::*;
 use command::*;
@@ -32,23 +29,73 @@ mod script;
 mod builtins;
 mod command;
 
-fn process_line(line:InputValue, term:&mut TermState, env:&mut WashEnv) -> WashArgs {
+fn run_line(line:InputValue, term:&mut TermState, env:&mut WashEnv) -> Result<WashArgs, String> {
+    match line {
+        Long(a) => {
+            // run as command
+            let out = try!(process_line(Function("run".to_string(), a), term, env));
+            let outv = out.flatten_vec();
+            if out.is_empty() {
+                return Err("Command failed".to_string());
+            } else if outv.len() < 2 {
+                return Err(format!("Command failed: {}", out.flatten()));
+            } else if outv != vec!["status", "0"] {
+                return Err(format!("Command failed with {} {}", outv[0], outv[1]));
+            } else {
+                return Ok(WashArgs::Empty);
+            }
+        },
+        Short(s) | Literal(s) => {
+            // run command without args
+            let out = try!(process_line(Function("run".to_string(), vec![Short(s)]), term, env));
+            let outv = out.flatten_vec();
+            if out.is_empty() {
+                return Err("Command Failed".to_string());
+            } else if outv.len() < 2 {
+                return Err(format!("Command failed: {}", out.flatten()));
+            } else if outv != vec!["status", "0"] {
+                return Err(format!("Command failed with {} {}", outv[0], outv[1]));
+            } else {
+                return Ok(WashArgs::Empty);
+            }
+        },
+        v => {
+            return process_line(v, term, env);
+        }
+    }
+}
+
+fn process_line(line:InputValue, term:&mut TermState, env:&mut WashEnv) -> Result<WashArgs, String> {
     match line {
         Function(n, a) => {
             if env.hasf(&n) {
                 let func = WashEnv::getf(env, &n).unwrap();
                 let mut args = vec![];
                 for item in a.iter() {
-                    args.push(process_line(item.clone(), term, env));
+                    match process_line(item.clone(), term, env) {
+                        Ok(WashArgs::Empty) => {/* do nothing */},
+                        Ok(v) => args.push(v),
+                        Err(e) => return Err(e)
+                    }
                 }
-                return func(&WashArgs::Long(args), env, term);
+                return Ok(func(&WashArgs::Long(args), env, term));
             } else {
-                return WashArgs::Empty;
+                return Err("Function not found".to_string())
             }
         },
-        Short(s) => return WashArgs::Flat(s),
-        Literal(s) => return WashArgs::Flat(s),
-        _ => return WashArgs::Empty
+        Long(a) => {
+            let mut args = vec![];
+            for item in a.iter() {
+                match process_line(item.clone(), term, env) {
+                    Ok(v) => args.push(v),
+                    Err(e) => return Err(e)
+                }
+            }
+            return Ok(WashArgs::Long(args));
+        },
+        Short(s) => return Ok(WashArgs::Flat(s)),
+        Literal(s) => return Ok(WashArgs::Flat(s)),
+        Split(_) => return Ok(WashArgs::Empty)
     }
 }
 
@@ -76,11 +123,10 @@ pub fn main() {
             },
             Some(line) => {
                 controls.outc(NL);
-                match process_line(line, &mut term, &mut env) {
-                    WashArgs::Empty => controls.err("Command failed\n"),
-                    v => {
+                match run_line(line, &mut term, &mut env) {
+                    Err(e) => controls.errf(format_args!("{}\n", e)),
+                    Ok(v) => {
                         controls.outs(v.flatten().as_slice());
-                        controls.outc(NL);
                     }
                 }
                 reader.clear();

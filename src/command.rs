@@ -54,6 +54,7 @@ impl TermState {
         let mut child = match process.spawn() {
             Err(e) => {
                 self.controls.errf(format_args!("Couldn't spawn {}: {}\n", name, e));
+                self.update_terminal();
                 return None;
             },
             Ok(child) => child
@@ -61,6 +62,7 @@ impl TermState {
         let out = match child.wait() {
             Err(e) => {
                 self.controls.errf(format_args!("Couldn't wait for child to exit: {}\n", e.desc));
+                self.update_terminal();
                 return None;
             },
             Ok(status) => status

@@ -1,49 +1,5 @@
-use regex::NoExpand;
-
 use std::cmp::*;
 use std::os;
-
-pub fn is_word(word:&str) -> bool {
-    // try easy outs
-    if regex!("^[^ \t\r\n\"()]*(\"[^\"]*\"|\\([^()]*\\))$").is_match(word) {
-        // no nested delimiters means we can check with one regex call
-        return true;
-    } else if !regex!("^[^ \t\r\n\"()]*(\\(.*\\)|\".*\")*$").is_match(word) {
-        // basic delimiter check, if this doesn't match then this is definitely not a word
-        return false;
-    }
-
-    // ok, it's going to be more difficult
-    let re = regex!("\"[^\"]*\"|[^ \t\r\n\"()]+\\([^()]*\\)");
-    let check_re = regex!("^[^\"()]*$");
-    let mut val = re.replace_all(word, NoExpand(""));
-    let mut nval = re.replace_all(val.as_slice(), NoExpand(""));
-    loop {
-        if check_re.is_match(nval.as_slice()) {
-            // all delimiters are balanced
-            return true;
-        } else if val == nval {
-            // there are unbalanced delimiters
-            return false;
-        }
-        // keep trying
-        // Do two at a time to speed things up
-        val = re.replace_all(nval.as_slice(), NoExpand(""));
-        nval = re.replace_all(val.as_slice(), NoExpand(""));
-    }
-}
-
-pub fn split_at(word:String, at:Vec<usize>) -> Vec<String> {
-    let mut last = 0; let mut pclone;
-    let mut out = Vec::<String>::new();
-    for pos in at.iter() {
-        pclone = pos.clone();
-        out.push(word[last..pclone].to_string());
-        last = pclone;
-    }
-    out.push(word[last..word.len()].to_string());
-    return out;
-}
 
 pub fn get_index<T>(mut vec:&mut Vec<T>, index:usize) -> Option<&mut T> {
     if index >= vec.len() {
@@ -51,28 +7,6 @@ pub fn get_index<T>(mut vec:&mut Vec<T>, index:usize) -> Option<&mut T> {
     } else {
         return Some(&mut vec[index]);
     }
-}
-
-pub fn comma_intersect(commas:Vec<(usize, usize)>, words:Vec<(usize, usize)>) -> Vec<usize> {
-    let mut out = Vec::<usize>::new();
-    let mut iter;
-    for &(pos, _) in commas.iter() {
-        iter = words.iter();
-        loop {
-            match iter.next() {
-                None => {
-                    out.push(pos);
-                    break;
-                },
-                Some(&(start, end)) => {
-                    if start < pos || pos < end {
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    return out;
 }
 
 // work around lack of DST
@@ -118,22 +52,6 @@ pub fn condense_path(path:Path) -> Path {
 fn build_string_test() {
     assert!(build_string('a', 5) == String::from_str("aaaaa"));
 }
-
-/*
-#[test]
-fn is_word_test() {
-    assert!(is_word(""));
-    assert!(is_word("hello"));
-    assert!(is_word("\"hello world\""));
-    assert!(is_word("TEST=\"hello world\""));
-    assert!(is_word("func(test function)"));
-    assert!(is_word("this(is a \"complex series\" with nested (delimiters))"));
-
-    assert!(!is_word("TEST=\"hello"));
-    assert!(!is_word("func(test fun"));
-    assert!(!is_word("this(is a \"complex series\" with (unbalanced parens)"));
-    assert!(!is_word("(invalid func call)"));
-}*/
 
 #[test]
 fn expand_path_test() {

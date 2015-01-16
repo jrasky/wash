@@ -74,10 +74,6 @@ impl WashArgs {
             &Empty => vec![]
         }
     }
-
-    pub fn from_vec(vec:Vec<String>) -> WashArgs {
-        return Long(vec.iter().map(|x| {Flat(x.clone())}).collect::<Vec<WashArgs>>());
-    }
     
     pub fn flatten_with(&self, with:&str) -> String {
         match self {
@@ -109,14 +105,7 @@ impl WashArgs {
             &Empty => 0
         }
     }
-
-    pub fn is_flat(&self) -> bool {
-        match self {
-            &Empty | &Long(_) => false,
-            &Flat(_) => true
-        }
-    }
-
+    
     pub fn is_empty(&self) -> bool {
         match self {
             &Flat(_) | &Long(_) => false,
