@@ -96,16 +96,21 @@ pub fn drun_func(args:&WashArgs, env:&mut WashEnv, term:&mut TermState) -> WashA
         Empty | Long(_) => return Empty
     };
     // this could be empty but that's ok
-    let args = args.slice(1, -1).flatten_vec();
-    let out = match term.run_command_directed(&name, &args) {
-        None => return Empty,
-        Some(v) => v
-    };
-    if !out.status.success() {
-        env.controls.err(String::from_utf8_lossy(out.error.as_slice()).as_slice());
-        return Empty;
+    let arg_slice = args.slice(1, -1);
+    if env.hasf(&name) {
+        let func = WashEnv::getf(env, &name).unwrap();
+        return func(&arg_slice, env, term);
+    } else {
+        let out = match term.run_command_directed(&name, &arg_slice.flatten_vec()) {
+            None => return Empty,
+            Some(v) => v
+        };
+        if !out.status.success() {
+            env.controls.err(String::from_utf8_lossy(out.error.as_slice()).as_slice());
+            return Empty;
+        }
+        return Flat(String::from_utf8_lossy(out.output.as_slice()).into_owned());
     }
-    return Flat(String::from_utf8_lossy(out.output.as_slice()).into_owned());
 }
 
 pub fn run_func(args:&WashArgs, env:&mut WashEnv, term:&mut TermState) -> WashArgs {
@@ -119,18 +124,27 @@ pub fn run_func(args:&WashArgs, env:&mut WashEnv, term:&mut TermState) -> WashAr
         Empty | Long(_) => return Empty
     };
     // this could be empty but that's ok
-    let args = args.slice(1, -1).flatten_vec();
-    // flush output and run command
-    env.controls.flush();
-    match term.run_command(&name, &args) {
-        None => return Empty,
-        Some(ExitSignal(sig)) => {
-            return Long(vec![Flat("signal".to_string()),
-                             Flat(format!("{}", sig))]);
-        },
-        Some(ExitStatus(status)) => {
-            return Long(vec![Flat("status".to_string()),
-                             Flat(format!("{}", status))]);
+    let arg_slice = args.slice(1, -1);
+    if env.hasf(&name) {
+        // run functions before commands
+        let func = WashEnv::getf(env, &name).unwrap();
+        let out = func(&arg_slice, env, term).flatten();
+        env.controls.outf(format_args!("{}\n", out));
+        return Long(vec![Flat("status".to_string()),
+                         Flat("0".to_string())]);
+    } else {
+        // flush output and run command
+        env.controls.flush();
+        match term.run_command(&name, &arg_slice.flatten_vec()) {
+            None => return Empty,
+            Some(ExitSignal(sig)) => {
+                return Long(vec![Flat("signal".to_string()),
+                                 Flat(format!("{}", sig))]);
+            },
+            Some(ExitStatus(status)) => {
+                return Long(vec![Flat("status".to_string()),
+                                 Flat(format!("{}", status))]);
+            }
         }
     }
 }

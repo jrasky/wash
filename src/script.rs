@@ -30,6 +30,7 @@ pub type WashFunc = fn(&WashArgs, &mut WashEnv, &mut TermState) -> WashArgs;
 pub type VarTable = HashMap<String, WashArgs>;
 pub type FuncTable = HashMap<String, WashFunc>;
 pub type ScriptTable = HashMap<Path, WashScript>;
+pub type PathTable = HashMap<String, VarTable>;
 
 // WashLoad returns two lists, the first of initialized functions,
 // the second the same of variables
@@ -44,7 +45,8 @@ pub enum WashArgs {
 }
 
 pub struct WashEnv {
-    pub variables: VarTable,
+    pub paths: PathTable,
+    pub variables: String,
     pub functions: FuncTable,
     pub scripts: ScriptTable,
     pub controls: Controls
@@ -151,7 +153,7 @@ impl WashArgs {
     }
 
     pub fn slice(&self, u_from:isize, u_to:isize) -> WashArgs {
-        let from = max(0, u_from) as usize;
+        let from = min(max(0, u_from) as usize, self.len()) as usize;
         let to = {
             match u_to {
                 v if v < 0 => self.len(),
@@ -172,7 +174,8 @@ impl WashArgs {
 impl WashEnv {
     pub fn new() -> WashEnv {
         WashEnv {
-            variables: HashMap::new(),
+            paths: HashMap::new(),
+            variables: String::new(),
             functions: HashMap::new(),
             scripts: HashMap::new(),
             controls: Controls::new()
@@ -180,27 +183,88 @@ impl WashEnv {
     }
 
     pub fn hasv(&self, name:&String) -> bool {
-        self.variables.contains_key(name)
+        match self.paths.get(&self.variables) {
+            None => false,
+            Some(table) => return table.contains_key(name)
+        }
+    }
+
+    pub fn hasvp(&self, name:&String, path:&String) -> bool {
+        match self.paths.get(path) {
+            None => false,
+            Some(table) => return table.contains_key(name)
+        }
     }
 
     pub fn hasf(&self, name:&String) -> bool {
         self.functions.contains_key(name)
     }
 
-    pub fn insv(&mut self, name:&str, val:WashArgs) {
-        self.variables.insert(name.to_string(), val);
+    pub fn hasp(&self, path:&String) -> bool {
+        self.paths.contains_key(path)
+    }
+
+    pub fn insv(&mut self, name:String, val:WashArgs) {
+        let path = self.variables.clone();
+        if !self.hasp(&path) {
+            self.insp(path.clone())
+        }
+        self.insvp(name, path, val);
+    }
+
+    pub fn insvp(&mut self, name:String, path:String, val:WashArgs) {
+        if !self.hasp(&path) {
+            self.insp(path.clone())
+        }
+        self.paths.get_mut(&self.variables).unwrap().insert(name, val);
+    }
+
+    pub fn insp(&mut self, path:String) {
+        self.paths.insert(path, HashMap::new());
     }
 
     pub fn insf(&mut self, name:&str, func:WashFunc) {
         self.functions.insert(name.to_string(), func);
     }
 
-    pub fn getv(u_env:*const WashEnv, name:&String) -> Option<WashArgs> {
+    pub fn getv(u_env:*const WashEnv, name:&String) -> WashArgs {
+        let env = unsafe{u_env.as_ref()}.unwrap();
+        return WashEnv::getvp(env, name, &env.variables);
+    }
+
+    pub fn getall(u_env:*const WashEnv) -> WashArgs {
+        let env = unsafe{u_env.as_ref()}.unwrap();
+        return WashEnv::getallp(env, &env.variables);
+    }
+    
+    pub fn getallp(u_env:*const WashEnv, path:&String) -> WashArgs {
+        let env = unsafe{u_env.as_ref()}.unwrap();
+        if !env.hasp(path) {
+            return Empty;
+        }
+        let mut out = vec![];
+        let vars = env.paths.get(&env.variables).unwrap();
+        let mut names = vars.keys();
+        let mut vals = vars.values();
+        loop {
+            match (names.next(), vals.next()) {
+                (Some(name), Some(val)) =>
+                    out.push(Long(vec![Flat(name.clone()), val.clone()])),
+                _ => break
+            }
+        }
+        return Long(out);
+    }
+
+    pub fn getvp(u_env:*const WashEnv, name:&String, path:&String) -> WashArgs {
         // I'm not even returning a pointer calm down rust
         let env = unsafe{u_env.as_ref()}.unwrap();
-        return match env.variables.get(name) {
-            None => None,
-            Some(val) => Some(val.clone())
+        return match env.paths.get(path) {
+            None => Empty,
+            Some(table) => match table.get(name) {
+                None => Empty,
+                Some(val) => val.clone()
+            }
         };
     }
 

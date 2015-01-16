@@ -36,7 +36,7 @@ fn run_command(args:Vec<WashArgs>, term:&mut TermState, env:&mut WashEnv) -> Res
     let outv = out.flatten_vec();
     if out.is_empty() {
         return Err("Command failed".to_string());
-    } else if out.len() < 2 {
+    } else if outv.len() < 2 {
         return Err(format!("Command failed: {}", out.flatten()));
     } else if outv != vec!["status", "0"] {
         return Err(format!("Command failed with {} {}", outv[0], outv[1]));
@@ -115,7 +115,7 @@ fn input_to_args(input:InputValue, term:&mut TermState, env:&mut WashEnv) -> Res
             if path == "env".to_string() {
                 match caps.at(2).unwrap() {
                     name if name == "".to_string() => {
-                        let mut envs = os::env();
+                        let envs = os::env();
                         let mut out = vec![]; let mut cenv;
                         for env in envs.iter() {
                             cenv = env.clone();
@@ -129,15 +129,42 @@ fn input_to_args(input:InputValue, term:&mut TermState, env:&mut WashEnv) -> Res
                         Some(v) => return Ok(WashArgs::Flat(v))
                     }
                 }
+            } else if path == "".to_string() {
+                match caps.at(2).unwrap().to_string() {
+                    ref name if *name == "".to_string() => {
+                        return Ok(WashEnv::getall(env));
+                    },
+                    name => {
+                        if !env.hasv(&name) {
+                            return Err(format!("Variable not found: {}", name));
+                        } else {
+                            return Ok(WashEnv::getv(env, &name));
+                        }
+                    }
+                }
             } else {
-                return Err(format!("Path not found: {}", path));
+                if !env.hasp(&path) {
+                    return Err(format!("Path not found: {}", path));
+                }
+                match caps.at(2).unwrap().to_string() {
+                    ref name if *name == "".to_string() => {
+                        return Ok(WashEnv::getallp(env, &path));
+                    },
+                    name => {
+                        if !env.hasvp(&name, &path) {
+                            return Err(format!("Variable not found: {}:{}", path, name));
+                        } else {
+                            return Ok(WashEnv::getvp(env, &name, &path));
+                        }
+                    }
+                }
             }
         },
         Short(ref s) if VAR_REGEX.is_match(s.as_slice()) => {
             let caps = VAR_REGEX.captures(s.as_slice()).unwrap();
             let name = caps.at(1).unwrap().to_string();
             if env.hasv(&name) {
-                return Ok(WashEnv::getv(env, &name).unwrap());
+                return Ok(WashEnv::getv(env, &name));
             } else {
                 return Err(format!("Variable not found: {}", name));
             }
