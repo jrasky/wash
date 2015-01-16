@@ -44,37 +44,6 @@ fn cd_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     return Empty;
 }
 
-fn senv_func(args:&WashArgs, _:&mut WashEnv) -> WashArgs {
-    let farg = args.get_flat(0);
-    let arg = farg.as_slice();
-    if regex!(r"^\S+=").is_match(arg) {
-        let re = regex!("=");
-        let parts = re.splitn(arg, 2).collect::<Vec<&str>>();
-        os::setenv(parts[0], parts[1]);
-        return Flat(parts[1].to_string());
-    } else if regex!(r"^\S+$").is_match(arg) {
-        os::unsetenv(arg);
-        return Empty;
-    } else {
-        // user supplied some variable name with spaces in it
-        // which isn't allowed
-        return Empty;
-    }
-}
-
-fn genv_func(args:&WashArgs, _:&mut WashEnv) -> WashArgs {
-    let fname = args.get_flat(0);
-    let name = fname.as_slice();
-    if !regex!(r"^\S+$").is_match(name) {
-        // takes care of all bad arguments
-        return Empty;
-    }
-    match os::getenv(name) {
-        None => return Empty,
-        Some(val) => return Flat(val)
-    }
-}
-
 fn outs_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     let mut argf = args.flatten();
     env.term.controls.outs(argf.as_slice());
@@ -146,11 +115,44 @@ pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     }
 }
 
+pub fn get_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+    if args.len() < 1 {
+        env.term.controls.err("No variable name given");
+        return Empty;
+    }
+    let name = match args.get(0) {
+        ref v if !v.is_flat() => {
+            env.term.controls.err("Variables names can only be flat");
+            return Empty;
+        },
+        ref v if !EQ_VAR_REGEX.is_match(v.flatten().as_slice()) => {
+            env.term.controls.err("Variable names cannot contain whitespace, quotes, or parentheses");
+            return Empty;
+        }
+        v => v.flatten()
+    };
+    if EQ_PATH_REGEX.is_match(name.as_slice()) {
+        let caps = EQ_PATH_REGEX.captures(name.as_slice()).unwrap();
+        let path = caps.at(1).unwrap().to_string();
+        let name = caps.at(2).unwrap().to_string();
+        if path.is_empty() {
+            // use default path
+            // this can be used to set a variable
+            // with a name containing a colon
+            return env.getv(&name);
+        } else {
+            return env.getvp(&name, &path);
+        }
+    } else {
+        return env.getv(&name);
+    }
+}
+
 pub fn equals_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     // other l-values might eventually be supported,
     // for now you can only set variables
     if args.len() < 2 {
-        env.term.controls.err("Didn't provide anything to set variale to");
+        env.term.controls.err("Not enough arguments: give variable and value");
         return Empty;
     }
     let name = match args.get(0) {
@@ -189,22 +191,21 @@ pub fn equals_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
 fn builtins_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     return Long(vec![
         Flat("$".to_string()),
+        Flat("=".to_string()),
         Flat("builtins".to_string()),
         Flat("cd".to_string()),
-        Flat("genv".to_string()),
+        Flat("get".to_string()),
         Flat("run".to_string()),
-        Flat("senv".to_string()),
         Flat("source".to_string())]);
 }
 
 pub fn load_builtins(env:&mut WashEnv) {
     env.insf("source", source_func);
     env.insf("cd", cd_func);
-    env.insf("senv", senv_func);
     env.insf("builtins", builtins_func);
-    env.insf("genv", genv_func);
     env.insf("outs", outs_func);
     env.insf("$", drun_func);
     env.insf("run", run_func);
     env.insf("=", equals_func);
+    env.insf("get", get_func);
 }

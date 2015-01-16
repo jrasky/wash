@@ -13,6 +13,7 @@ use std::ffi;
 use std::str;
 use std::mem;
 use std::cmp::*;
+use std::os;
 
 use controls::*;
 use constants::*;
@@ -220,10 +221,20 @@ impl WashEnv {
     }
 
     pub fn insvp(&mut self, name:String, path:String, val:WashArgs) {
-        if !self.hasp(&path) {
-            self.insp(path.clone())
+        if path.is_empty() && path != self.variables {
+            self.insv(name ,val);
+        } else if path == "env" {
+            if !val.is_flat() {
+                self.term.controls.err("Environment variables can only be flat");
+                return;
+            }
+            os::setenv(name.as_slice(), val.flatten().as_slice());
+        } else {
+            if !self.hasp(&path) {
+                self.insp(path.clone())
+            }
+            self.paths.get_mut(path.as_slice()).unwrap().insert(name, val);
         }
-        self.paths.get_mut(path.as_slice()).unwrap().insert(name, val);
     }
 
     pub fn insp(&mut self, path:String) {
@@ -243,32 +254,50 @@ impl WashEnv {
     }
     
     pub fn getallp(&self, path:&String) -> WashArgs {
-        if !self.hasp(path) {
+        if path.is_empty() && *path != self.variables {
+            return self.getall();
+        } else if *path == "env".to_string() {
+            let mut out = vec![];
+            let envs = os::env();
+            for &(ref name, ref value) in envs.iter() {
+                out.push(Long(vec![Flat(name.clone()), Flat(value.clone())]));
+            }
+            return Long(out);
+        } else if self.hasp(path) {
+            let mut out = vec![];
+            let vars = self.paths.get(path).unwrap();
+            let mut names = vars.keys();
+            let mut values = vars.values();
+            loop {
+                match (names.next(), values.next()) {
+                    (Some(name), Some(value)) =>
+                        out.push(Long(vec![Flat(name.clone()), value.clone()])),
+                    _ => break
+                }
+            }
+            return Long(out);
+        } else {
             return Empty;
         }
-        let mut out = vec![];
-        let vars = self.paths.get(path).unwrap();
-        let mut names = vars.keys();
-        let mut vals = vars.values();
-        loop {
-            match (names.next(), vals.next()) {
-                (Some(name), Some(val)) =>
-                    out.push(Long(vec![Flat(name.clone()), val.clone()])),
-                _ => break
-            }
-        }
-        return Long(out);
     }
 
     pub fn getvp(&self, name:&String, path:&String) -> WashArgs {
-        // I'm not even returning a pointer calm down rust
-        return match self.paths.get(path) {
-            None => Empty,
-            Some(table) => match table.get(name) {
+        if path.is_empty() && *path != self.variables {
+            return self.getv(name);
+        } else if *path == "env".to_string() {
+            return match os::getenv(name.as_slice()) {
                 None => Empty,
-                Some(val) => val.clone()
-            }
-        };
+                Some(v) => Flat(v)
+            };
+        } else {
+            return match self.paths.get(path) {
+                None => Empty,
+                Some(table) => match table.get(name) {
+                    None => Empty,
+                    Some(val) => val.clone()
+                }
+            };
+        }
     }
 
     pub fn runf(&mut self, name:&String, args:&WashArgs) -> WashArgs {

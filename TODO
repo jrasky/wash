@@ -1,9 +1,10 @@
-- Change variable access to a function instead of a special case in input_to_args
-- Change environment variable handling to WashEnv instead of special case in input_to_args
-- Enable setting environment variables through =
-- treat the "" namespace as a global namespace
+- treat the "" namespace as a global namespace <= done, work on items below
  - resolve in the local one first, then in that one
  - cannot set local namespace to environment variables
+- Change env to have a private term
+ - change output to functions in env
+   - this allows output redirection for functions
+   - maybe also change all output everywhere to use this
 - interactive mode
 - loops
 - conditionals
