@@ -82,7 +82,26 @@ impl WashArgs {
                 let mut out = String::new();
                 for item in v.iter() {
                     out.push_str(item.flatten_with(with).as_slice());
-                    out.push(NL);
+                    out.push_str(with);
+                }
+                // remove last NL
+                out.pop();
+                return out;
+            },
+            &Empty => {
+                return String::new();
+            }
+        }
+    }
+
+    pub fn flatten_with_inner(&self, outer:&str, inner:&str) -> String {
+        match self {
+            &Flat(ref s) => s.clone(),
+            &Long(ref v) => {
+                let mut out = String::new();
+                for item in v.iter() {
+                    out.push_str(item.flatten_with(inner).as_slice());
+                    out.push_str(outer);
                 }
                 // remove last NL
                 out.pop();
@@ -160,8 +179,8 @@ impl WashEnv {
         }
     }
 
-    pub fn hasv(&self, name:&str) -> bool {
-        self.variables.contains_key(&name.to_string())
+    pub fn hasv(&self, name:&String) -> bool {
+        self.variables.contains_key(name)
     }
 
     pub fn hasf(&self, name:&String) -> bool {

@@ -8,6 +8,8 @@ extern crate regex;
 #[plugin] #[no_link]
 extern crate regex_macros;
 
+use std::os;
+
 use reader::*;
 use controls::*;
 use constants::*;
@@ -61,6 +63,14 @@ fn run_line(line:InputValue, term:&mut TermState, env:&mut WashEnv) -> Result<Wa
             // run as command
             return run_command(try!(input_to_vec(a, term, env)), term, env);
         },
+        Short(ref s) if VAR_PATH_REGEX.is_match(s.as_slice()) => {
+            let out = try!(input_to_args(Short(s.clone()), term, env));
+            return Ok(WashArgs::Flat(format!("{}\n", out.flatten_with_inner("\n", "="))));
+        },
+        Short(ref s) if VAR_REGEX.is_match(s.as_slice()) => {
+            let out = try!(input_to_args(Short(s.clone()), term, env));
+            return Ok(WashArgs::Flat(format!("{}\n", out.flatten())));
+        },
         Short(s) | Literal(s) => {
             // run command without args
             return run_command(vec![WashArgs::Flat(s)], term, env);
@@ -98,6 +108,39 @@ fn input_to_args(input:InputValue, term:&mut TermState, env:&mut WashEnv) -> Res
                 }
             }
             return Ok(WashArgs::Long(args));
+        },
+        Short(ref s) if VAR_PATH_REGEX.is_match(s.as_slice()) => {
+            let caps = VAR_PATH_REGEX.captures(s.as_slice()).unwrap();
+            let path = caps.at(1).unwrap().to_string();
+            if path == "env".to_string() {
+                match caps.at(2).unwrap() {
+                    name if name == "".to_string() => {
+                        let mut envs = os::env();
+                        let mut out = vec![]; let mut cenv;
+                        for env in envs.iter() {
+                            cenv = env.clone();
+                            out.push(WashArgs::Long(vec![WashArgs::Flat(cenv.0),
+                                                         WashArgs::Flat(cenv.1)]));
+                        }
+                        return Ok(WashArgs::Long(out));
+                    },
+                    name => match os::getenv(name.as_slice()) {
+                        None => return Err(format!("Environment variable not found: {}", name)),
+                        Some(v) => return Ok(WashArgs::Flat(v))
+                    }
+                }
+            } else {
+                return Err(format!("Path not found: {}", path));
+            }
+        },
+        Short(ref s) if VAR_REGEX.is_match(s.as_slice()) => {
+            let caps = VAR_REGEX.captures(s.as_slice()).unwrap();
+            let name = caps.at(1).unwrap().to_string();
+            if env.hasv(&name) {
+                return Ok(WashEnv::getv(env, &name).unwrap());
+            } else {
+                return Err(format!("Variable not found: {}", name));
+            }
         },
         Short(s) | Literal(s) => return Ok(WashArgs::Flat(s)),
         Split(_) => return Ok(WashArgs::Empty)

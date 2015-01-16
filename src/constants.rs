@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 use libc::*;
+use regex::Regex;
 
 // standard file descriptiors
 pub const STDIN:c_int  = 0;
@@ -87,3 +88,7 @@ pub const WASH_LOAD_SYMBOL:&'static str = "wash_load";
 pub const WO_PATH:&'static str = "/tmp/wash/";
 
 pub const NCCS:usize = 32;
+
+// regex
+pub static VAR_REGEX:Regex = regex!("^\\$([^ \t\r\n\"():]*)");
+pub static VAR_PATH_REGEX:Regex = regex!("^\\$([^ \t\r\n\"():]*):([^ \t\r\n\"():]*)");
