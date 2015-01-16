@@ -1,0 +1,27 @@
+- setting variables
+- loops
+- conditionals
+ - regex
+- function paths?
+- better job control
+ - setting variables for one job
+ - changing the default variable path
+- more keyboard shortcuts
+- settings
+ - maybe vars on a special path?
+- better PS1
+ - figure out PS2 interaction
+- finish scripting
+ - interactive/compiled mode
+ - permanent caches
+ - pre-caching
+ - startup scripts
+- completion
+ - hook into bash completion
+- bash integration
+
+future:
+- better terminal protocol
+ - over dbus
+- terminal client to match
+- wash_start entry points
