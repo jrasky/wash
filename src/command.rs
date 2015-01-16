@@ -6,7 +6,7 @@ use constants::*;
 use termios::*;
 
 pub struct TermState {
-    controls: Controls,
+    pub controls: Controls,
     tios: Termios,
     old_tios: Termios
 }

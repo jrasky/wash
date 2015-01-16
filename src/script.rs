@@ -22,7 +22,7 @@ use self::WashArgs::*;
 
 // !!!
 // Wash function calling convention
-pub type WashFunc = fn(&WashArgs, &mut WashEnv, &mut TermState) -> WashArgs;
+pub type WashFunc = fn(&WashArgs, &mut WashEnv) -> WashArgs;
 
 // >Dat pointer indirection
 // Sorry bro, Rust doesn't have DSTs yet
@@ -49,7 +49,7 @@ pub struct WashEnv {
     pub variables: String,
     pub functions: FuncTable,
     pub scripts: ScriptTable,
-    pub controls: Controls
+    pub term: TermState,
 }
 
 pub struct WashScript {
@@ -178,7 +178,7 @@ impl WashEnv {
             variables: String::new(),
             functions: HashMap::new(),
             scripts: HashMap::new(),
-            controls: Controls::new()
+            term: TermState::new()
         }
     }
 
@@ -227,23 +227,20 @@ impl WashEnv {
         self.functions.insert(name.to_string(), func);
     }
 
-    pub fn getv(u_env:*const WashEnv, name:&String) -> WashArgs {
-        let env = unsafe{u_env.as_ref()}.unwrap();
-        return WashEnv::getvp(env, name, &env.variables);
+    pub fn getv(&self, name:&String) -> WashArgs {
+        return self.getvp(name, &self.variables);
     }
 
-    pub fn getall(u_env:*const WashEnv) -> WashArgs {
-        let env = unsafe{u_env.as_ref()}.unwrap();
-        return WashEnv::getallp(env, &env.variables);
+    pub fn getall(&self) -> WashArgs {
+        return self.getallp(&self.variables);
     }
     
-    pub fn getallp(u_env:*const WashEnv, path:&String) -> WashArgs {
-        let env = unsafe{u_env.as_ref()}.unwrap();
-        if !env.hasp(path) {
+    pub fn getallp(&self, path:&String) -> WashArgs {
+        if !self.hasp(path) {
             return Empty;
         }
         let mut out = vec![];
-        let vars = env.paths.get(&env.variables).unwrap();
+        let vars = self.paths.get(path).unwrap();
         let mut names = vars.keys();
         let mut vals = vars.values();
         loop {
@@ -256,10 +253,9 @@ impl WashEnv {
         return Long(out);
     }
 
-    pub fn getvp(u_env:*const WashEnv, name:&String, path:&String) -> WashArgs {
+    pub fn getvp(&self, name:&String, path:&String) -> WashArgs {
         // I'm not even returning a pointer calm down rust
-        let env = unsafe{u_env.as_ref()}.unwrap();
-        return match env.paths.get(path) {
+        return match self.paths.get(path) {
             None => Empty,
             Some(table) => match table.get(name) {
                 None => Empty,
@@ -268,37 +264,34 @@ impl WashEnv {
         };
     }
 
-    pub fn getf<'a>(u_env:*const WashEnv, u_name:*const String) -> Option<&'a WashFunc> {
-        let env = unsafe{u_env.as_ref()}.unwrap();
-        let name = unsafe{u_name.as_ref()}.unwrap();
-        return env.functions.get(name);
-    }
-
-    pub fn get_script<'a>(u_env:*mut WashEnv, path:&Path) -> Option<&'a mut WashScript> {
-        // this is technically unsafe, but the resulting WashScript has no access to the
-        // WashEnv except through arguments we pass to its function
-        // So really this isn't a borrow, even though Rust thinks it is
-        let env = unsafe{u_env.as_mut()}.unwrap();
-        return env.scripts.get_mut(path);
+    pub fn runf(&mut self, name:&String, args:&WashArgs) -> WashArgs {
+        let func = match self.functions.get(name) {
+            None => return Empty,
+            Some(func) => func.clone()
+        };
+        return func(args, self);
     }
 
     pub fn load_script(&mut self, path:Path, args:&WashArgs) -> WashArgs {
-        if !self.scripts.contains_key(&path) {
-            self.scripts.insert(path.clone(), WashScript::new(path.clone()));
-        }
-        let script = WashEnv::get_script(self, &path).unwrap();
+        let mut script = match self.scripts.remove(&path) {
+            Some(script) => script,
+            None => WashScript::new(path.clone())
+        };
         if !script.is_compiled() && !script.compile() {
-            self.controls.err("Failed to compile script\n");
+            self.term.controls.err("Failed to compile script\n");
             return Empty;
         }
-        self.controls.flush();
+        self.term.controls.flush();
         if script.is_runnable() {
-            script.run(args, self);
-            return Empty;
+            let out = script.run(args, self);
+            self.scripts.insert(path.clone(), script);
+            return out;
         } else if script.is_loadable() {
-            return script.load(args, self);
+            let out = script.load(args, self);
+            self.scripts.insert(path.clone(), script);
+            return out;
         } else {
-            self.controls.err("Cannot load or run script\n");
+            self.term.controls.err("Cannot load or run script\n");
             return Empty;
         }
     }

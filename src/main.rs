@@ -31,8 +31,8 @@ mod script;
 mod builtins;
 mod command;
 
-fn run_command(args:Vec<WashArgs>, term:&mut TermState, env:&mut WashEnv) -> Result<WashArgs, String> {
-    let out = try!(run_function("run".to_string(), args, term, env));
+fn run_command(args:Vec<WashArgs>, env:&mut WashEnv) -> Result<WashArgs, String> {
+    let out = try!(run_function("run".to_string(), args, env));
     let outv = out.flatten_vec();
     if out.is_empty() {
         return Err("Command failed".to_string());
@@ -45,35 +45,34 @@ fn run_command(args:Vec<WashArgs>, term:&mut TermState, env:&mut WashEnv) -> Res
     }
 }
 
-fn run_function(name:String, args:Vec<WashArgs>, term:&mut TermState, env:&mut WashEnv) -> Result<WashArgs, String> {
+fn run_function(name:String, args:Vec<WashArgs>, env:&mut WashEnv) -> Result<WashArgs, String> {
     if env.hasf(&name) {
-        let func = WashEnv::getf(env, &name).unwrap();
-        return Ok(func(&WashArgs::Long(args), env, term));
+        return Ok(env.runf(&name, &WashArgs::Long(args)));
     } else {
         return Err("Function not found".to_string());
     }
 }
 
-fn run_line(line:InputValue, term:&mut TermState, env:&mut WashEnv) -> Result<WashArgs, String> {
+fn run_line(line:InputValue, env:&mut WashEnv) -> Result<WashArgs, String> {
     match line {
         Function(n, a) => {
-            return run_function(n, try!(input_to_vec(a, term, env)), term, env);
+            return run_function(n, try!(input_to_vec(a, env)), env);
         },
         Long(a) => {
             // run as command
-            return run_command(try!(input_to_vec(a, term, env)), term, env);
+            return run_command(try!(input_to_vec(a, env)), env);
         },
         Short(ref s) if VAR_PATH_REGEX.is_match(s.as_slice()) => {
-            let out = try!(input_to_args(Short(s.clone()), term, env));
+            let out = try!(input_to_args(Short(s.clone()), env));
             return Ok(WashArgs::Flat(format!("{}\n", out.flatten_with_inner("\n", "="))));
         },
         Short(ref s) if VAR_REGEX.is_match(s.as_slice()) => {
-            let out = try!(input_to_args(Short(s.clone()), term, env));
+            let out = try!(input_to_args(Short(s.clone()), env));
             return Ok(WashArgs::Flat(format!("{}\n", out.flatten())));
         },
         Short(s) | Literal(s) => {
             // run command without args
-            return run_command(vec![WashArgs::Flat(s)], term, env);
+            return run_command(vec![WashArgs::Flat(s)], env);
         },
         _ => {
             // do nothing
@@ -82,10 +81,10 @@ fn run_line(line:InputValue, term:&mut TermState, env:&mut WashEnv) -> Result<Wa
     }
 }
 
-fn input_to_vec(input:Vec<InputValue>, term:&mut TermState, env:&mut WashEnv) -> Result<Vec<WashArgs>, String> {
+fn input_to_vec(input:Vec<InputValue>, env:&mut WashEnv) -> Result<Vec<WashArgs>, String> {
     let mut args = vec![];
     for item in input.iter() {
-        match try!(input_to_args(item.clone(), term, env)) {
+        match try!(input_to_args(item.clone(), env)) {
             WashArgs::Empty => {/* do nothing */},
             v => args.push(v)
         }
@@ -93,16 +92,16 @@ fn input_to_vec(input:Vec<InputValue>, term:&mut TermState, env:&mut WashEnv) ->
     return Ok(args);
 }
 
-fn input_to_args(input:InputValue, term:&mut TermState, env:&mut WashEnv) -> Result<WashArgs, String> {
+fn input_to_args(input:InputValue, env:&mut WashEnv) -> Result<WashArgs, String> {
     match input {
         Function(n, a) => {
-            return run_function(n, try!(input_to_vec(a, term, env)),
-                                term, env);
+            return run_function(n, try!(input_to_vec(a, env)),
+                                env);
         },
         Long(a) => {
             let mut args = vec![];
             for item in a.iter() {
-                match try!(input_to_args(item.clone(), term, env)) {
+                match try!(input_to_args(item.clone(), env)) {
                     WashArgs::Empty => {/* do nothing */},
                     v => args.push(v)
                 }
@@ -154,7 +153,7 @@ fn input_to_args(input:InputValue, term:&mut TermState, env:&mut WashEnv) -> Res
                         if !env.hasvp(&name, &path) {
                             return Err(format!("Variable not found: {}:{}", path, name));
                         } else {
-                            return Ok(WashEnv::getvp(env, &name, &path));
+                            return Ok(env.getvp(&name, &path));
                         }
                     }
                 }
@@ -164,7 +163,7 @@ fn input_to_args(input:InputValue, term:&mut TermState, env:&mut WashEnv) -> Res
             let caps = VAR_REGEX.captures(s.as_slice()).unwrap();
             let name = caps.at(1).unwrap().to_string();
             if env.hasv(&name) {
-                return Ok(WashEnv::getv(env, &name));
+                return Ok(env.getv(&name));
             } else {
                 return Err(format!("Variable not found: {}", name));
             }
@@ -179,9 +178,8 @@ pub fn main() {
     let mut controls = &mut Controls::new();
     let mut reader = LineReader::new();
     let mut env = WashEnv::new();
-    let mut term = TermState::new();
     load_builtins(&mut env);
-    term.update_terminal();
+    env.term.update_terminal();
     loop {
         controls.flush();
         match reader.read_line() {
@@ -198,7 +196,7 @@ pub fn main() {
             },
             Some(line) => {
                 controls.outc(NL);
-                match run_line(line, &mut term, &mut env) {
+                match run_line(line, &mut env) {
                     Err(e) => controls.errf(format_args!("{}\n", e)),
                     Ok(v) => {
                         controls.outs(v.flatten().as_slice());
@@ -210,5 +208,5 @@ pub fn main() {
     }
     controls.outs("\nExiting\n");
     controls.flush();
-    term.restore_terminal();
+    env.term.restore_terminal();
 }

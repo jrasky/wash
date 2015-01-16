@@ -11,10 +11,10 @@ use command::*;
 
 // Calling convention:
 // fn(args:&Vec<String>, u_env:*mut WashEnv) -> Vec<String>
-fn source_func(args:&WashArgs, env:&mut WashEnv, _:&mut TermState) -> WashArgs {
+fn source_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     // in this case args is line
     if args.is_empty() {
-        env.controls.err("No arguments given");
+        env.term.controls.err("No arguments given");
         return Empty;
     }
     let name = match args {
@@ -25,7 +25,7 @@ fn source_func(args:&WashArgs, env:&mut WashEnv, _:&mut TermState) -> WashArgs {
     env.load_script(Path::new(name), &args.slice(1, -1))
 }
 
-fn cd_func(args:&WashArgs, env:&mut WashEnv, _:&mut TermState) -> WashArgs {
+fn cd_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     let newp = {
         if args.is_empty() {
             expand_path(Path::new("~"))
@@ -39,13 +39,13 @@ fn cd_func(args:&WashArgs, env:&mut WashEnv, _:&mut TermState) -> WashArgs {
     match os::change_dir(&newp) {
         Ok(_) => {},
         Err(e) => {
-            env.controls.errf(format_args!("Failed: {}: {}\n", newp.display(), e));
+            env.term.controls.errf(format_args!("Failed: {}: {}\n", newp.display(), e));
         }
     }
     return Empty;
 }
 
-fn senv_func(args:&WashArgs, _:&mut WashEnv, _:&mut TermState) -> WashArgs {
+fn senv_func(args:&WashArgs, _:&mut WashEnv) -> WashArgs {
     let farg = args.get_flat(0);
     let arg = farg.as_slice();
     if regex!(r"^\S+=").is_match(arg) {
@@ -63,7 +63,7 @@ fn senv_func(args:&WashArgs, _:&mut WashEnv, _:&mut TermState) -> WashArgs {
     }
 }
 
-fn genv_func(args:&WashArgs, _:&mut WashEnv, _:&mut TermState) -> WashArgs {
+fn genv_func(args:&WashArgs, _:&mut WashEnv) -> WashArgs {
     let fname = args.get_flat(0);
     let name = fname.as_slice();
     if !regex!(r"^\S+$").is_match(name) {
@@ -76,16 +76,16 @@ fn genv_func(args:&WashArgs, _:&mut WashEnv, _:&mut TermState) -> WashArgs {
     }
 }
 
-fn outs_func(args:&WashArgs, env:&mut WashEnv, _:&mut TermState) -> WashArgs {
+fn outs_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     let mut argf = args.flatten();
-    env.controls.outs(argf.as_slice());
+    env.term.controls.outs(argf.as_slice());
     if argf.pop() != Some(NL) {
-        env.controls.outc(NL);
+        env.term.controls.outc(NL);
     }
     return Empty;
 }
 
-pub fn drun_func(args:&WashArgs, env:&mut WashEnv, term:&mut TermState) -> WashArgs {
+pub fn drun_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     // Note: Wash calling convention is for the caller to reduce
     // arguments to literals
     if args.len() < 1 {
@@ -98,22 +98,21 @@ pub fn drun_func(args:&WashArgs, env:&mut WashEnv, term:&mut TermState) -> WashA
     // this could be empty but that's ok
     let arg_slice = args.slice(1, -1);
     if env.hasf(&name) {
-        let func = WashEnv::getf(env, &name).unwrap();
-        return func(&arg_slice, env, term);
+        return env.runf(&name, &arg_slice);
     } else {
-        let out = match term.run_command_directed(&name, &arg_slice.flatten_vec()) {
+        let out = match env.term.run_command_directed(&name, &arg_slice.flatten_vec()) {
             None => return Empty,
             Some(v) => v
         };
         if !out.status.success() {
-            env.controls.err(String::from_utf8_lossy(out.error.as_slice()).as_slice());
+            env.term.controls.err(String::from_utf8_lossy(out.error.as_slice()).as_slice());
             return Empty;
         }
         return Flat(String::from_utf8_lossy(out.output.as_slice()).into_owned());
     }
 }
 
-pub fn run_func(args:&WashArgs, env:&mut WashEnv, term:&mut TermState) -> WashArgs {
+pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     // Note: Wash calling convention is for the caller to reduce
     // arguments to literals
     if args.len() < 1 {
@@ -127,15 +126,14 @@ pub fn run_func(args:&WashArgs, env:&mut WashEnv, term:&mut TermState) -> WashAr
     let arg_slice = args.slice(1, -1);
     if env.hasf(&name) {
         // run functions before commands
-        let func = WashEnv::getf(env, &name).unwrap();
-        let out = func(&arg_slice, env, term).flatten();
-        env.controls.outf(format_args!("{}\n", out));
+        let out = env.runf(&name, &arg_slice).flatten();
+        env.term.controls.outf(format_args!("{}\n", out));
         return Long(vec![Flat("status".to_string()),
                          Flat("0".to_string())]);
     } else {
         // flush output and run command
-        env.controls.flush();
-        match term.run_command(&name, &arg_slice.flatten_vec()) {
+        env.term.controls.flush();
+        match env.term.run_command(&name, &arg_slice.flatten_vec()) {
             None => return Empty,
             Some(ExitSignal(sig)) => {
                 return Long(vec![Flat("signal".to_string()),
@@ -150,7 +148,7 @@ pub fn run_func(args:&WashArgs, env:&mut WashEnv, term:&mut TermState) -> WashAr
 }
 
 #[allow(unused_variables)]
-fn builtins_func(args:&WashArgs, env:&mut WashEnv, _:&mut TermState) -> WashArgs {
+fn builtins_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     return Long(vec![
         Flat("$".to_string()),
         Flat("builtins".to_string()),
