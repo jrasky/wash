@@ -1,4 +1,4 @@
-- treat the "" namespace as a global namespace <= done, work on items below
+- treat the "" namespace as a global namespace
  - resolve in the local one first, then in that one
  - cannot set local namespace to environment variables
 - Change env to have a private term
