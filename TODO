@@ -1,3 +1,5 @@
+- Change variable access to a function instead of a special case in input_to_args
+- interactive mode
 - loops
 - conditionals
  - regex
