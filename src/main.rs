@@ -15,7 +15,6 @@ use controls::*;
 use constants::*;
 use script::*;
 use builtins::*;
-use command::*;
 use input::*;
 
 use input::InputValue::*;

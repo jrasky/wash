@@ -7,7 +7,6 @@ use script::WashArgs::*;
 use script::*;
 use util::*;
 use constants::*;
-use command::*;
 
 // Calling convention:
 // fn(args:&Vec<String>, u_env:*mut WashEnv) -> Vec<String>
