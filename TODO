@@ -1,5 +1,6 @@
 - treat the "" namespace as a global namespace
  - resolve in the local one first, then in that one
+- local namespace changing
  - cannot set local namespace to environment variables
 - Change env to have a private term
  - change output to functions in env
