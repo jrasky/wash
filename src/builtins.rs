@@ -146,6 +146,45 @@ pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     }
 }
 
+pub fn equals_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+    // other l-values might eventually be supported,
+    // for now you can only set variables
+    if args.len() < 2 {
+        env.term.controls.err("Didn't provide anything to set variale to");
+        return Empty;
+    }
+    let name = match args.get(0) {
+        ref v if !v.is_flat() => {
+            env.term.controls.err("Variables names can only be flat");
+            return Empty;
+        },
+        ref v if !EQ_VAR_REGEX.is_match(v.flatten().as_slice()) => {
+            env.term.controls.err("Variable names cannot contain whitespace, quotes, or parentheses");
+            return Empty;
+        }
+        v => v.flatten()
+    };
+    let val = args.get(1);
+    if EQ_PATH_REGEX.is_match(name.as_slice()) {
+        let caps = EQ_PATH_REGEX.captures(name.as_slice()).unwrap();
+        let path = caps.at(1).unwrap().to_string();
+        let name = caps.at(2).unwrap().to_string();
+        if path.is_empty() {
+            // use default path
+            // this can be used to set a variable
+            // with a name containing a colon
+            env.insv(name, val.clone());
+            return val;
+        } else {
+            env.insvp(name, path, val.clone());
+            return val;
+        }
+    } else {
+        env.insv(name, val.clone());
+        return val;
+    }
+}
+
 #[allow(unused_variables)]
 fn builtins_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     return Long(vec![
@@ -167,4 +206,5 @@ pub fn load_builtins(env:&mut WashEnv) {
     env.insf("outs", outs_func);
     env.insf("$", drun_func);
     env.insf("run", run_func);
+    env.insf("=", equals_func);
 }

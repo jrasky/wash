@@ -121,7 +121,7 @@ impl WashArgs {
 
     pub fn len(&self) -> usize {
         match self {
-            &Flat(ref v) => v.len(),
+            &Flat(_) => 1,
             &Long(ref v) => v.len(),
             &Empty => 0
         }
@@ -131,6 +131,13 @@ impl WashArgs {
         match self {
             &Flat(_) | &Long(_) => false,
             &Empty => true
+        }
+    }
+
+    pub fn is_flat(&self) -> bool {
+        match self {
+            &Flat(_) => true,
+            _ => false
         }
     }
 
@@ -216,7 +223,7 @@ impl WashEnv {
         if !self.hasp(&path) {
             self.insp(path.clone())
         }
-        self.paths.get_mut(&self.variables).unwrap().insert(name, val);
+        self.paths.get_mut(path.as_slice()).unwrap().insert(name, val);
     }
 
     pub fn insp(&mut self, path:String) {
