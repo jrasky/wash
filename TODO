@@ -1,4 +1,9 @@
 - Change variable access to a function instead of a special case in input_to_args
+- Change environment variable handling to WashEnv instead of special case in input_to_args
+- Enable setting environment variables through =
+- treat the "" namespace as a global namespace
+ - resolve in the local one first, then in that one
+ - cannot set local namespace to environment variables
 - interactive mode
 - loops
 - conditionals
