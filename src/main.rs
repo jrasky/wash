@@ -29,72 +29,77 @@ mod script;
 mod builtins;
 mod command;
 
+fn run_command(args:Vec<WashArgs>, term:&mut TermState, env:&mut WashEnv) -> Result<WashArgs, String> {
+    let out = try!(run_function("run".to_string(), args, term, env));
+    let outv = out.flatten_vec();
+    if out.is_empty() {
+        return Err("Command failed".to_string());
+    } else if out.len() < 2 {
+        return Err(format!("Command failed: {}", out.flatten()));
+    } else if outv != vec!["status", "0"] {
+        return Err(format!("Command failed with {} {}", outv[0], outv[1]));
+    } else {
+        return Ok(WashArgs::Empty);
+    }
+}
+
+fn run_function(name:String, args:Vec<WashArgs>, term:&mut TermState, env:&mut WashEnv) -> Result<WashArgs, String> {
+    if env.hasf(&name) {
+        let func = WashEnv::getf(env, &name).unwrap();
+        return Ok(func(&WashArgs::Long(args), env, term));
+    } else {
+        return Err("Function not found".to_string());
+    }
+}
+
 fn run_line(line:InputValue, term:&mut TermState, env:&mut WashEnv) -> Result<WashArgs, String> {
     match line {
+        Function(n, a) => {
+            return run_function(n, try!(input_to_vec(a, term, env)), term, env);
+        },
         Long(a) => {
             // run as command
-            let out = try!(process_line(Function("run".to_string(), a), term, env));
-            let outv = out.flatten_vec();
-            if out.is_empty() {
-                return Err("Command failed".to_string());
-            } else if outv.len() < 2 {
-                return Err(format!("Command failed: {}", out.flatten()));
-            } else if outv != vec!["status", "0"] {
-                return Err(format!("Command failed with {} {}", outv[0], outv[1]));
-            } else {
-                return Ok(WashArgs::Empty);
-            }
+            return run_command(try!(input_to_vec(a, term, env)), term, env);
         },
         Short(s) | Literal(s) => {
             // run command without args
-            let out = try!(process_line(Function("run".to_string(), vec![Short(s)]), term, env));
-            let outv = out.flatten_vec();
-            if out.is_empty() {
-                return Err("Command Failed".to_string());
-            } else if outv.len() < 2 {
-                return Err(format!("Command failed: {}", out.flatten()));
-            } else if outv != vec!["status", "0"] {
-                return Err(format!("Command failed with {} {}", outv[0], outv[1]));
-            } else {
-                return Ok(WashArgs::Empty);
-            }
+            return run_command(vec![WashArgs::Flat(s)], term, env);
         },
-        v => {
-            return process_line(v, term, env);
+        _ => {
+            // do nothing
+            return Ok(WashArgs::Empty);
         }
     }
 }
 
-fn process_line(line:InputValue, term:&mut TermState, env:&mut WashEnv) -> Result<WashArgs, String> {
-    match line {
+fn input_to_vec(input:Vec<InputValue>, term:&mut TermState, env:&mut WashEnv) -> Result<Vec<WashArgs>, String> {
+    let mut args = vec![];
+    for item in input.iter() {
+        match try!(input_to_args(item.clone(), term, env)) {
+            WashArgs::Empty => {/* do nothing */},
+            v => args.push(v)
+        }
+    }
+    return Ok(args);
+}
+
+fn input_to_args(input:InputValue, term:&mut TermState, env:&mut WashEnv) -> Result<WashArgs, String> {
+    match input {
         Function(n, a) => {
-            if env.hasf(&n) {
-                let func = WashEnv::getf(env, &n).unwrap();
-                let mut args = vec![];
-                for item in a.iter() {
-                    match process_line(item.clone(), term, env) {
-                        Ok(WashArgs::Empty) => {/* do nothing */},
-                        Ok(v) => args.push(v),
-                        Err(e) => return Err(e)
-                    }
-                }
-                return Ok(func(&WashArgs::Long(args), env, term));
-            } else {
-                return Err("Function not found".to_string())
-            }
+            return run_function(n, try!(input_to_vec(a, term, env)),
+                                term, env);
         },
         Long(a) => {
             let mut args = vec![];
             for item in a.iter() {
-                match process_line(item.clone(), term, env) {
-                    Ok(v) => args.push(v),
-                    Err(e) => return Err(e)
+                match try!(input_to_args(item.clone(), term, env)) {
+                    WashArgs::Empty => {/* do nothing */},
+                    v => args.push(v)
                 }
             }
             return Ok(WashArgs::Long(args));
         },
-        Short(s) => return Ok(WashArgs::Flat(s)),
-        Literal(s) => return Ok(WashArgs::Flat(s)),
+        Short(s) | Literal(s) => return Ok(WashArgs::Flat(s)),
         Split(_) => return Ok(WashArgs::Empty)
     }
 }
