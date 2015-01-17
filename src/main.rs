@@ -111,9 +111,16 @@ fn input_to_args(input:InputValue, env:&mut WashEnv) -> Result<WashArgs, String>
             let path = caps.at(1).unwrap().to_string();
             let name = caps.at(2).unwrap().to_string();
             if name.is_empty() {
-                return match env.getallp(&path) {
-                    WashArgs::Empty => Err(format!("Path not found: {}", path)),
-                    v => Ok(v)
+                if path.is_empty() {
+                    return match env.getall() {
+                        WashArgs::Empty => Err(format!("Path not found: {}", path)),
+                        v => Ok(v)
+                    }
+                } else {
+                    return match env.getallp(&path) {
+                        WashArgs::Empty => Err(format!("Path not found: {}", path)),
+                        v => Ok(v)
+                    }
                 }
             } else {
                 return match env.getvp(&name, &path) {

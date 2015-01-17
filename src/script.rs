@@ -221,9 +221,7 @@ impl WashEnv {
     }
 
     pub fn insvp(&mut self, name:String, path:String, val:WashArgs) {
-        if path.is_empty() && path != self.variables {
-            self.insv(name ,val);
-        } else if path == "env" {
+        if path == "env" {
             if !val.is_flat() {
                 self.term.controls.err("Environment variables can only be flat");
                 return;
@@ -246,17 +244,30 @@ impl WashEnv {
     }
 
     pub fn getv(&self, name:&String) -> WashArgs {
-        return self.getvp(name, &self.variables);
+        return match self.getvp(name, &self.variables) {
+            Empty => return self.getvp(name, &"".to_string()),
+            v => return v
+        };
     }
 
     pub fn getall(&self) -> WashArgs {
-        return self.getallp(&self.variables);
+        let mut out = match self.getallp(&self.variables) {
+            Long(v) => v,
+            _ => vec![]
+        };
+        if !self.variables.is_empty() {
+            for item in match self.getallp(&"".to_string()) {
+                Long(v) => v,
+                _ => return Long(out)
+            }.iter() {
+                out.push(item.clone());
+            }
+        }
+        return Long(out);
     }
     
     pub fn getallp(&self, path:&String) -> WashArgs {
-        if path.is_empty() && *path != self.variables {
-            return self.getall();
-        } else if *path == "env".to_string() {
+        if *path == "env".to_string() {
             let mut out = vec![];
             let envs = os::env();
             for &(ref name, ref value) in envs.iter() {
@@ -282,9 +293,7 @@ impl WashEnv {
     }
 
     pub fn getvp(&self, name:&String, path:&String) -> WashArgs {
-        if path.is_empty() && *path != self.variables {
-            return self.getv(name);
-        } else if *path == "env".to_string() {
+        if *path == "env".to_string() {
             return match os::getenv(name.as_slice()) {
                 None => Empty,
                 Some(v) => Flat(v)

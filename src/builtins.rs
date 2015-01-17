@@ -148,6 +148,27 @@ pub fn get_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     }
 }
 
+pub fn setp_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+    if args.len() < 1 {
+        env.variables = String::new();
+        return Flat(String::new());
+    } else {
+        let path = match args.get(0) {
+            ref v if !v.is_flat() => {
+                env.term.controls.err("Variable paths can only be flat");
+                return Empty;
+            }
+            v => v.flatten()
+        };
+        if path == "env".to_string() {
+            env.term.controls.err("Cannot set variable path to environment variables");
+            return Empty;
+        }
+        env.variables = path.clone();
+        return Flat(path)
+    }
+}
+
 pub fn equals_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     // other l-values might eventually be supported,
     // for now you can only set variables
@@ -187,8 +208,7 @@ pub fn equals_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     }
 }
 
-#[allow(unused_variables)]
-fn builtins_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> WashArgs {
     return Long(vec![
         Flat("$".to_string()),
         Flat("=".to_string()),
@@ -196,6 +216,7 @@ fn builtins_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
         Flat("cd".to_string()),
         Flat("get".to_string()),
         Flat("run".to_string()),
+        Flat("setp".to_string()),
         Flat("source".to_string())]);
 }
 
@@ -208,4 +229,5 @@ pub fn load_builtins(env:&mut WashEnv) {
     env.insf("run", run_func);
     env.insf("=", equals_func);
     env.insf("get", get_func);
+    env.insf("setp", setp_func);
 }
