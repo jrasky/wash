@@ -148,7 +148,7 @@ pub fn main() {
     let mut reader = LineReader::new();
     let mut env = WashEnv::new();
     load_builtins(&mut env);
-    env.term.update_terminal();
+    env.update_terminal();
     loop {
         controls.flush();
         match reader.read_line() {
@@ -177,5 +177,5 @@ pub fn main() {
     }
     controls.outs("\nExiting\n");
     controls.flush();
-    env.term.restore_terminal();
+    env.restore_terminal();
 }

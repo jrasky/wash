@@ -4,7 +4,7 @@ use sodiumoxide::crypto::hash::sha256;
 
 use serialize::hex::ToHex;
 
-use std::io::process::Command;
+use std::io::process::{Command, ProcessOutput, ProcessExit};
 use std::io::fs::PathExtensions;
 use std::collections::HashMap;
 
@@ -14,6 +14,7 @@ use std::str;
 use std::mem;
 use std::cmp::*;
 use std::os;
+use std::fmt;
 
 use controls::*;
 use constants::*;
@@ -50,7 +51,7 @@ pub struct WashEnv {
     pub variables: String,
     pub functions: FuncTable,
     pub scripts: ScriptTable,
-    pub term: TermState,
+    term: TermState,
 }
 
 pub struct WashScript {
@@ -188,6 +189,46 @@ impl WashEnv {
             scripts: HashMap::new(),
             term: TermState::new()
         }
+    }
+
+    pub fn update_terminal(&mut self) {
+        self.term.update_terminal();
+    }
+
+    pub fn restore_terminal(&mut self) {
+        self.term.restore_terminal();
+    }
+
+    pub fn outc(&mut self, ch:char) {
+        self.term.controls.outc(ch);
+    }
+
+    pub fn outs(&mut self, s:&str) {
+        self.term.controls.outs(s);
+    }
+
+    pub fn outf(&mut self, args:fmt::Arguments) {
+        self.term.controls.outf(args);
+    }
+
+    pub fn err(&mut self, s:&str) {
+        self.term.controls.err(s);
+    }
+
+    pub fn errf(&mut self, args:fmt::Arguments) {
+        self.term.controls.errf(args);
+    }
+
+    pub fn flush(&mut self) {
+        self.term.controls.flush();
+    }
+
+    pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Option<ProcessExit> {
+        self.term.run_command(name, args)
+    }
+
+    pub fn run_command_directed(&mut self, name:&String, args:&Vec<String>) -> Option<ProcessOutput> {
+        self.term.run_command_directed(name, args)
     }
 
     pub fn hasv(&self, name:&String) -> bool {
