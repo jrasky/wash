@@ -1,3 +1,8 @@
+- Handlers:
+ - Functions that specifically take multiple arguments
+ - are started by a special split character
+ - can then contain specific split characters
+ - rewrite = to work like this
 - interactive mode
 - loops
 - conditionals
