@@ -17,6 +17,7 @@
 - better PS1
  - figure out PS2 interaction
 - finish scripting
+ - rewrite to not link directly to dl
  - interactive/compiled mode
  - permanent caches
  - pre-caching
