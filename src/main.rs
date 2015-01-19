@@ -9,7 +9,6 @@ extern crate regex;
 extern crate regex_macros;
 
 use reader::*;
-use controls::*;
 use constants::*;
 use script::*;
 use builtins::*;
@@ -144,38 +143,37 @@ fn input_to_args(input:InputValue, env:&mut WashEnv) -> Result<WashArgs, String>
 
 // public so no warnings when we run tests
 pub fn main() {
-    let mut controls = &mut Controls::new();
     let mut reader = LineReader::new();
     let mut env = WashEnv::new();
     load_builtins(&mut env);
     env.update_terminal();
     loop {
-        controls.flush();
+        env.flush();
         match reader.read_line() {
             None => {
                 if reader.eof {
                     break;
                 } else if !reader.line.is_empty() {
-                    controls.outc(BEL);
+                    env.outc(BEL);
                     reader.restart();
                 } else {
-                    controls.outc(NL);
+                    env.outc(NL);
                     reader.clear();
                 }
             },
             Some(line) => {
-                controls.outc(NL);
+                env.outc(NL);
                 match run_line(line, &mut env) {
-                    Err(e) => controls.errf(format_args!("{}\n", e)),
+                    Err(e) => env.errf(format_args!("{}\n", e)),
                     Ok(v) => {
-                        controls.outs(v.flatten().as_slice());
+                        env.outs(v.flatten().as_slice());
                     }
                 }
                 reader.clear();
             }
         }
     }
-    controls.outs("\nExiting\n");
-    controls.flush();
+    env.outs("\nExiting\n");
+    env.flush();
     env.restore_terminal();
 }
