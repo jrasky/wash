@@ -9,6 +9,14 @@ pub fn get_index<T>(mut vec:&mut Vec<T>, index:usize) -> Option<&mut T> {
     }
 }
 
+pub fn get_nm_index<T>(vec:&Vec<T>, index:usize) -> Option<&T> {
+    if index >= vec.len() {
+        return None;
+    } else {
+        return Some(&vec[index]);
+    }
+}
+
 // work around lack of DST
 pub fn build_string(ch:char, count:usize) -> String {
     let mut s = String::new();
@@ -20,6 +28,18 @@ pub fn build_string(ch:char, count:usize) -> String {
         s.push(ch);
         i += 1;
     }
+}
+
+pub fn reverse<T:Clone>(vec:Vec<T>) -> Vec<T> {
+    let mut vec = vec.clone();
+    let mut out = vec![];
+    loop {
+        match vec.pop() {
+            None => break,
+            Some(v) => out.push(v)
+        }
+    }
+    return out;
 }
 
 pub fn expand_path(path:Path) -> Path {

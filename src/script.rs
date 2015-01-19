@@ -20,6 +20,7 @@ use controls::*;
 use constants::*;
 use command::*;
 use types::*;
+use util::*;
 
 use self::WashArgs::*;
 
@@ -28,7 +29,7 @@ use self::WashArgs::*;
 pub type WashFunc = fn(&WashArgs, &mut WashEnv) -> Result<WashArgs, String>;
 
 // Note with handlers: Err means Stop, not necessarily Fail
-pub type WashHandler = fn(&WashArgs, &InputValue, &mut WashEnv) -> Result<WashArgs, String>;
+pub type WashHandler = fn(&mut Vec<WashArgs>, &mut Vec<InputValue>, &mut WashEnv) -> Result<Vec<WashArgs>, String>;
 
 // >Dat pointer indirection
 // Sorry bro, Rust doesn't have DSTs yet
@@ -238,7 +239,7 @@ impl WashEnv {
         return self.handlers.contains_key(word);
     }
 
-    pub fn run_handler(&mut self, word:&String, pre:&WashArgs, next:&InputValue) -> Result<WashArgs, String> {
+    pub fn run_handler(&mut self, word:&String, pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>) -> Result<Vec<WashArgs>, String> {
         let func = match self.handlers.get(word) {
             None => return Err("Handler not found".to_string()),
             Some(func) => func.clone()
@@ -470,38 +471,47 @@ impl WashEnv {
 
     pub fn input_to_vec(&mut self, input:Vec<InputValue>) -> Result<Vec<WashArgs>, String> {
         let mut out = vec![];
-        let mut iter = input.iter();
-        let mut next = iter.next();
-        let mut last = Empty;
-        let mut new;
+        // avoid O(n^2) situation
+        let mut iter = reverse(input);
+        let mut scope = vec![];
         loop {
-            new = match next {
+            match iter.pop() {
                 None => break,
-                Some(&InputValue::Short(ref s)) if self.has_handler(s) => {
-                    next = iter.next();
-                    loop {
-                        // skip until something that's not a split
-                        match next {
-                            Some(&InputValue::Split(_)) => next = iter.next(),
-                            _ => break
-                        }
+                Some(InputValue::Short(ref name)) if self.has_handler(name) => {
+                    while match get_nm_index(&iter, iter.len() - 1) {
+                        Some(&InputValue::Split(_)) => true,
+                        _ => false
+                    } {
+                        // skip any splits after the handle sequence
+                        iter.pop();
                     }
-                    match next {
-                        None => try!(self.run_handler(s, &last, &InputValue::Split(String::new()))),
-                        Some(&InputValue::Short(ref ns)) if self.has_handler(ns) =>
-                            try!(self.run_handler(s, &last, &InputValue::Split(String::new()))),
-                        Some(v) => try!(self.run_handler(s, &last, v))
+                    // produce a correct scope for the handler
+                    scope.clear();
+                    while match get_nm_index(&iter, iter.len() - 1) {
+                        None => false,
+                        Some(&InputValue::Split(ref ns)) if self.has_handler(ns) => false,
+                        Some(_) => true
+                    } {
+                        // doing this means scope will be in the same order as input
+                        scope.push(iter.pop().unwrap());
+                    }
+                    // this can change out and scope, be careful
+                    try!(self.run_handler(name, &mut out, &mut scope));
+                    // push remaining scope back onto iter
+                    loop {
+                        match scope.pop() {
+                            None => break,
+                            Some(v) => iter.push(v)
+                        }
                     }
                 },
                 Some(v) => {
-                    next = iter.next();
-                    try!(self.input_to_args(v.clone()))
+                    match try!(self.input_to_args(v.clone())) {
+                        Empty => {},
+                        new => out.push(new)
+                    }
                 }
             };
-            if !new.is_empty() {
-                last = new;
-                out.push(last.clone());
-            }
         }
         return Ok(out);
     }

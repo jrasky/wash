@@ -154,19 +154,24 @@ pub fn setp_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     }
 }
 
-fn equal_handler(pre:&WashArgs, next:&InputValue, env:&mut WashEnv) -> Result<WashArgs, String> {
+fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<Vec<WashArgs>, String> {
     // other l-values might eventually be supported,
     // for now you can only set variables
-    let name = match pre {
-        ref v if !v.is_flat() => {
+    // consume only the first variable before the equals
+    let name = match pre.pop() {
+        None => {
+            return Err("No variable name provided".to_string());
+        },
+        Some(ref v) if !v.is_flat() => {
             return Err("Variable names can only be flat".to_string());
         },
-        ref v if !EQ_VAR_REGEX.is_match(v.flatten().as_slice()) => {
+        Some(ref v) if !EQ_VAR_REGEX.is_match(v.flatten().as_slice()) => {
             return Err("Variable names cannot contain whitespace, quotes, or parentheses".to_string());
         }
-        v => v.flatten()
+        Some(v) => v.flatten()
     };
-    let val = try!(env.input_to_args(next.clone()));
+    // This is O(n), but we need the first value so.
+    let val = try!(env.input_to_args(next.remove(0)));
     if EQ_PATH_REGEX.is_match(name.as_slice()) {
         let caps = EQ_PATH_REGEX.captures(name.as_slice()).unwrap();
         let path = caps.at(1).unwrap().to_string();
@@ -185,6 +190,8 @@ fn equal_handler(pre:&WashArgs, next:&InputValue, env:&mut WashEnv) -> Result<Wa
         try!(env.insv(name, val.clone()));
         return Err(val.flatten());
     }
+    // right now equals can only produce Stop.
+    // In the future this may not be the case
 }
 
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
