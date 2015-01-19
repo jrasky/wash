@@ -279,18 +279,34 @@ impl WashEnv {
     }
 
     pub fn insvp(&mut self, name:String, path:String, val:WashArgs) -> Result<WashArgs, String> {
-        if path == "env" {
-            if !val.is_flat() {
-                return Err("Environment variables can only be flat".to_string());
+        if val.is_empty() {
+            // unset
+            if path == "env" {
+                os::unsetenv(name.as_slice());
+                return Ok(Empty);
+            } else {
+                if !self.hasp(&path) {
+                    // effectively unset
+                    return Ok(Empty);
+                } else {
+                    self.paths.get_mut(path.as_slice()).unwrap().remove(&name);
+                    return Ok(val);
+                }
             }
-            os::setenv(name.as_slice(), val.flatten().as_slice());
-            return Ok(val);
         } else {
-            if !self.hasp(&path) {
-                try!(self.insp(path.clone()));
+            if path == "env" {
+                if !val.is_flat() {
+                    return Err("Environment variables can only be flat".to_string());
+                }
+                os::setenv(name.as_slice(), val.flatten().as_slice());
+                return Ok(val);
+            } else {
+                if !self.hasp(&path) {
+                    try!(self.insp(path.clone()));
+                }
+                self.paths.get_mut(path.as_slice()).unwrap().insert(name, val.clone());
+                return Ok(val);
             }
-            self.paths.get_mut(path.as_slice()).unwrap().insert(name, val.clone());
-            return Ok(val);
         }
     }
 
