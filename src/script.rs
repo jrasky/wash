@@ -19,6 +19,7 @@ use std::fmt;
 use controls::*;
 use constants::*;
 use command::*;
+use input::*;
 
 use self::WashArgs::*;
 
@@ -51,7 +52,7 @@ pub struct WashEnv {
     pub variables: String,
     pub functions: FuncTable,
     pub scripts: ScriptTable,
-    term: TermState,
+    term: TermState
 }
 
 pub struct WashScript {
@@ -381,6 +382,123 @@ impl WashEnv {
             return Empty;
         }
     }
+    
+    pub fn process_command(&mut self, args:Vec<WashArgs>) -> Result<WashArgs, String> {
+        let out = try!(self.process_function("run".to_string(), args));
+        let outv = out.flatten_vec();
+        if out.is_empty() {
+            return Err("Command failed".to_string());
+        } else if outv.len() < 2 {
+            return Err(format!("Command failed: {}", out.flatten()));
+        } else if outv != vec!["status", "0"] {
+            return Err(format!("Command failed with {} {}", outv[0], outv[1]));
+        } else {
+            return Ok(WashArgs::Empty);
+        }
+    }
+
+    pub fn process_function(&mut self, name:String, args:Vec<WashArgs>) -> Result<WashArgs, String> {
+        if self.hasf(&name) {
+            return Ok(self.runf(&name, &WashArgs::Long(args)));
+        } else {
+            return Err("Function not found".to_string());
+        }
+    }
+
+    pub fn process_line(&mut self, line:InputValue) -> Result<WashArgs, String> {
+        match line {
+            InputValue::Function(n, a) => {
+                let vec = try!(self.input_to_vec(a));
+                return self.process_function(n, vec);
+            },
+            InputValue::Long(a) => {
+                // run as command
+                let vec = try!(self.input_to_vec(a));
+                return self.process_command(vec);
+            },
+            InputValue::Short(ref s) if VAR_PATH_REGEX.is_match(s.as_slice()) => {
+                let out = try!(self.input_to_args(InputValue::Short(s.clone())));
+                return Ok(Flat(format!("{}\n", out.flatten_with_inner("\n", "="))));
+            },
+            InputValue::Short(ref s) if VAR_REGEX.is_match(s.as_slice()) => {
+                let out = try!(self.input_to_args(InputValue::Short(s.clone())));
+                return Ok(Flat(format!("{}\n", out.flatten())));
+            },
+            InputValue::Short(s) | InputValue::Literal(s) => {
+                // run command without args
+                return self.process_command(vec![Flat(s)]);
+            },
+            _ => {
+                // do nothing
+                return Ok(Empty);
+            }
+        }
+    }
+
+    pub fn input_to_vec(&mut self, input:Vec<InputValue>) -> Result<Vec<WashArgs>, String> {
+        let mut args = vec![];
+        for item in input.iter() {
+            match try!(self.input_to_args(item.clone())) {
+                Empty => {/* do nothing */},
+                v => args.push(v)
+            }
+        }
+        return Ok(args);
+    }
+
+    pub fn input_to_args(&mut self, input:InputValue) -> Result<WashArgs, String> {
+        match input {
+            InputValue::Function(n, a) => {
+                let vec = try!(self.input_to_vec(a));
+                return self.process_function(n, vec);
+            },
+            InputValue::Long(a) => {
+                let mut args = vec![];
+                for item in a.iter() {
+                    match try!(self.input_to_args(item.clone())) {
+                        Empty => {/* do nothing */},
+                        v => args.push(v)
+                    }
+                }
+                return Ok(Long(args));
+            },
+            // the special cases with regex make for more informative errors
+            InputValue::Short(ref s) if VAR_PATH_REGEX.is_match(s.as_slice()) => {
+                let caps = VAR_PATH_REGEX.captures(s.as_slice()).unwrap();
+                let path = caps.at(1).unwrap().to_string();
+                let name = caps.at(2).unwrap().to_string();
+                if name.is_empty() {
+                    if path.is_empty() {
+                        return match self.getall() {
+                            Empty => Err(format!("Path not found: {}", path)),
+                            v => Ok(v)
+                        }
+                    } else {
+                        return match self.getallp(&path) {
+                            Empty => Err(format!("Path not found: {}", path)),
+                            v => Ok(v)
+                        }
+                    }
+                } else {
+                    return match self.getvp(&name, &path) {
+                        Empty => Err(format!("Variable not found: {}:{}", path, name)),
+                        v => Ok(v)
+                    }
+                }
+            },
+            InputValue::Short(ref s) if VAR_REGEX.is_match(s.as_slice()) => {
+                let caps = VAR_REGEX.captures(s.as_slice()).unwrap();
+                let name = caps.at(1).unwrap().to_string();
+                return match self.getv(&name) {
+                    Empty => Err(format!("Variable not found: {}", name)),
+                    v => Ok(v)
+                }
+            },
+            InputValue::Short(s) | InputValue::Literal(s) => return Ok(Flat(s)),
+            InputValue::Split(_) => return Ok(Empty)
+        }
+    }
+
 }
 
 impl Drop for WashScript {
