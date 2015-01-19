@@ -19,13 +19,16 @@ use std::fmt;
 use controls::*;
 use constants::*;
 use command::*;
-use input::*;
+use types::*;
 
 use self::WashArgs::*;
 
 // !!!
 // Wash function calling convention
 pub type WashFunc = fn(&WashArgs, &mut WashEnv) -> Result<WashArgs, String>;
+
+// Note with handlers: Err means Stop, not necessarily Fail
+pub type WashHandler = fn(&WashArgs, &InputValue, &mut WashEnv) -> Result<WashArgs, String>;
 
 // >Dat pointer indirection
 // Sorry bro, Rust doesn't have DSTs yet
@@ -34,6 +37,7 @@ pub type VarTable = HashMap<String, WashArgs>;
 pub type FuncTable = HashMap<String, WashFunc>;
 pub type ScriptTable = HashMap<Path, WashScript>;
 pub type PathTable = HashMap<String, VarTable>;
+pub type HandlerTable = HashMap<String, WashHandler>;
 
 // WashLoad returns two lists, the first of initialized functions,
 // the second the same of variables
@@ -52,6 +56,7 @@ pub struct WashEnv {
     pub variables: String,
     pub functions: FuncTable,
     pub scripts: ScriptTable,
+    pub handlers: HandlerTable,
     term: TermState
 }
 
@@ -188,6 +193,7 @@ impl WashEnv {
             variables: String::new(),
             functions: HashMap::new(),
             scripts: HashMap::new(),
+            handlers: HashMap::new(),
             term: TermState::new()
         }
     }
@@ -212,10 +218,6 @@ impl WashEnv {
         self.term.controls.outf(args);
     }
 
-    pub fn err(&mut self, s:&str) {
-        self.term.controls.err(s);
-    }
-
     pub fn errf(&mut self, args:fmt::Arguments) {
         self.term.controls.errf(args);
     }
@@ -232,11 +234,25 @@ impl WashEnv {
         self.term.run_command_directed(name, args)
     }
 
+    pub fn has_handler(&self, word:&String) -> bool {
+        return self.handlers.contains_key(word);
+    }
+
+    pub fn run_handler(&mut self, word:&String, pre:&WashArgs, next:&InputValue) -> Result<WashArgs, String> {
+        let func = match self.handlers.get(word) {
+            None => return Err("Handler not found".to_string()),
+            Some(func) => func.clone()
+        };
+        return func(pre, next, self);
+    }
+
+    pub fn insert_handler(&mut self, word:&str, func:WashHandler) -> Result<WashArgs, String> {
+        self.handlers.insert(word.to_string(), func);
+        return Ok(Empty);
+    }
+
     pub fn hasv(&self, name:&String) -> bool {
-        match self.paths.get(&self.variables) {
-            None => false,
-            Some(table) => return table.contains_key(name)
-        }
+        self.hasvp(name, &self.variables)
     }
 
     pub fn hasvp(&self, name:&String, path:&String) -> bool {
@@ -288,6 +304,7 @@ impl WashEnv {
         return Ok(Empty);
     }
 
+
     pub fn getv(&self, name:&String) -> Result<WashArgs, String> {
         return match self.getvp(name, &self.variables) {
             Err(_) => return self.getvp(name, &"".to_string()),
@@ -305,7 +322,9 @@ impl WashEnv {
                 Ok(Long(v)) => v,
                 _ => return Ok(Long(out))
             }.iter() {
-                out.push(item.clone());
+                if !self.hasv(&item.get(0).flatten()) {
+                    out.push(item.clone());
+                }
             }
         }
         return Ok(Long(out));
@@ -434,14 +453,41 @@ impl WashEnv {
     }
 
     pub fn input_to_vec(&mut self, input:Vec<InputValue>) -> Result<Vec<WashArgs>, String> {
-        let mut args = vec![];
-        for item in input.iter() {
-            match try!(self.input_to_args(item.clone())) {
-                Empty => {/* do nothing */},
-                v => args.push(v)
+        let mut out = vec![];
+        let mut iter = input.iter();
+        let mut next = iter.next();
+        let mut last = Empty;
+        let mut new;
+        loop {
+            new = match next {
+                None => break,
+                Some(&InputValue::Short(ref s)) if self.has_handler(s) => {
+                    next = iter.next();
+                    loop {
+                        // skip until something that's not a split
+                        match next {
+                            Some(&InputValue::Split(_)) => next = iter.next(),
+                            _ => break
+                        }
+                    }
+                    match next {
+                        None => try!(self.run_handler(s, &last, &InputValue::Split(String::new()))),
+                        Some(&InputValue::Short(ref ns)) if self.has_handler(ns) =>
+                            try!(self.run_handler(s, &last, &InputValue::Split(String::new()))),
+                        Some(v) => try!(self.run_handler(s, &last, v))
+                    }
+                },
+                Some(v) => {
+                    next = iter.next();
+                    try!(self.input_to_args(v.clone()))
+                }
+            };
+            if !new.is_empty() {
+                last = new;
+                out.push(last.clone());
             }
         }
-        return Ok(args);
+        return Ok(out);
     }
 
     pub fn input_to_args(&mut self, input:InputValue) -> Result<WashArgs, String> {
@@ -451,14 +497,7 @@ impl WashEnv {
                 return self.process_function(n, vec);
             },
             InputValue::Long(a) => {
-                let mut args = vec![];
-                for item in a.iter() {
-                    match try!(self.input_to_args(item.clone())) {
-                        Empty => {/* do nothing */},
-                        v => args.push(v)
-                    }
-                }
-                return Ok(Long(args));
+                return Ok(Long(try!(self.input_to_vec(a))));
             },
             // the special cases with regex make for more informative errors
             InputValue::Short(ref s) if VAR_PATH_REGEX.is_match(s.as_slice()) => {

@@ -23,6 +23,7 @@ mod reader;
 mod script;
 mod builtins;
 mod command;
+mod types;
 
 
 // public so no warnings when we run tests

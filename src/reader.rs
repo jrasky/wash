@@ -8,6 +8,7 @@ use controls::*;
 use constants::*;
 use util::*;
 use signal::*;
+use types::*;
 
 // start off as null pointer
 static mut uglobal_reader:*mut LineReader = 0 as *mut LineReader;

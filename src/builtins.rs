@@ -7,6 +7,7 @@ use script::WashArgs::*;
 use script::*;
 use util::*;
 use constants::*;
+use types::*;
 
 fn source_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     // in this case args is line
@@ -153,13 +154,10 @@ pub fn setp_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     }
 }
 
-pub fn equals_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+fn equal_handler(pre:&WashArgs, next:&InputValue, env:&mut WashEnv) -> Result<WashArgs, String> {
     // other l-values might eventually be supported,
     // for now you can only set variables
-    if args.len() < 2 {
-        return Err("Not enough arguments: give variable and value".to_string());
-    }
-    let name = match args.get(0) {
+    let name = match pre {
         ref v if !v.is_flat() => {
             return Err("Variable names can only be flat".to_string());
         },
@@ -168,7 +166,7 @@ pub fn equals_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String>
         }
         v => v.flatten()
     };
-    let val = args.get(1);
+    let val = try!(env.input_to_args(next.clone()));
     if EQ_PATH_REGEX.is_match(name.as_slice()) {
         let caps = EQ_PATH_REGEX.captures(name.as_slice()).unwrap();
         let path = caps.at(1).unwrap().to_string();
@@ -178,21 +176,20 @@ pub fn equals_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String>
             // this can be used to set a variable
             // with a name containing a colon
             try!(env.insv(name, val.clone()));
-            return Ok(val);
+            return Err(val.flatten());
         } else {
             try!(env.insvp(name, path, val.clone()));
-            return Ok(val);
+            return Err(val.flatten());
         }
     } else {
         try!(env.insv(name, val.clone()));
-        return Ok(val);
+        return Err(val.flatten());
     }
 }
 
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
     return Ok(Long(vec![
         Flat("$".to_string()),
-        Flat("=".to_string()),
         Flat("builtins".to_string()),
         Flat("cd".to_string()),
         Flat("get".to_string()),
@@ -202,14 +199,18 @@ fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
 }
 
 pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
+    // functions
     try!(env.insf("source", source_func));
     try!(env.insf("cd", cd_func));
     try!(env.insf("builtins", builtins_func));
     try!(env.insf("outs", outs_func));
     try!(env.insf("$", drun_func));
     try!(env.insf("run", run_func));
-    try!(env.insf("=", equals_func));
     try!(env.insf("get", get_func));
     try!(env.insf("setp", setp_func));
+
+    // handlers
+    try!(env.insert_handler("=", equal_handler));
+
     return Ok(Empty);
 }
