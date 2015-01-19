@@ -43,7 +43,7 @@ impl TermState {
         }
     }
     
-    pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Option<ProcessExit> {
+    pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
         let mut process = Command::new(name);
         process.args(args.as_slice());
         process.stdout(StdioContainer::InheritFd(STDOUT));
@@ -53,35 +53,32 @@ impl TermState {
         self.restore_terminal();
         let mut child = match process.spawn() {
             Err(e) => {
-                self.controls.errf(format_args!("Couldn't spawn {}: {}\n", name, e));
                 self.update_terminal();
-                return None;
+                return Err(format!("Couldn't spawn {}: {}", name, e));
             },
-            Ok(child) => child
+            Ok(v) => v
         };
         let out = match child.wait() {
             Err(e) => {
-                self.controls.errf(format_args!("Couldn't wait for child to exit: {}\n", e.desc));
                 self.update_terminal();
-                return None;
+                return Err(format!("Couldn't wait for child to exit: {}", e));
             },
-            Ok(status) => status
+            Ok(v) => v
         };
         // restore settings for Wash
         self.update_terminal();
-        return Some(out);
+        return Ok(out);
     }
 
     pub fn run_command_directed(&mut self, name:&String,
-                                args:&Vec<String>) -> Option<ProcessOutput> {
+                                args:&Vec<String>) -> Result<ProcessOutput, String> {
         let mut process = Command::new(name);
         process.args(args.as_slice());
         match process.output() {
             Err(e) => {
-                self.controls.errf(format_args!("Couldn't spawn {}: {}\n", name, e));
-                return None;
+                return Err(format!("Couldn't spawn {}: {}", name, e));
             },
-            Ok(out) => Some(out)
+            Ok(v) => Ok(v)
         }
     }
 }

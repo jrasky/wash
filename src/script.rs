@@ -25,7 +25,7 @@ use self::WashArgs::*;
 
 // !!!
 // Wash function calling convention
-pub type WashFunc = fn(&WashArgs, &mut WashEnv) -> WashArgs;
+pub type WashFunc = fn(&WashArgs, &mut WashEnv) -> Result<WashArgs, String>;
 
 // >Dat pointer indirection
 // Sorry bro, Rust doesn't have DSTs yet
@@ -37,8 +37,8 @@ pub type PathTable = HashMap<String, VarTable>;
 
 // WashLoad returns two lists, the first of initialized functions,
 // the second the same of variables
-type WashLoad = extern fn(*const WashArgs, *mut WashEnv) -> WashArgs;
-type WashRun = extern fn(*const WashArgs, *mut WashEnv) -> WashArgs;
+type WashLoad = extern fn(*const WashArgs, *mut WashEnv) -> Result<WashArgs, String>;
+type WashRun = extern fn(*const WashArgs, *mut WashEnv) -> Result<WashArgs, String>;
 
 #[derive(Clone)]
 pub enum WashArgs {
@@ -224,11 +224,11 @@ impl WashEnv {
         self.term.controls.flush();
     }
 
-    pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Option<ProcessExit> {
+    pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
         self.term.run_command(name, args)
     }
 
-    pub fn run_command_directed(&mut self, name:&String, args:&Vec<String>) -> Option<ProcessOutput> {
+    pub fn run_command_directed(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessOutput, String> {
         self.term.run_command_directed(name, args)
     }
 
@@ -254,68 +254,71 @@ impl WashEnv {
         self.paths.contains_key(path)
     }
 
-    pub fn insv(&mut self, name:String, val:WashArgs) {
+    pub fn insv(&mut self, name:String, val:WashArgs) -> Result<WashArgs, String> {
         let path = self.variables.clone();
         if !self.hasp(&path) {
-            self.insp(path.clone())
+            try!(self.insp(path.clone()));
         }
-        self.insvp(name, path, val);
+        return self.insvp(name, path, val);
     }
 
-    pub fn insvp(&mut self, name:String, path:String, val:WashArgs) {
+    pub fn insvp(&mut self, name:String, path:String, val:WashArgs) -> Result<WashArgs, String> {
         if path == "env" {
             if !val.is_flat() {
-                self.term.controls.err("Environment variables can only be flat");
-                return;
+                return Err("Environment variables can only be flat".to_string());
             }
             os::setenv(name.as_slice(), val.flatten().as_slice());
+            return Ok(val);
         } else {
             if !self.hasp(&path) {
-                self.insp(path.clone())
+                try!(self.insp(path.clone()));
             }
-            self.paths.get_mut(path.as_slice()).unwrap().insert(name, val);
+            self.paths.get_mut(path.as_slice()).unwrap().insert(name, val.clone());
+            return Ok(val);
         }
     }
 
-    pub fn insp(&mut self, path:String) {
+    pub fn insp(&mut self, path:String) -> Result<WashArgs, String> {
         self.paths.insert(path, HashMap::new());
+        return Ok(Empty);
     }
 
-    pub fn insf(&mut self, name:&str, func:WashFunc) {
+    pub fn insf(&mut self, name:&str, func:WashFunc) -> Result<WashArgs, String> {
         self.functions.insert(name.to_string(), func);
+        return Ok(Empty);
     }
 
-    pub fn getv(&self, name:&String) -> WashArgs {
+    pub fn getv(&self, name:&String) -> Result<WashArgs, String> {
         return match self.getvp(name, &self.variables) {
-            Empty => return self.getvp(name, &"".to_string()),
-            v => return v
+            Err(_) => return self.getvp(name, &"".to_string()),
+            v => v
         };
     }
 
-    pub fn getall(&self) -> WashArgs {
+    pub fn getall(&self) -> Result<WashArgs, String> {
         let mut out = match self.getallp(&self.variables) {
-            Long(v) => v,
+            Ok(Long(v)) => v,
             _ => vec![]
         };
         if !self.variables.is_empty() {
             for item in match self.getallp(&"".to_string()) {
-                Long(v) => v,
-                _ => return Long(out)
+                Ok(Long(v)) => v,
+                _ => return Ok(Long(out))
             }.iter() {
                 out.push(item.clone());
             }
         }
-        return Long(out);
+        return Ok(Long(out));
     }
     
-    pub fn getallp(&self, path:&String) -> WashArgs {
+    pub fn getallp(&self, path:&String) -> Result<WashArgs, String> {
         if *path == "env".to_string() {
             let mut out = vec![];
             let envs = os::env();
             for &(ref name, ref value) in envs.iter() {
                 out.push(Long(vec![Flat(name.clone()), Flat(value.clone())]));
             }
-            return Long(out);
+            return Ok(Long(out));
         } else if self.hasp(path) {
             let mut out = vec![];
             let vars = self.paths.get(path).unwrap();
@@ -328,45 +331,44 @@ impl WashEnv {
                     _ => break
                 }
             }
-            return Long(out);
+            return Ok(Long(out));
         } else {
-            return Empty;
+            return Err("Path not found".to_string());
         }
     }
 
-    pub fn getvp(&self, name:&String, path:&String) -> WashArgs {
+    pub fn getvp(&self, name:&String, path:&String) -> Result<WashArgs, String> {
         if *path == "env".to_string() {
             return match os::getenv(name.as_slice()) {
-                None => Empty,
-                Some(v) => Flat(v)
+                None => Err("Environment variable not found".to_string()),
+                Some(v) => Ok(Flat(v))
             };
         } else {
             return match self.paths.get(path) {
-                None => Empty,
+                None => Err("Path not found".to_string()),
                 Some(table) => match table.get(name) {
-                    None => Empty,
-                    Some(val) => val.clone()
+                    None => Err("Variable not found".to_string()),
+                    Some(val) => Ok(val.clone())
                 }
             };
         }
     }
 
-    pub fn runf(&mut self, name:&String, args:&WashArgs) -> WashArgs {
+    pub fn runf(&mut self, name:&String, args:&WashArgs) -> Result<WashArgs, String> {
         let func = match self.functions.get(name) {
-            None => return Empty,
+            None => return Err("Function not found".to_string()),
             Some(func) => func.clone()
         };
         return func(args, self);
     }
 
-    pub fn load_script(&mut self, path:Path, args:&WashArgs) -> WashArgs {
+    pub fn load_script(&mut self, path:Path, args:&WashArgs) -> Result<WashArgs, String> {
         let mut script = match self.scripts.remove(&path) {
             Some(script) => script,
             None => WashScript::new(path.clone())
         };
         if !script.is_compiled() && !script.compile() {
-            self.term.controls.err("Failed to compile script\n");
-            return Empty;
+            return Err("Failed to compile script".to_string());
         }
         self.term.controls.flush();
         if script.is_runnable() {
@@ -378,8 +380,7 @@ impl WashEnv {
             self.scripts.insert(path.clone(), script);
             return out;
         } else {
-            self.term.controls.err("Cannot load or run script\n");
-            return Empty;
+            return Err("Cannot load or run script".to_string());
         }
     }
     
@@ -398,11 +399,8 @@ impl WashEnv {
     }
 
     pub fn process_function(&mut self, name:String, args:Vec<WashArgs>) -> Result<WashArgs, String> {
-        if self.hasf(&name) {
-            return Ok(self.runf(&name, &WashArgs::Long(args)));
-        } else {
-            return Err("Function not found".to_string());
-        }
+        let out = try!(self.runf(&name, &WashArgs::Long(args)));
+        return Ok(out);
     }
 
     pub fn process_line(&mut self, line:InputValue) -> Result<WashArgs, String> {
@@ -469,30 +467,18 @@ impl WashEnv {
                 let name = caps.at(2).unwrap().to_string();
                 if name.is_empty() {
                     if path.is_empty() {
-                        return match self.getall() {
-                            Empty => Err(format!("Path not found: {}", path)),
-                            v => Ok(v)
-                        }
+                        return self.getall();
                     } else {
-                        return match self.getallp(&path) {
-                            Empty => Err(format!("Path not found: {}", path)),
-                            v => Ok(v)
-                        }
+                        return self.getallp(&path);
                     }
                 } else {
-                    return match self.getvp(&name, &path) {
-                        Empty => Err(format!("Variable not found: {}:{}", path, name)),
-                        v => Ok(v)
-                    }
+                    return self.getvp(&name, &path);
                 }
             },
             InputValue::Short(ref s) if VAR_REGEX.is_match(s.as_slice()) => {
                 let caps = VAR_REGEX.captures(s.as_slice()).unwrap();
                 let name = caps.at(1).unwrap().to_string();
-                return match self.getv(&name) {
-                    Empty => Err(format!("Variable not found: {}", name)),
-                    v => Ok(v)
-                }
+                return self.getv(&name);
             },
             InputValue::Short(s) | InputValue::Literal(s) => return Ok(Flat(s)),
             InputValue::Split(_) => return Ok(Empty)
@@ -532,47 +518,43 @@ impl WashScript {
         !self.handle.is_null()
     }
 
-    pub fn run(&mut self, args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+    pub fn run(&mut self, args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
         if !self.is_compiled() {
-            self.controls.err("Script not compiled\n");
-            return Empty;
+            return Err("String is not compiled".to_string());
         }
         
         let run_func:WashRun = unsafe {
             match self.run_ptr.as_ref() {
                 Some(f) => mem::transmute(f),
                 None => {
-                    self.controls.err("Script cannot be run directly\n");
-                    return Empty;
+                    return Err("Script cannot be run directly".to_string());
                 }
             }
         };
 
         if !self.loaded && self.is_loadable() {
-            self.load(args, env);
+            try!(self.load(args, env));
         }
 
         return run_func(args, env);
     }
 
-    pub fn load(&mut self, args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+    pub fn load(&mut self, args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
         if !self.is_compiled() {
-            self.controls.err("Script is not compiled\n");
-            return Empty;
+            return Err("Script is not compiled".to_string());
         }
         
         let load_func:WashLoad = unsafe {
             match self.load_ptr.as_ref() {
                 Some(f) => mem::transmute(f),
                 None => {
-                    self.controls.err("Script has no load actions\n");
-                    return Empty;
+                    return Err("Script has no load actions".to_string());
                 }
             }
         };
 
         if self.loaded {
-            self.controls.err("Script already loaded\n");
+            return Err("Script is already loaded".to_string());
         }
 
         let out = load_func(args, env);

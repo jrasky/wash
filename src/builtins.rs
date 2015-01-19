@@ -8,23 +8,20 @@ use script::*;
 use util::*;
 use constants::*;
 
-// Calling convention:
-// fn(args:&Vec<String>, u_env:*mut WashEnv) -> Vec<String>
-fn source_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+fn source_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     // in this case args is line
     if args.is_empty() {
-        env.err("No arguments given");
-        return Empty;
+        return Err("No arguments given".to_string());
     }
     let name = match args {
-        &Empty => return Empty,
-        &Long(_) => return Empty,
+        &Empty => return Err("No arguments given".to_string()),
+        &Long(_) => return Err("Can only source flat names".to_string()),
         &Flat(ref v) => v.clone()
     };
     env.load_script(Path::new(name), &args.slice(1, -1))
 }
 
-fn cd_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+fn cd_func(args:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
     let newp = {
         if args.is_empty() {
             expand_path(Path::new("~"))
@@ -36,98 +33,87 @@ fn cd_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
         }
     };
     match os::change_dir(&newp) {
-        Ok(_) => {},
-        Err(e) => {
-            env.errf(format_args!("Failed: {}: {}\n", newp.display(), e));
-        }
+        Err(e) => return Err(e.desc.to_string()),
+        Ok(_) => return Ok(Empty)
     }
-    return Empty;
 }
 
-fn outs_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+fn outs_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     let mut argf = args.flatten();
     env.outs(argf.as_slice());
     if argf.pop() != Some(NL) {
         env.outc(NL);
     }
-    return Empty;
+    return Ok(Empty);
 }
 
-pub fn drun_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+pub fn drun_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     // Note: Wash calling convention is for the caller to reduce
     // arguments to literals
     if args.len() < 1 {
-        return Empty;
+        return Err("No arguments provided".to_string());
     }
     let name = match args.get(0) {
         Flat(v) => v,
-        Empty | Long(_) => return Empty
+        Empty | Long(_) => return Err("Can only run flat names".to_string())
     };
     // this could be empty but that's ok
     let arg_slice = args.slice(1, -1);
     if env.hasf(&name) {
         return env.runf(&name, &arg_slice);
     } else {
-        let out = match env.run_command_directed(&name, &arg_slice.flatten_vec()) {
-            None => return Empty,
-            Some(v) => v
-        };
+        let out = try!(env.run_command_directed(&name, &arg_slice.flatten_vec()));
         if !out.status.success() {
-            env.err(String::from_utf8_lossy(out.error.as_slice()).as_slice());
-            return Empty;
+            return Err(String::from_utf8_lossy(out.error.as_slice()).into_owned());
         }
-        return Flat(String::from_utf8_lossy(out.output.as_slice()).into_owned());
+        return Ok(Flat(String::from_utf8_lossy(out.output.as_slice()).into_owned()));
     }
 }
 
-pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     // Note: Wash calling convention is for the caller to reduce
     // arguments to literals
     if args.len() < 1 {
-        return Empty;
+        return Err("No arguments given".to_string());
     }
     let name = match args.get(0) {
         Flat(v) => v,
-        Empty | Long(_) => return Empty
+        Empty | Long(_) => return Err("Can only run flat names".to_string())
     };
     // this could be empty but that's ok
     let arg_slice = args.slice(1, -1);
     if env.hasf(&name) {
         // run functions before commands
-        let out = env.runf(&name, &arg_slice).flatten();
+        let out = try!(env.runf(&name, &arg_slice)).flatten();
         env.outf(format_args!("{}\n", out));
-        return Long(vec![Flat("status".to_string()),
-                         Flat("0".to_string())]);
+        return Ok(Long(vec![Flat("status".to_string()),
+                            Flat("0".to_string())]));
     } else {
         // flush output and run command
         env.flush();
-        match env.run_command(&name, &arg_slice.flatten_vec()) {
-            None => return Empty,
-            Some(ExitSignal(sig)) => {
-                return Long(vec![Flat("signal".to_string()),
-                                 Flat(format!("{}", sig))]);
+        match try!(env.run_command(&name, &arg_slice.flatten_vec())) {
+            ExitSignal(sig) => {
+                return Ok(Long(vec![Flat("signal".to_string()),
+                                    Flat(format!("{}", sig))]));
             },
-            Some(ExitStatus(status)) => {
-                return Long(vec![Flat("status".to_string()),
-                                 Flat(format!("{}", status))]);
+            ExitStatus(status) => {
+                return Ok(Long(vec![Flat("status".to_string()),
+                                    Flat(format!("{}", status))]));
             }
         }
     }
 }
 
-pub fn get_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+pub fn get_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     if args.len() < 1 {
-        env.err("No variable name given");
-        return Empty;
+        return Err("No variable name given".to_string());
     }
     let name = match args.get(0) {
         ref v if !v.is_flat() => {
-            env.err("Variables names can only be flat");
-            return Empty;
+            return Err("Variable names can only be flat".to_string());
         },
         ref v if !EQ_VAR_REGEX.is_match(v.flatten().as_slice()) => {
-            env.err("Variable names cannot contain whitespace, quotes, or parentheses");
-            return Empty;
+            return Err("Varibale names cannot contain whitespace, quotes, or parentheses".to_string());
         }
         v => v.flatten()
     };
@@ -148,42 +134,37 @@ pub fn get_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
     }
 }
 
-pub fn setp_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+pub fn setp_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     if args.len() < 1 {
         env.variables = String::new();
-        return Flat(String::new());
+        return Ok(Flat(String::new()));
     } else {
         let path = match args.get(0) {
             ref v if !v.is_flat() => {
-                env.err("Variable paths can only be flat");
-                return Empty;
+                return Err("Variable paths can only be flat".to_string());
             }
             v => v.flatten()
         };
         if path == "env".to_string() {
-            env.err("Cannot set variable path to environment variables");
-            return Empty;
+            return Err("Cannot set variable path to environment variables".to_string());
         }
         env.variables = path.clone();
-        return Flat(path)
+        return Ok(Flat(path))
     }
 }
 
-pub fn equals_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
+pub fn equals_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     // other l-values might eventually be supported,
     // for now you can only set variables
     if args.len() < 2 {
-        env.err("Not enough arguments: give variable and value");
-        return Empty;
+        return Err("Not enough arguments: give variable and value".to_string());
     }
     let name = match args.get(0) {
         ref v if !v.is_flat() => {
-            env.err("Variables names can only be flat");
-            return Empty;
+            return Err("Variable names can only be flat".to_string());
         },
         ref v if !EQ_VAR_REGEX.is_match(v.flatten().as_slice()) => {
-            env.err("Variable names cannot contain whitespace, quotes, or parentheses");
-            return Empty;
+            return Err("Variable names cannot contain whitespace, quotes, or parentheses".to_string());
         }
         v => v.flatten()
     };
@@ -196,20 +177,20 @@ pub fn equals_func(args:&WashArgs, env:&mut WashEnv) -> WashArgs {
             // use default path
             // this can be used to set a variable
             // with a name containing a colon
-            env.insv(name, val.clone());
-            return val;
+            try!(env.insv(name, val.clone()));
+            return Ok(val);
         } else {
-            env.insvp(name, path, val.clone());
-            return val;
+            try!(env.insvp(name, path, val.clone()));
+            return Ok(val);
         }
     } else {
-        env.insv(name, val.clone());
-        return val;
+        try!(env.insv(name, val.clone()));
+        return Ok(val);
     }
 }
 
-fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> WashArgs {
-    return Long(vec![
+fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
+    return Ok(Long(vec![
         Flat("$".to_string()),
         Flat("=".to_string()),
         Flat("builtins".to_string()),
@@ -217,17 +198,18 @@ fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> WashArgs {
         Flat("get".to_string()),
         Flat("run".to_string()),
         Flat("setp".to_string()),
-        Flat("source".to_string())]);
+        Flat("source".to_string())]));
 }
 
-pub fn load_builtins(env:&mut WashEnv) {
-    env.insf("source", source_func);
-    env.insf("cd", cd_func);
-    env.insf("builtins", builtins_func);
-    env.insf("outs", outs_func);
-    env.insf("$", drun_func);
-    env.insf("run", run_func);
-    env.insf("=", equals_func);
-    env.insf("get", get_func);
-    env.insf("setp", setp_func);
+pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
+    try!(env.insf("source", source_func));
+    try!(env.insf("cd", cd_func));
+    try!(env.insf("builtins", builtins_func));
+    try!(env.insf("outs", outs_func));
+    try!(env.insf("$", drun_func));
+    try!(env.insf("run", run_func));
+    try!(env.insf("=", equals_func));
+    try!(env.insf("get", get_func));
+    try!(env.insf("setp", setp_func));
+    return Ok(Empty);
 }

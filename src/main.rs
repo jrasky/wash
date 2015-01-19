@@ -29,7 +29,12 @@ mod command;
 pub fn main() {
     let mut reader = LineReader::new();
     let mut env = WashEnv::new();
-    load_builtins(&mut env);
+    match load_builtins(&mut env) {
+        Err(e) => {
+            env.errf(format_args!("Could not load builtings: {}\n", e));
+        }
+        _ => {}
+    }
     env.update_terminal();
     loop {
         env.flush();
