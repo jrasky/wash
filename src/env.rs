@@ -266,6 +266,10 @@ impl WashEnv {
         return func(args, self);
     }
 
+    pub fn runfs(&mut self, name:&str, args:&WashArgs) -> Result<WashArgs, String> {
+        return self.runf(&name.to_string(), args);
+    }
+
     pub fn load_script(&mut self, path:Path, args:&WashArgs) -> Result<WashArgs, String> {
         let mut script = match self.scripts.remove(&path) {
             Some(script) => script,
@@ -286,6 +290,10 @@ impl WashEnv {
         } else {
             return Err("Cannot load or run script".to_string());
         }
+    }
+
+    fn describe_process_output(&mut self, out:&WashArgs) -> Result<WashArgs, String> {
+        return self.runfs("describe_process_output", out);
     }
     
     fn run_script(&mut self, args:&WashArgs, script:&mut WashScript) -> Result<WashArgs, String> {
@@ -321,16 +329,7 @@ impl WashEnv {
     
     pub fn process_command(&mut self, args:Vec<WashArgs>) -> Result<WashArgs, String> {
         let out = try!(self.process_function("run".to_string(), args));
-        let outv = out.flatten_vec();
-        if out.is_empty() {
-            return Err("Command failed".to_string());
-        } else if outv.len() < 2 {
-            return Err(format!("Command failed: {}", out.flatten()));
-        } else if outv != vec!["status", "0"] {
-            return Err(format!("Command failed with {} {}", outv[0], outv[1]));
-        } else {
-            return Ok(WashArgs::Empty);
-        }
+        return self.describe_process_output(&out);
     }
 
     pub fn process_function(&mut self, name:String, args:Vec<WashArgs>) -> Result<WashArgs, String> {

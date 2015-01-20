@@ -156,6 +156,19 @@ pub fn setp_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     }
 }
 
+pub fn describe_process_output(args:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
+    let argv = args.flatten_vec();
+    if args.is_empty() {
+        return Err("Command Failed".to_string());
+    } else if argv.len() < 2 {
+        return Err(format!("Command failed: {}", args.flatten()));
+    } else if argv != vec!["status", "0"] {
+        return Err(format!("Command failed with {} {}", argv[0], argv[1]));
+    } else {
+        return Ok(Empty);
+    }
+}
+
 fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
     // other l-values might eventually be supported,
     // for now you can only set variables
@@ -205,13 +218,15 @@ fn semiamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut Wa
     // effectively the "continue" handler
     // run the part before the line and then continue
     // onto the next one no matter what
-    let out = match run_func(&Long(pre.clone()), env) {
-        Err(_) => vec![],
-        Ok(v) => v.flatten_vec()
+    match run_func(&Long(pre.clone()), env) {
+        Err(e) => env.errf(format_args!("{}\n", e)),
+        Ok(v) => match describe_process_output(&v, env) {
+            Err(e) => {
+                env.errf(format_args!("{}\n",e));
+            },
+            _ => {/* nothing */}
+        }
     };
-    if out != vec!["status".to_string(), "0".to_string()] {
-        env.err("Command failed\n");
-    }
     // ;& does not pass on the value of the previous command
     pre.clear();
     return Ok(Continue);
@@ -221,14 +236,12 @@ fn semiamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut Wa
 fn amperamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
     // "and then:" run this command and continue only if it succeded
     // onto the next one no matter what
-    let out = try!(run_func(&Long(pre.clone()), env)).flatten_vec();
-    if out != vec!["status".to_string(), "0".to_string()] {
-        return Err("Command failed".to_string());
-    } else {
-        // && does not pass on the value of the previous command
-        pre.clear();
-        return Ok(Continue);
-    }
+    let out = try!(run_func(&Long(pre.clone()), env));
+    // will return on error
+    try!(describe_process_output(&out, env));
+    // && does not pass on the value of the previous command
+    pre.clear();
+    return Ok(Continue);
 }
 
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
@@ -252,6 +265,9 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insf("run", run_func));
     try!(env.insf("get", get_func));
     try!(env.insf("setp", setp_func));
+
+    // commands that aren't really meant to be called by users
+    try!(env.insf("describe_process_output", describe_process_output));
 
     // handlers
     try!(env.insert_handler("=", equal_handler));

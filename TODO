@@ -1,5 +1,3 @@
-- Improve && and ;& handler error output
- - maybe by making utility function to describe command output
 - Handle More case of HandlerResult
 - blocks
  - implemented through handlers
