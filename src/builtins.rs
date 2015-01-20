@@ -3,12 +3,13 @@ use std::io::process::ProcessExit::*;
 use std::os;
 use std::cmp::*;
 
-use script::WashArgs::*;
-use script::HandlerResult::*;
-use script::*;
+use types::WashArgs::*;
+use env::HandlerResult::*;
+
 use util::*;
 use constants::*;
 use types::*;
+use env::*;
 
 fn source_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     // in this case args is line

@@ -10,7 +10,7 @@ extern crate regex_macros;
 
 use reader::*;
 use constants::*;
-use script::*;
+use env::*;
 use builtins::*;
 
 mod constants;
@@ -24,7 +24,7 @@ mod script;
 mod builtins;
 mod command;
 mod types;
-
+mod env;
 
 // public so no warnings when we run tests
 pub fn main() {
