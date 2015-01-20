@@ -23,13 +23,15 @@ use types::*;
 use util::*;
 
 use self::WashArgs::*;
+use self::HandlerResult::*;
 
 // !!!
 // Wash function calling convention
 pub type WashFunc = fn(&WashArgs, &mut WashEnv) -> Result<WashArgs, String>;
 
 // Note with handlers: Err means Stop, not necessarily Fail
-pub type WashHandler = fn(&mut Vec<WashArgs>, &mut Vec<InputValue>, &mut WashEnv) -> Result<Vec<WashArgs>, String>;
+// return semi-redundant result type because try! is so damn useful
+pub type WashHandler = fn(&mut Vec<WashArgs>, &mut Vec<InputValue>, &mut WashEnv) -> Result<HandlerResult, String>;
 
 // >Dat pointer indirection
 // Sorry bro, Rust doesn't have DSTs yet
@@ -50,6 +52,11 @@ pub enum WashArgs {
     Flat(String),
     Long(Vec<WashArgs>),
     Empty
+}
+
+pub enum HandlerResult {
+    Continue,
+    More(String)
 }
 
 pub struct WashEnv {
@@ -219,6 +226,10 @@ impl WashEnv {
         self.term.controls.outf(args);
     }
 
+    pub fn err(&mut self, s:&str) {
+        self.term.controls.err(s);
+    }
+
     pub fn errf(&mut self, args:fmt::Arguments) {
         self.term.controls.errf(args);
     }
@@ -239,7 +250,7 @@ impl WashEnv {
         return self.handlers.contains_key(word);
     }
 
-    pub fn run_handler(&mut self, word:&String, pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>) -> Result<Vec<WashArgs>, String> {
+    pub fn run_handler(&mut self, word:&String, pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>) -> Result<HandlerResult, String> {
         let func = match self.handlers.get(word) {
             None => return Err("Handler not found".to_string()),
             Some(func) => func.clone()
@@ -496,7 +507,10 @@ impl WashEnv {
                         scope.push(iter.pop().unwrap());
                     }
                     // this can change out and scope, be careful
-                    try!(self.run_handler(name, &mut out, &mut scope));
+                    match try!(self.run_handler(name, &mut out, &mut scope)) {
+                        More(_) => return Err("More not yet implemented".to_string()),
+                        Continue => {/* continue */}
+                    }
                     // push remaining scope back onto iter
                     loop {
                         match scope.pop() {

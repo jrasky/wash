@@ -4,6 +4,7 @@ use std::os;
 use std::cmp::*;
 
 use script::WashArgs::*;
+use script::HandlerResult::*;
 use script::*;
 use util::*;
 use constants::*;
@@ -154,7 +155,7 @@ pub fn setp_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     }
 }
 
-fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<Vec<WashArgs>, String> {
+fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
     // other l-values might eventually be supported,
     // for now you can only set variables
     // consume only the first variable before the equals
@@ -194,6 +195,36 @@ fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut Was
     // In the future this may not be the case
 }
 
+fn semiamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+    // effectively the "continue" handler
+    // run the part before the line and then continue
+    // onto the next one no matter what
+    let out = match run_func(&Long(pre.clone()), env) {
+        Err(_) => vec![],
+        Ok(v) => v.flatten_vec()
+    };
+    if out != vec!["status".to_string(), "0".to_string()] {
+        env.err("Command failed\n");
+    }
+    // ;& does not pass on the value of the previous command
+    pre.clear();
+    return Ok(Continue);
+}
+
+
+fn amperamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+    // "and then:" run this command and continue only if it succeded
+    // onto the next one no matter what
+    let out = try!(run_func(&Long(pre.clone()), env)).flatten_vec();
+    if out != vec!["status".to_string(), "0".to_string()] {
+        return Err("Command failed".to_string());
+    } else {
+        // && does not pass on the value of the previous command
+        pre.clear();
+        return Ok(Continue);
+    }
+}
+
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
     return Ok(Long(vec![
         Flat("$".to_string()),
@@ -218,6 +249,8 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
 
     // handlers
     try!(env.insert_handler("=", equal_handler));
+    try!(env.insert_handler(";&", semiamper_handler));
+    try!(env.insert_handler("&&", amperamper_handler));
 
     return Ok(Empty);
 }
