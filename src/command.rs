@@ -132,6 +132,8 @@ impl TermState {
         self.jobs.insert(id, val);
         let out = match self.jobs.get_mut(&id).unwrap().1.wait() {
             Err(e) => {
+                // remove job
+                self.jobs.remove(&id);
                 self.update_terminal();
                 return Err(format!("Couldn't wait for child to exit: {}", e));
             },
@@ -176,6 +178,8 @@ impl TermState {
         };
         let output = match self.jobs.get_mut(&id).unwrap().1.wait() {
             Err(e) => {
+                // remove job
+                self.jobs.remove(&id);
                 self.update_terminal();
                 return Err(format!("Couldn't wait for child to exit: {}", e));
             },
