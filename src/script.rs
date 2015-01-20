@@ -16,7 +16,6 @@ use std::cmp::*;
 use std::os;
 use std::fmt;
 
-use controls::*;
 use constants::*;
 use command::*;
 use types::*;
@@ -71,7 +70,6 @@ pub struct WashEnv {
 pub struct WashScript {
     pub path: Path,
     pub hash: String,
-    controls: Controls,
     handle: *const c_void,
     run_ptr: *const c_void,
     load_ptr: *const c_void,
@@ -414,7 +412,7 @@ impl WashEnv {
             Some(script) => script,
             None => WashScript::new(path.clone())
         };
-        if !script.is_compiled() && !script.compile() {
+        if !script.is_compiled() && !try!(script.compile()) {
             return Err("Failed to compile script".to_string());
         }
         self.term.controls.flush();
@@ -568,7 +566,12 @@ impl WashEnv {
 
 impl Drop for WashScript {
     fn drop(&mut self) {
-        self.close();
+        match self.close() {
+            Ok(_) => {},
+            Err(e) => {
+                io::stdio::stderr().write_str(e.as_slice()).unwrap();
+            }
+        }
     }
 }
 
@@ -577,7 +580,6 @@ impl WashScript {
         WashScript {
             path: path,
             hash: String::new(),
-            controls: Controls::new(),
             handle: 0 as *const c_void,
             run_ptr: 0 as *const c_void,
             load_ptr: 0 as *const c_void,
@@ -641,7 +643,7 @@ impl WashScript {
         return out;
     }
 
-    pub fn close(&mut self) {
+    pub fn close(&mut self) -> Result<(), String> {
         if self.is_compiled() {
             // prevent memory leaks
             unsafe {
@@ -652,7 +654,7 @@ impl WashScript {
                     _ => {
                         let c = dlerror();
                         let e = str::from_utf8(ffi::c_str_to_bytes(&c)).unwrap();
-                        self.controls.errf(format_args!("Couldn't unload wash script: {}\n", e));
+                        return Err(format!("Couldn't unload wash script: {}\n", e));
                     }
                 }
             }
@@ -660,22 +662,21 @@ impl WashScript {
         self.handle = 0 as *const c_void;
         self.run_ptr = 0 as *const c_void;
         self.load_ptr = 0 as *const c_void;
+        return Ok(());
     }
 
-    pub fn compile(&mut self) -> bool {
+    pub fn compile(&mut self) -> Result<bool, String> {
         if self.is_compiled() {
             // script is already compiled
-            return true;
+            return Ok(true);
         }
         if !self.path.exists() {
-            self.controls.errf(format_args!("Could not find {}\n", self.path.display()));
-            return false;
+            return Err(format!("Could not find {}", self.path.display()));
         }
         let inf = match io::File::open(&self.path) {
             Ok(f) => f,
             Err(e) => {
-                self.controls.errf(format_args!("File error: {}\n", e));
-                return false;
+                return Err(format!("File error: {}", e));
             }
         };
         let mut reader = io::BufferedReader::new(inf);
@@ -694,16 +695,14 @@ impl WashScript {
                     // nothing
                 },
                 Err(e) => {
-                    self.controls.errf(format_args!("Couldn't create wash script cache directory: {}\n", e));
-                    return false;
+                    return Err(format!("Couldn't create wash script cache directory: {}", e));
                 }
             }
             let mut command = Command::new("rustc");
             command.args(&["-o", outp.as_str().unwrap(), "-"]);
             let mut child = match command.spawn() {
                 Err(e) => {
-                    self.controls.errf(format_args!("Couldn't start compiler: {}\n", e));
-                    return false;
+                    return Err(format!("Couldn't start compiler: {}", e));
                 },
                 Ok(c) => c
             };
@@ -717,14 +716,12 @@ impl WashScript {
 
             match child.wait_with_output() {
                 Err(e) => {
-                    self.controls.errf(format_args!("Compiler failed to run: {}\n", e));
-                    return false;
+                    return Err(format!("Compiler failed to run: {}", e));
                 },
                 Ok(o) => {
                     if !o.status.success() {
-                        self.controls.errf(format_args!("Couldn't compile script: {}\n",
-                                                        String::from_utf8(o.error).unwrap()));
-                        return false;
+                        return Err(format!("Couldn't compile script: {}",
+                                           String::from_utf8(o.error).unwrap()));
                     }
                 }
             }
@@ -738,8 +735,7 @@ impl WashScript {
             if self.handle.is_null() {
                 let c = dlerror();
                 let e = str::from_utf8(ffi::c_str_to_bytes(&c)).unwrap();
-                self.controls.errf(format_args!("Could not load script object: {}\n", e));
-                return false;
+                return Err(format!("Could not load script object: {}", e));
             }
             
             self.run_ptr = dlsym(self.handle, run_cstr.as_ptr());
@@ -757,13 +753,11 @@ impl WashScript {
             }
         }
         if self.load_ptr.is_null() && self.run_ptr.is_null() {
-            self.controls.err("No load or run function found in script object\n");
-            self.close();
-            return false;
+            try!(self.close());
+            return Err("No load or run function found in script object".to_string());
         }
         // success!
-        return true;
-        
+        return Ok(true);
     }
 }
 
