@@ -23,6 +23,11 @@ unsafe extern fn term_sigint(_:c_int, _:*const SigInfo,
             panic!("Term signal interrupt called when Term not active");
         }
     };
+    // delete "^C"
+    term.controls.outc(BS);
+    term.controls.outc(BS);
+    term.controls.outc(SPC);
+    term.controls.outc(SPC);
     term.controls.outs("\nInterrupt\n");
     // pass on to foreground job, if there is one
     match term.fg_job {
