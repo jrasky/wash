@@ -155,8 +155,10 @@ impl TermState {
     pub fn run_job(&mut self, name:&String, args:&Vec<String>) -> Result<(usize, String), String> {
         let mut process = Command::new(name);
         process.args(args.as_slice());
-        // running as job means no stdin handle
+        // running as job means no input/output handles
         process.stdin(Ignored);
+        process.stdout(Ignored);
+        process.stderr(Ignored);
         // all others are redirected
         let mut child = match process.spawn() {
             Err(e) => {
