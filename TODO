@@ -22,6 +22,7 @@
  - permanent caches
  - pre-caching
  - startup scripts
+- Re-write functions and handlers in scripts where possible
 - completion
  - hook into bash completion
 - bash integration
