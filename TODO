@@ -1,3 +1,4 @@
+- Implement & and | handlers
 - Handle More case of HandlerResult
 - blocks
  - implemented through handlers
