@@ -211,8 +211,10 @@ impl TermState {
         // output to terminal for others
         process.stdout(InheritFd(STDOUT));
         process.stderr(InheritFd(STDERR));
-        // set terminal settings for process
-        self.restore_terminal();
+        if stdin == 0 {
+            // restore terminal if process is reading from it
+            self.restore_terminal();
+        }
         // push job into jobs
         let id = self.find_jobs_hole();
         // handle interrupts
@@ -245,8 +247,10 @@ impl TermState {
         self.jobs.remove(&id);
         // unhandle sigint
         self.unhandle_sigint();
-        // restore settings for Wash
-        self.update_terminal();
+        if stdin == 0 {
+            // restore terminal settings if we changed them earlier
+            self.update_terminal();
+        }
         return Ok(out);
     }
     

@@ -1,3 +1,8 @@
+- Change pipe passing
+ - Use syntax like @0
+  - @ makes sense because it's like "input zero"
+  - better than just numbers which aren't really special-looking
+ - Use regex to do this
 - Implement < and > handlers
 - Handle More case of HandlerResult
 - blocks
@@ -9,6 +14,7 @@
 - function paths?
 - better job control
  - handle SIGSTP
+ - more gracefully handle running jobs at exit
  - figure out how to handle input on piped runs
  - setting variables for one job
 - more keyboard shortcuts

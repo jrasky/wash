@@ -250,12 +250,13 @@ impl WashEnv {
         } else if *path == "pipe".to_string() {
             // list of non-background jobs (which can be piped)
             let mut out = vec![];
-            for &(ref id, _, ref job) in self.term.get_jobs().iter() {
+            for &(ref id, ref name, ref job) in self.term.get_jobs().iter() {
                 match job.stdout {
                     None => {/* don't include this job */},
                     Some(_) => {
                         // include this job
-                        out.push(Flat(format!("{}", id)));
+                        out.push(Long(vec![Flat(format!("{}", id)),
+                                           Flat(name.clone())]));
                     }
                 }
             }
