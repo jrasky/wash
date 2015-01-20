@@ -1,4 +1,4 @@
-- Implement & and | handlers
+- Implement | handler
 - Implement < and > handlers
 - Handle More case of HandlerResult
 - blocks
