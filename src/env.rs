@@ -1,6 +1,7 @@
-use std::io::process::{ProcessOutput, ProcessExit};
+use std::io::process::{ProcessOutput, ProcessExit, Process};
 use std::io::process::ProcessExit::*;
 use std::collections::HashMap;
+use std::os::unix::prelude::*;
 
 use std::mem;
 use std::os;
@@ -100,12 +101,30 @@ impl WashEnv {
         self.term.run_job(name, args)
     }
 
+    pub fn run_job_directed(&mut self, name:&String, args:&Vec<String>) -> Result<(usize, String), String> {
+        self.term.run_job_directed(name, args)
+    }
+
+    pub fn get_job(&self, id:&usize) -> Option<(String, &Process)> {
+        return self.term.get_job(id);
+    }
+
     pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
         self.term.run_command(name, args)
     }
 
     pub fn run_command_directed(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessOutput, String> {
         self.term.run_command_directed(name, args)
+    }
+
+    pub fn run_command_fd(&mut self, stdin:Fd, name:&String,
+                          args:&Vec<String>) -> Result<ProcessExit, String> {
+        self.term.run_command_fd(stdin, name, args)
+    }
+
+    pub fn run_job_fd(&mut self, stdin:Fd, name:&String,
+                      args:&Vec<String>) -> Result<(usize, String), String> {
+        self.term.run_job_fd(stdin, name, args)
     }
 
     pub fn has_handler(&self, word:&String) -> bool {
@@ -228,6 +247,19 @@ impl WashEnv {
                 out.push(Long(vec![Flat(name.clone()), Flat(value.clone())]));
             }
             return Ok(Long(out));
+        } else if *path == "pipe".to_string() {
+            // list of non-background jobs (which can be piped)
+            let mut out = vec![];
+            for &(ref id, _, ref job) in self.term.get_jobs().iter() {
+                match job.stdout {
+                    None => {/* don't include this job */},
+                    Some(_) => {
+                        // include this job
+                        out.push(Flat(format!("{}", id)));
+                    }
+                }
+            }
+            return Ok(Long(out));
         } else if self.hasp(path) {
             let mut out = vec![];
             let vars = self.paths.get(path).unwrap();
@@ -248,10 +280,24 @@ impl WashEnv {
 
     pub fn getvp(&self, name:&String, path:&String) -> Result<WashArgs, String> {
         if *path == "env".to_string() {
+            // environment variables
             return match os::getenv(name.as_slice()) {
                 None => Err("Environment variable not found".to_string()),
                 Some(v) => Ok(Flat(v))
             };
+        } else if *path == "pipe".to_string() {
+            // pipe Fd's
+            let (_, from) = match self.get_job(&match str_to_usize(name.as_slice()) {
+                None => return Err("Did not give job number".to_string()),
+                Some(v) => v
+            }) {
+                None => return Err("Job not found".to_string()),
+                Some(p) => p
+            };
+            match from.stdout {
+                None => return Err("Job has no output handles".to_string()),
+                Some(ref p) => Ok(Flat(format!("{}", p.as_raw_fd())))
+            }
         } else {
             return match self.paths.get(path) {
                 None => Err("Path not found".to_string()),

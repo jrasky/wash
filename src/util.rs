@@ -17,6 +17,26 @@ pub fn get_nm_index<T>(vec:&Vec<T>, index:usize) -> Option<&T> {
     }
 }
 
+// needed because this isn't in rust yet
+pub fn str_to_usize(s:&str) -> Option<usize> {
+    let mut scopy = s.to_string();
+    let mut num = 0;
+    let mut place = 1;
+    loop {
+        match scopy.pop() {
+            None => break,
+            Some(c) => match c.to_digit(10) {
+                None => return None,
+                Some(d) => {
+                    num += place * d;
+                    place *= 10;
+                }
+            }
+        }
+    }
+    return Some(num);
+}
+
 // work around lack of DST
 pub fn build_string(ch:char, count:usize) -> String {
     let mut s = String::new();

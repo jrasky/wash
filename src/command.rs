@@ -5,6 +5,7 @@ use std::io::process::StdioContainer::*;
 use std::io::{IoError, IoErrorKind, IoResult};
 use std::io::IoErrorKind::*;
 use std::collections::VecMap;
+use std::os::unix::prelude::*;
 
 use controls::*;
 use constants::*;
@@ -140,10 +141,6 @@ impl TermState {
 
     fn find_jobs_hole(&self) -> usize {
         // find a hole in the job map
-        if self.jobs.len() < 20 {
-            // with less than twenty jobs just be lazy
-            return self.jobs.len() + 1;
-        }
         let mut last = 0;
         for key in self.jobs.keys() {
             if key - last != 1 {
@@ -164,6 +161,99 @@ impl TermState {
         process.stdin(Ignored);
         process.stdout(Ignored);
         process.stderr(Ignored);
+        let mut child = match process.spawn() {
+            Err(e) => {
+                return Err(format!("Couldn't spawn {}: {}", name, e));
+            },
+            Ok(v) => v
+        };
+        // set wait timeout to zero so we can check for process exit quickly
+        child.set_timeout(Some(0));
+        let id = self.find_jobs_hole();
+        // panic if we've overwritten a job
+        match self.jobs.insert(id.clone(), (name.clone(), child)) {
+            Some(_) => panic!("Overwrote job"),
+            _ => {/* nothing */}
+        }
+        return Ok((id, name.clone()));
+    }
+
+    pub fn run_job_fd(&mut self, stdin:Fd, name:&String,
+                      args:&Vec<String>) -> Result<(usize, String), String> {
+        let mut process = Command::new(name);
+        process.args(args.as_slice());
+        // given stdin
+        process.stdin(InheritFd(stdin));
+        // new pipes for others
+        let mut child = match process.spawn() {
+            Err(e) => {
+                return Err(format!("Couldn't spawn {}: {}", name, e));
+            },
+            Ok(v) => v
+        };
+        // set wait timeout to zero so we can check for process exit quickly
+        child.set_timeout(Some(0));
+        let id = self.find_jobs_hole();
+        // panic if we've overwritten a job
+        match self.jobs.insert(id.clone(), (name.clone(), child)) {
+            Some(_) => panic!("Overwrote job"),
+            _ => {/* nothing */}
+        }
+        return Ok((id, name.clone()));
+    }
+    
+    pub fn run_command_fd(&mut self, stdin:Fd, name:&String,
+                      args:&Vec<String>) -> Result<ProcessExit, String> {
+        let mut process = Command::new(name);
+        process.args(args.as_slice());
+        // given stdin
+        process.stdin(InheritFd(stdin));
+        // output to terminal for others
+        process.stdout(InheritFd(STDOUT));
+        process.stderr(InheritFd(STDERR));
+        // set terminal settings for process
+        self.restore_terminal();
+        // push job into jobs
+        let id = self.find_jobs_hole();
+        // handle interrupts
+        self.handle_sigint();
+        let val = (name.clone(), match process.spawn() {
+            Err(e) => {
+                self.update_terminal();
+                return Err(format!("Couldn't spawn {}: {}", name, e));
+            },
+            Ok(v) => v
+        });
+        // insert job
+        self.jobs.insert(id, val);
+        // set forground job
+        self.fg_job = Some(id);
+        let out = match self.jobs.get_mut(&id).unwrap().1.wait() {
+            Err(e) => {
+                // unset foreground job
+                self.fg_job = None;
+                // remove job
+                self.jobs.remove(&id);
+                self.update_terminal();
+                return Err(format!("Couldn't wait for child to exit: {}", e));
+            },
+            Ok(v) => v
+        };
+        // unset forground job
+        self.fg_job = None;
+        // remove job
+        self.jobs.remove(&id);
+        // unhandle sigint
+        self.unhandle_sigint();
+        // restore settings for Wash
+        self.update_terminal();
+        return Ok(out);
+    }
+    
+    pub fn run_job_directed(&mut self, name:&String, args:&Vec<String>) -> Result<(usize, String), String> {
+        let mut process = Command::new(name);
+        process.args(args.as_slice());
+        // directed job means all inputs/outputs are pipes
         // all others are redirected
         let mut child = match process.spawn() {
             Err(e) => {
@@ -182,12 +272,21 @@ impl TermState {
         return Ok((id, name.clone()));
     }
 
-    pub fn get_jobs(&mut self) -> Vec<(usize, String, &Process)> {
+    pub fn get_jobs(&self) -> Vec<(usize, String, &Process)> {
         let mut out = vec![];
         for (id, &(ref name, ref child)) in self.jobs.iter() {
             out.push((id, name.clone(), child));
         }
         return out;
+    }
+
+    pub fn get_job(&self, id:&usize) -> Option<(String, &Process)> {
+        match self.jobs.get(id) {
+            None => return None,
+            Some(&(ref name, ref child)) => {
+                return Some((name.clone(), child));
+            }
+        }
     }
 
     pub fn clean_jobs(&mut self) -> Vec<(usize, String, IoResult<ProcessExit>)> {

@@ -1,4 +1,5 @@
 use std::io::process::ProcessExit::*;
+use std::os::unix::prelude::*;
 
 use std::os;
 use std::cmp::*;
@@ -83,6 +84,10 @@ pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
         Flat(v) => v,
         Empty | Long(_) => return Err("Can only run flat names".to_string())
     };
+    if str_to_usize(name.as_slice()).is_some() {
+        // run piped instead
+        return pipe_run_func(args, env);
+    }
     // this could be empty but that's ok
     let arg_slice = args.slice(1, -1);
     if env.hasf(&name) {
@@ -119,6 +124,76 @@ pub fn job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     let arg_slice = args.slice(1, -1);
     let (id, name) = try!(env.run_job(&name, &arg_slice.flatten_vec()));
     return Ok(Flat(format!("Started job: {} ({})", id, name)));
+}
+
+pub fn djob_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+    if args.len() < 1 {
+        return Err("No arguments given".to_string());
+    }
+    let name = match args.get(0) {
+        Flat(v) => v,
+        Empty | Long(_) => return Err("Can only run flat names".to_string())
+    };
+    let arg_slice = args.slice(1, -1);
+    let (id, _) = try!(env.run_job_directed(&name, &arg_slice.flatten_vec()));
+    return Ok(Flat(format!("{}", id)));
+}
+
+pub fn pipe_job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+    // takes a directed job number, then arguments for a new job
+    // creates this new job with the stdout Fd of the given job as the stdin Fd of the new job
+    // this new job is also directed
+    if args.len() < 2 {
+        return Err("Need at least job number and command".to_string());
+    }
+    let pipe = match str_to_usize(match args.get(0) {
+        Flat(v) => v,
+        Empty | Long(_) => return Err("Pipe numbers can only be flat".to_string())
+    }.as_slice()) {
+        None => return Err("Not given pipe number".to_string()),
+        Some(v) => v
+    };
+    let name = match args.get(1) {
+        Flat(v) => v,
+        Empty | Long(_) => return Err("Can only run flat names".to_string())
+    };
+    let arg_slice = args.slice(2, -1);
+    let (id, _) = try!(env.run_job_fd(pipe as Fd, &name, &arg_slice.flatten_vec()));
+    return Ok(Flat(format!("{}", id)));
+}
+
+
+pub fn pipe_run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+    // takes a directed job number, then arguments for a new job
+    // creates this new job with the stdout Fd of the given job as the stdin Fd of the new job
+    // this new job is also directed
+    if args.len() < 2 {
+        return Err("Need at least job number and command".to_string());
+    }
+    let pipe = match str_to_usize(match args.get(0) {
+        Flat(v) => v,
+        Empty | Long(_) => return Err("Pipe numbers can only be flat".to_string())
+    }.as_slice()) {
+        None => return Err("Not given pipe number".to_string()),
+        Some(v) => v
+    };
+    let name = match args.get(1) {
+        Flat(v) => v,
+        Empty | Long(_) => return Err("Can only run flat names".to_string())
+    };
+    let arg_slice = args.slice(2, -1);
+    env.flush();
+    match try!(env.run_command_fd(pipe as Fd, &name, &arg_slice.flatten_vec())) {
+        ExitSignal(sig) => {
+            return Ok(Long(vec![Flat("signal".to_string()),
+                                Flat(format!("{}", sig))]));
+        },
+        ExitStatus(status) => {
+            return Ok(Long(vec![Flat("status".to_string()),
+                                Flat(format!("{}", status))]));
+        }
+    }
+
 }
 
 pub fn jobs_func(_:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
@@ -173,6 +248,8 @@ pub fn setp_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
         };
         if path == "env".to_string() {
             return Err("Cannot set variable path to environment variables".to_string());
+        } else if path == "pipe".to_string() {
+            return Err("Cannot set variable path to job pipes".to_string());
         }
         env.variables = path.clone();
         return Ok(Flat(path))
@@ -280,6 +357,37 @@ fn amper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEn
     return Ok(Continue);
 }
 
+fn bar_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+    if pre.len() < 1 {
+        return Err("Cannot pipe nothing".to_string());
+    }
+    if str_to_usize(pre[0].flatten().as_slice()).is_some() {
+        // first argument is a pipe number, this is a chained call
+        let id = match try!(pipe_job_func(&Long(pre.clone()), env)) {
+            Flat(v) => match str_to_usize(v.as_slice()) {
+                None => return Err("pipe_job did not return a job number".to_string()),
+                Some(v) => v
+            },
+            _ => return Err("pipe_job did not return a job number".to_string())
+        };
+        pre.clear();
+        pre.push(try!(env.getvp(&format!("{}", id), &"pipe".to_string())));
+        return Ok(Continue);
+    } else {
+        // not a chained call
+        let id = match try!(djob_func(&Long(pre.clone()), env)) {
+            Flat(v) => match str_to_usize(v.as_slice()) {
+                None => return Err("djob did not return a job number".to_string()),
+                Some(v) => v
+            },
+            _ => return Err("djob did not return a job number".to_string())
+        };
+        pre.clear();
+        pre.push(try!(env.getvp(&format!("{}", id), &"pipe".to_string())));
+        return Ok(Continue);
+    }
+}
+
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
     return Ok(Long(vec![
         Flat("$".to_string()),
@@ -305,6 +413,9 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insf("setp", setp_func));
     try!(env.insf("job", job_func));
     try!(env.insf("jobs", jobs_func));
+    try!(env.insf("pipe_job", pipe_job_func));
+    try!(env.insf("pipe_run", pipe_run_func));
+    try!(env.insf("djob", djob_func));
 
     // commands that aren't really meant to be called by users
     try!(env.insf("describe_process_output", describe_process_output));
@@ -314,6 +425,7 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insert_handler(";&", semiamper_handler));
     try!(env.insert_handler("&&", amperamper_handler));
     try!(env.insert_handler("&", amper_handler));
+    try!(env.insert_handler("|", bar_handler));
 
     return Ok(Empty);
 }
