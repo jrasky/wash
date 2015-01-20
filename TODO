@@ -1,3 +1,5 @@
+- Improve && and ;& handler error output
+ - maybe by making utility function to describe command output
 - blocks
 - interactive mode
 - loops
