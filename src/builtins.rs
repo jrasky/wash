@@ -259,6 +259,18 @@ fn amperamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut W
     return Ok(Continue);
 }
 
+fn amper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+    // almost directly calls job
+    // ignore errors
+    match job_func(&Long(pre.clone()), env) {
+        Err(e) => env.errf(format_args!("{}\n", e)),
+        Ok(v) => env.outf(format_args!("{}\n", v.flatten()))
+    }
+    // & does not pass on the value of the previous command
+    pre.clear();
+    return Ok(Continue);
+}
+
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
     return Ok(Long(vec![
         Flat("$".to_string()),
@@ -290,6 +302,7 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insert_handler("=", equal_handler));
     try!(env.insert_handler(";&", semiamper_handler));
     try!(env.insert_handler("&&", amperamper_handler));
+    try!(env.insert_handler("&", amper_handler));
 
     return Ok(Empty);
 }

@@ -357,6 +357,10 @@ impl WashEnv {
     }
     
     pub fn process_command(&mut self, args:Vec<WashArgs>) -> Result<WashArgs, String> {
+        if args.is_empty() {
+            // this happens when a handler ends a line and passes nothing on
+            return Ok(Empty);
+        }
         let out = try!(self.process_function("run".to_string(), args));
         return self.describe_process_output(&out);
     }
