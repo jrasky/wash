@@ -10,6 +10,7 @@
  - regex
 - function paths?
 - better job control
+ - handle SIGSTP
  - setting variables for one job
 - more keyboard shortcuts
 - settings
