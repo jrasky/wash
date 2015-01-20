@@ -1,4 +1,3 @@
-- Pass on sigint to children
 - Implement | handler
 - Implement < and > handlers
 - Handle More case of HandlerResult

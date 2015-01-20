@@ -1,11 +1,42 @@
+use libc::*;
+
 use std::io::process::{Command, ProcessOutput, ProcessExit, Process};
 use std::io::process::StdioContainer::*;
 use std::io::{IoError, IoErrorKind, IoResult};
+use std::io::IoErrorKind::*;
 use std::collections::VecMap;
 
 use controls::*;
 use constants::*;
 use termios::*;
+use signal::*;
+
+// start off as null pointer
+static mut uglobal_term:*mut TermState = 0 as *mut TermState;
+
+unsafe extern fn term_sigint(_:c_int, _:*const SigInfo,
+                             _:*const c_void) {
+    let term:&mut TermState = match uglobal_term.as_mut() {
+        Some(v) => v,
+        None => {
+            // this handler shouldn't be called when Term isn't active
+            panic!("Term signal interrupt called when Term not active");
+        }
+    };
+    term.controls.outs("\nInterrupt\n");
+    // pass on to foreground job, if there is one
+    match term.fg_job {
+        None => {/* nothing */},
+        Some(id) => {
+            match term.interrupt_job(&id) {
+                Err(e) => {
+                    term.controls.errf(format_args!("Could not interrupt job: {}", e));
+                },
+                Ok(_) => {/* nothing */}
+            }
+        }
+    }
+}
 
 pub struct TermState {
     pub controls: Controls,
@@ -46,6 +77,59 @@ impl TermState {
     pub fn restore_terminal(&mut self) {
         if !Termios::set(&self.old_tios) {
             self.controls.err("Warning: Could not set terminal mode\n");
+        }
+    }
+
+    fn set_pointer(&mut self) {
+        unsafe {
+            if !uglobal_term.is_null() {
+                panic!("Tried to set Term location twice");
+            }
+            uglobal_term = self as *mut TermState;
+        }
+    }
+
+    fn unset_pointer(&mut self) {
+        unsafe {
+            if uglobal_term.is_null() {
+                panic!("Tried to unset Term location twice");
+            }
+            uglobal_term = 0 as *mut TermState;
+        }
+    }
+
+    fn handle_sigint(&mut self) {
+        self.set_pointer();
+        let mut sa = SigAction {
+            handler: term_sigint,
+            mask: [0; SIGSET_NWORDS],
+            flags: SA_RESTART | SA_SIGINFO,
+            restorer: 0 // null pointer
+        };
+        let mask = full_sigset().expect("Could not get a full sigset");
+        sa.mask = mask;
+        if !signal_handle(SIGINT, &sa) {
+            self.controls.err("Warning: could not set handler for SIGINT\n");
+        }
+    }
+    
+    fn unhandle_sigint(&mut self) {
+        self.unset_pointer();
+        if !signal_ignore(SIGINT) {
+            self.controls.err("Warning: could not unset handler for SIGINT\n");
+        }
+    }
+
+    pub fn interrupt_job(&mut self, id:&usize) -> IoResult<()> {
+        match self.jobs.get_mut(id) {
+            None => return Err(IoError {
+                kind: OtherIoError,
+                desc: "Job not found",
+                detail: None
+            }),
+            Some(&mut (_, ref mut job)) => {
+                return job.signal(SIGINT as isize);
+            }
         }
     }
 
@@ -124,6 +208,8 @@ impl TermState {
         self.restore_terminal();
         // push job into jobs
         let id = self.find_jobs_hole();
+        // handle interrupts
+        self.handle_sigint();
         let val = (name.clone(), match process.spawn() {
             Err(e) => {
                 self.update_terminal();
@@ -150,6 +236,8 @@ impl TermState {
         self.fg_job = None;
         // remove job
         self.jobs.remove(&id);
+        // unhandle sigint
+        self.unhandle_sigint();
         // restore settings for Wash
         self.update_terminal();
         return Ok(out);
@@ -160,6 +248,8 @@ impl TermState {
         let mut process = Command::new(name);
         process.args(args.as_slice());
         let id = self.find_jobs_hole();
+        // handle sigint
+        self.handle_sigint();
         let val = (name.clone(), match process.spawn() {
             Err(e) => {
                 self.update_terminal();
@@ -210,6 +300,8 @@ impl TermState {
         self.fg_job = None;
         // remove job
         self.jobs.remove(&id);
+        // unhandle sigint
+        self.unhandle_sigint();
         return Ok(output);
     }
 }
