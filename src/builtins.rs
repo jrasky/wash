@@ -171,8 +171,13 @@ fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut Was
         }
         Some(v) => v.flatten()
     };
-    // This is O(n), but we need the first value so.
-    let val = try!(env.input_to_args(next.remove(0)));
+    let val;
+    if next.len() == 0 {
+        val = Empty;
+    } else {
+        // This is O(n), but we need the first value so.
+        val = try!(env.input_to_args(next.remove(0)));
+    }
     if EQ_PATH_REGEX.is_match(name.as_slice()) {
         let caps = EQ_PATH_REGEX.captures(name.as_slice()).unwrap();
         let path = caps.at(1).unwrap().to_string();
