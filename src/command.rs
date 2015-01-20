@@ -120,20 +120,25 @@ impl TermState {
         process.stderr(InheritFd(STDERR));
         // set terminal settings for process
         self.restore_terminal();
-        let mut child = match process.spawn() {
+        // push job into jobs
+        let id = self.find_jobs_hole();
+        let val = (name.clone(), match process.spawn() {
             Err(e) => {
                 self.update_terminal();
                 return Err(format!("Couldn't spawn {}: {}", name, e));
             },
             Ok(v) => v
-        };
-        let out = match child.wait() {
+        });
+        self.jobs.insert(id, val);
+        let out = match self.jobs.get_mut(&id).unwrap().1.wait() {
             Err(e) => {
                 self.update_terminal();
                 return Err(format!("Couldn't wait for child to exit: {}", e));
             },
             Ok(v) => v
         };
+        // remove job
+        self.jobs.remove(&id);
         // restore settings for Wash
         self.update_terminal();
         return Ok(out);
@@ -143,12 +148,46 @@ impl TermState {
                                 args:&Vec<String>) -> Result<ProcessOutput, String> {
         let mut process = Command::new(name);
         process.args(args.as_slice());
-        match process.output() {
+        let id = self.find_jobs_hole();
+        let val = (name.clone(), match process.spawn() {
             Err(e) => {
+                self.update_terminal();
                 return Err(format!("Couldn't spawn {}: {}", name, e));
             },
-            Ok(v) => Ok(v)
-        }
+            Ok(v) => v
+        });
+        // put job in jobs list
+        self.jobs.insert(id, val);
+        let out = match self.jobs.get_mut(&id).unwrap().1.stdout.as_mut().unwrap().read_to_end() {
+            Ok(v) => v,
+            Err(e) => {
+                // remove job
+                self.jobs.remove(&id);
+                return Err(format!("Couldn't get stdout: {}", e));
+            }
+        };
+        let err = match self.jobs.get_mut(&id).unwrap().1.stderr.as_mut().unwrap().read_to_end() {
+            Ok(v) => v,
+            Err(e) => {
+                // remove job
+                self.jobs.remove(&id);
+                return Err(format!("Couldn't get stderr: {}", e));
+            }
+        };
+        let output = match self.jobs.get_mut(&id).unwrap().1.wait() {
+            Err(e) => {
+                self.update_terminal();
+                return Err(format!("Couldn't wait for child to exit: {}", e));
+            },
+            Ok(v) => ProcessOutput {
+                status: v,
+                output: out,
+                error: err
+            }
+        };
+        // remove job
+        self.jobs.remove(&id);
+        return Ok(output);
     }
 }
 
