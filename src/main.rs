@@ -5,6 +5,7 @@ extern crate libc;
 extern crate serialize;
 extern crate unicode;
 extern crate regex;
+extern crate core;
 #[plugin] #[no_link]
 extern crate regex_macros;
 
@@ -12,6 +13,7 @@ use reader::*;
 use constants::*;
 use env::*;
 use builtins::*;
+use types::*;
 
 mod constants;
 mod util;
@@ -30,6 +32,7 @@ mod env;
 pub fn main() {
     let mut reader = LineReader::new();
     let mut env = WashEnv::new();
+    let mut cleaned_jobs;
     match load_builtins(&mut env) {
         Err(e) => {
             env.errf(format_args!("Could not load builtings: {}\n", e));
@@ -39,6 +42,15 @@ pub fn main() {
     env.update_terminal();
     loop {
         env.flush();
+        cleaned_jobs = env.clean_jobs();
+        match cleaned_jobs {
+            WashArgs::Long(v) => {
+                for status in v.iter() {
+                    env.outf(format_args!("{}\n", status.flatten()));
+                }
+            },
+            _ => {/* nothing */}
+        }
         match reader.read_line() {
             None => {
                 if reader.eof {
@@ -57,6 +69,10 @@ pub fn main() {
                     Err(e) => env.errf(format_args!("{}\n", e)),
                     Ok(v) => {
                         env.outs(v.flatten().as_slice());
+                        if v.is_flat() {
+                            // extra newline
+                            env.outc(NL);
+                        }
                     }
                 }
                 reader.clear();

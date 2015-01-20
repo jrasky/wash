@@ -1,4 +1,5 @@
 use std::io::process::{ProcessOutput, ProcessExit};
+use std::io::process::ProcessExit::*;
 use std::collections::HashMap;
 
 use std::mem;
@@ -93,6 +94,10 @@ impl WashEnv {
 
     pub fn flush(&mut self) {
         self.term.controls.flush();
+    }
+
+    pub fn run_job(&mut self, name:&String, args:&Vec<String>) -> Result<(usize, String), String> {
+        self.term.run_job(name, args)
     }
 
     pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
@@ -326,6 +331,30 @@ impl WashEnv {
         return out;
     }
 
+    pub fn clean_jobs(&mut self) -> WashArgs {
+        let mut out = vec![];
+        let result = self.term.clean_jobs();
+        for &(ref id, ref name, ref job) in result.iter() {
+            match job {
+                &Err(ref e) => out.push(Flat(format!("Job {} ({}) failed: {}", id, name, e))),
+                &Ok(v) => {
+                    if v.success() {
+                        out.push(Flat(format!("Job {} ({}) finished", id, name)));
+                    } else {
+                        match v {
+                            ExitSignal(sig) => {
+                                out.push(Flat(format!("Job {} ({}) failed: signal {}", id, name, sig)));
+                            },
+                            ExitStatus(status) => {
+                                out.push(Flat(format!("Job {} ({}) failed: status {}", id, name, status)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return Long(out);
+    }
     
     pub fn process_command(&mut self, args:Vec<WashArgs>) -> Result<WashArgs, String> {
         let out = try!(self.process_function("run".to_string(), args));

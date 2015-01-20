@@ -107,6 +107,20 @@ pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     }
 }
 
+pub fn job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+    // you can only run commands like this
+    if args.len() < 1 {
+        return Err("No arguments given".to_string());
+    }
+    let name = match args.get(0) {
+        Flat(v) => v,
+        Empty | Long(_) => return Err("Can only run flat names".to_string())
+    };
+    let arg_slice = args.slice(1, -1);
+    let (id, name) = try!(env.run_job(&name, &arg_slice.flatten_vec()));
+    return Ok(Flat(format!("Started job: {} ({})", id, name)));
+}
+
 pub fn get_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     if args.len() < 1 {
         return Err("No variable name given".to_string());
@@ -218,6 +232,7 @@ fn semiamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut Wa
     // effectively the "continue" handler
     // run the part before the line and then continue
     // onto the next one no matter what
+    // but one after the other
     match run_func(&Long(pre.clone()), env) {
         Err(e) => env.errf(format_args!("{}\n", e)),
         Ok(v) => match describe_process_output(&v, env) {
@@ -250,6 +265,7 @@ fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
         Flat("builtins".to_string()),
         Flat("cd".to_string()),
         Flat("get".to_string()),
+        Flat("job".to_string()),
         Flat("run".to_string()),
         Flat("setp".to_string()),
         Flat("source".to_string())]));
@@ -265,6 +281,7 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insf("run", run_func));
     try!(env.insf("get", get_func));
     try!(env.insf("setp", setp_func));
+    try!(env.insf("job", job_func));
 
     // commands that aren't really meant to be called by users
     try!(env.insf("describe_process_output", describe_process_output));
