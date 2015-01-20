@@ -11,7 +11,8 @@ pub struct TermState {
     pub controls: Controls,
     tios: Termios,
     old_tios: Termios,
-    jobs: VecMap<(String, Process)>
+    jobs: VecMap<(String, Process)>,
+    fg_job: Option<usize>
 }
 
 impl TermState {
@@ -31,7 +32,8 @@ impl TermState {
             controls: controls,
             tios: tios,
             old_tios: old_tios,
-            jobs: VecMap::new()
+            jobs: VecMap::new(),
+            fg_job: None
         };
     }
 
@@ -129,9 +131,14 @@ impl TermState {
             },
             Ok(v) => v
         });
+        // insert job
         self.jobs.insert(id, val);
+        // set forground job
+        self.fg_job = Some(id);
         let out = match self.jobs.get_mut(&id).unwrap().1.wait() {
             Err(e) => {
+                // unset foreground job
+                self.fg_job = None;
                 // remove job
                 self.jobs.remove(&id);
                 self.update_terminal();
@@ -139,6 +146,8 @@ impl TermState {
             },
             Ok(v) => v
         };
+        // unset forground job
+        self.fg_job = None;
         // remove job
         self.jobs.remove(&id);
         // restore settings for Wash
@@ -160,9 +169,13 @@ impl TermState {
         });
         // put job in jobs list
         self.jobs.insert(id, val);
+        // set foreground job
+        self.fg_job = Some(id);
         let out = match self.jobs.get_mut(&id).unwrap().1.stdout.as_mut().unwrap().read_to_end() {
             Ok(v) => v,
             Err(e) => {
+                // unset foreground job
+                self.fg_job = None;
                 // remove job
                 self.jobs.remove(&id);
                 return Err(format!("Couldn't get stdout: {}", e));
@@ -171,6 +184,8 @@ impl TermState {
         let err = match self.jobs.get_mut(&id).unwrap().1.stderr.as_mut().unwrap().read_to_end() {
             Ok(v) => v,
             Err(e) => {
+                // unset foreground job
+                self.fg_job = None;
                 // remove job
                 self.jobs.remove(&id);
                 return Err(format!("Couldn't get stderr: {}", e));
@@ -178,6 +193,8 @@ impl TermState {
         };
         let output = match self.jobs.get_mut(&id).unwrap().1.wait() {
             Err(e) => {
+                // unset foreground job
+                self.fg_job = None;
                 // remove job
                 self.jobs.remove(&id);
                 self.update_terminal();
@@ -189,6 +206,8 @@ impl TermState {
                 error: err
             }
         };
+        // unset foreground job
+        self.fg_job = None;
         // remove job
         self.jobs.remove(&id);
         return Ok(output);
