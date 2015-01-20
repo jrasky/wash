@@ -177,6 +177,14 @@ impl TermState {
         return Ok((id, name.clone()));
     }
 
+    pub fn get_jobs(&mut self) -> Vec<(usize, String, &Process)> {
+        let mut out = vec![];
+        for (id, &(ref name, ref child)) in self.jobs.iter() {
+            out.push((id, name.clone(), child));
+        }
+        return out;
+    }
+
     pub fn clean_jobs(&mut self) -> Vec<(usize, String, IoResult<ProcessExit>)> {
         let mut out = vec![];
         let mut remove = vec![];

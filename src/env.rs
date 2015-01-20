@@ -331,6 +331,23 @@ impl WashEnv {
         return out;
     }
 
+    pub fn get_jobs(&mut self) -> WashArgs {
+        let mut out = vec![];
+        for &(ref id, ref name, ref job) in self.term.get_jobs().iter() {
+            match job.stdout {
+                None => {
+                    // background job
+                    out.push(Flat(format!("{}: background job {}", name, id)));
+                },
+                Some(_) => {
+                    // foreground job
+                    out.push(Flat(format!("{}: job {}", name, id)));
+                }
+            }
+        }
+        return Long(out);
+    }
+
     pub fn clean_jobs(&mut self) -> WashArgs {
         let mut out = vec![];
         let result = self.term.clean_jobs();

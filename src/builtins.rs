@@ -121,6 +121,15 @@ pub fn job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     return Ok(Flat(format!("Started job: {} ({})", id, name)));
 }
 
+pub fn jobs_func(_:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+    let jobs = env.get_jobs();
+    if jobs.len() == 0 {
+        return Err("No jobs".to_string());
+    } else {
+        return Ok(env.get_jobs());
+    }
+}
+
 pub fn get_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     if args.len() < 1 {
         return Err("No variable name given".to_string());
@@ -278,6 +287,7 @@ fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
         Flat("cd".to_string()),
         Flat("get".to_string()),
         Flat("job".to_string()),
+        Flat("jobs".to_string()),
         Flat("run".to_string()),
         Flat("setp".to_string()),
         Flat("source".to_string())]));
@@ -294,6 +304,7 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insf("get", get_func));
     try!(env.insf("setp", setp_func));
     try!(env.insf("job", job_func));
+    try!(env.insf("jobs", jobs_func));
 
     // commands that aren't really meant to be called by users
     try!(env.insf("describe_process_output", describe_process_output));
