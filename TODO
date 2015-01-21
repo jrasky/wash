@@ -1,4 +1,11 @@
 - Handle More case of HandlerResult
+ - block type with starting expression,
+   vector of inputvalues it contains
+ - block ends must occur on their own lines
+ - on block end, block handlers called
+ - default handler continues execution
+   until no more lines exist in the block vector
+   or a non-empty error is encountered
 - blocks
  - implemented through handlers
 - interactive mode

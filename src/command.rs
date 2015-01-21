@@ -229,6 +229,7 @@ impl TermState {
         let val = (name.clone(), match process.spawn() {
             Err(e) => {
                 self.update_terminal();
+                self.unhandle_sigint();
                 return Err(format!("Couldn't spawn {}: {}", name, e));
             },
             Ok(v) => v
@@ -244,6 +245,7 @@ impl TermState {
                 // remove job
                 self.jobs.remove(&id);
                 self.update_terminal();
+                self.unhandle_sigint();
                 return Err(format!("Couldn't wait for child to exit: {}", e));
             },
             Ok(v) => v
@@ -317,6 +319,7 @@ impl TermState {
         let val = (name.clone(), match process.spawn() {
             Err(e) => {
                 self.update_terminal();
+                self.unhandle_sigint();
                 return Err(format!("Couldn't spawn {}: {}", name, e));
             },
             Ok(v) => v
@@ -332,6 +335,7 @@ impl TermState {
                 // remove job
                 self.jobs.remove(&id);
                 self.update_terminal();
+                self.unhandle_sigint();
                 return Err(format!("Couldn't wait for child to exit: {}", e));
             },
             Ok(v) => v
@@ -478,6 +482,7 @@ impl TermState {
         let val = (name.clone(), match process.spawn() {
             Err(e) => {
                 self.update_terminal();
+                self.unhandle_sigint();
                 return Err(format!("Couldn't spawn {}: {}", name, e));
             },
             Ok(v) => v
@@ -493,6 +498,7 @@ impl TermState {
                 // remove job
                 self.jobs.remove(&id);
                 self.update_terminal();
+                self.unhandle_sigint();
                 return Err(format!("Couldn't wait for child to exit: {}", e));
             },
             Ok(v) => v
@@ -541,6 +547,7 @@ impl TermState {
                 self.fg_job = None;
                 // remove job
                 self.jobs.remove(&id);
+                self.unhandle_sigint();
                 return Err(format!("Couldn't get stdout: {}", e));
             }
         };
@@ -551,6 +558,7 @@ impl TermState {
                 self.fg_job = None;
                 // remove job
                 self.jobs.remove(&id);
+                self.unhandle_sigint();
                 return Err(format!("Couldn't get stderr: {}", e));
             }
         };
@@ -561,6 +569,7 @@ impl TermState {
                 // remove job
                 self.jobs.remove(&id);
                 self.update_terminal();
+                self.unhandle_sigint();
                 return Err(format!("Couldn't wait for child to exit: {}", e));
             },
             Ok(v) => ProcessOutput {

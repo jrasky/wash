@@ -446,6 +446,17 @@ fn geq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashE
     return Err(String::new());
 }
 
+fn t_sblock_handler(_:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
+    // test function for More case of HandlerResult
+    return Ok(More("test case".to_string()));
+}
+
+fn t_eblock_handler(_:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
+    // test function for More case of HandlerResult
+    // error with empty string means stop, but not fail.
+    return Err(String::new());
+}
+
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
     return Ok(Long(vec![
         Flat("$".to_string()),
@@ -484,6 +495,10 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insert_handler("|", bar_handler));
     try!(env.insert_handler("<", leq_handler));
     try!(env.insert_handler(">", geq_handler));
+
+    // test cases
+    try!(env.insert_handler("{", t_sblock_handler));
+    try!(env.insert_handler("}", t_eblock_handler));
 
     return Ok(Empty);
 }

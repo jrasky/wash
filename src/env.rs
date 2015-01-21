@@ -51,6 +51,7 @@ pub struct WashEnv {
     pub functions: FuncTable,
     pub scripts: ScriptTable,
     pub handlers: HandlerTable,
+    pub more: Option<Vec<String>>,
     term: TermState
 }
 
@@ -62,6 +63,7 @@ impl WashEnv {
             functions: HashMap::new(),
             scripts: HashMap::new(),
             handlers: HashMap::new(),
+            more: None,
             term: TermState::new()
         }
     }
