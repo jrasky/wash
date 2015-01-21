@@ -204,6 +204,70 @@ impl TermState {
         return Ok((id, name.clone()));
     }
 
+    pub fn run_command_outfd(&mut self, stdout:Fd, stdin:Option<Fd>, name:&String,
+                             args:&Vec<String>) -> Result<ProcessExit, String> {
+        let mut process = Command::new(name);
+        process.args(args.as_slice());
+        process.stdout(InheritFd(stdout));
+        match stdin {
+            None => {
+                // user can't respond without stdout
+                process.stdin(Ignored);
+            },
+            Some(fd) => {
+                // given stdin
+                process.stdin(InheritFd(fd));
+            }
+        }
+        process.stderr(InheritFd(STDERR));
+        // set terminal settings for process
+        self.restore_terminal();
+        // push job into jobs
+        let id = self.find_jobs_hole();
+        // handle interrupts
+        self.handle_sigint();
+        let val = (name.clone(), match process.spawn() {
+            Err(e) => {
+                self.update_terminal();
+                return Err(format!("Couldn't spawn {}: {}", name, e));
+            },
+            Ok(v) => v
+        }, vec![]);
+        // insert job
+        self.jobs.insert(id, val);
+        // set forground job
+        self.fg_job = Some(id);
+        let out = match self.jobs.get_mut(&id).unwrap().1.wait() {
+            Err(e) => {
+                // unset foreground job
+                self.fg_job = None;
+                // remove job
+                self.jobs.remove(&id);
+                self.update_terminal();
+                return Err(format!("Couldn't wait for child to exit: {}", e));
+            },
+            Ok(v) => v
+        };
+        // unset forground job
+        self.fg_job = None;
+        // remove job
+        self.jobs.remove(&id);
+        // remove file if there is one
+        match self.next_file {
+            Some(id) => {
+                self.files.remove(&id);
+            },
+            None => {/* do nothing */}
+        }
+        self.next_file = None;
+        // unhandle sigint
+        self.unhandle_sigint();
+        // restore settings for Wash
+        self.update_terminal();
+        return Ok(out);
+    }
+
+
     pub fn run_job_fd(&mut self, stdin:Fd, name:&String,
                       args:&Vec<String>) -> Result<(usize, String), String> {
         let mut process = Command::new(name);

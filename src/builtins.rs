@@ -112,6 +112,53 @@ pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     }
 }
 
+pub fn run_outfd_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+    // Note: Wash calling convention is for the caller to reduce
+    // arguments to literals
+    if args.len() < 2 {
+        return Err("Give file discriptor and command".to_string());
+    }
+    let fid = match args.get(0) {
+        Flat(v) => {
+            if FD_REGEX.is_match(v.as_slice()) {
+                str_to_usize(FD_REGEX.captures(v.as_slice()).unwrap().at(1).unwrap()).unwrap()
+            } else {
+                return Err("Not given a file descriptor".to_string());
+            }
+        },
+        Empty | Long(_) => return Err("File descriptors can only be flat".to_string())
+    };  
+    let mut arg_slice;
+    let mut infd = None;
+    let name = match args.get(1) {
+        Flat(v) => {
+            if FD_REGEX.is_match(v.as_slice()) {
+                infd = Some(str_to_usize(FD_REGEX.captures(v.as_slice()).unwrap().at(1).unwrap()).unwrap() as Fd);
+                arg_slice = args.slice(3, -1);
+                match args.get(2) {
+                    Flat(v) => v,
+                    _ => return Err("Can only run flat names".to_string())
+                }
+            } else {
+                arg_slice = args.slice(2, -1);
+                v
+            }
+        },
+        Empty | Long(_) => return Err("Can only run flat names".to_string())
+    };
+    env.flush();
+        match try!(env.run_command_outfd(fid as Fd, infd, &name, &arg_slice.flatten_vec())) {
+        ExitSignal(sig) => {
+            return Ok(Long(vec![Flat("signal".to_string()),
+                                Flat(format!("{}", sig))]));
+        },
+        ExitStatus(status) => {
+            return Ok(Long(vec![Flat("status".to_string()),
+                                Flat(format!("{}", status))]));
+        }
+    }
+}
+
 pub fn job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     if args.len() < 1 {
         return Err("No arguments given".to_string());
@@ -185,7 +232,6 @@ pub fn pipe_run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, Strin
                                 Flat(format!("{}", status))]));
         }
     }
-
 }
 
 pub fn jobs_func(_:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
@@ -382,6 +428,24 @@ fn leq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashE
     return Ok(Continue);
 }
 
+fn geq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+    // file output
+    if next.is_empty() {
+        return Err("File name must be provided".to_string());
+    }
+    let fname = match try!(env.input_to_args(next.remove(0))) {
+        Flat(s) => s,
+        _ => return Err("File name must be flat".to_string())
+    };
+    let fpath = expand_path(Path::new(fname));
+    let fid = try!(env.output_file(&fpath));
+    pre.insert(0, try!(env.getvp(&format!("{}", fid), &"file".to_string())));
+    let out = try!(run_outfd_func(&Long(pre.clone()), env));
+    try!(describe_process_output(&out, env));
+    // stop no matter what
+    return Err(String::new());
+}
+
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
     return Ok(Long(vec![
         Flat("$".to_string()),
@@ -419,6 +483,7 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insert_handler("&", amper_handler));
     try!(env.insert_handler("|", bar_handler));
     try!(env.insert_handler("<", leq_handler));
+    try!(env.insert_handler(">", geq_handler));
 
     return Ok(Empty);
 }

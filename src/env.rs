@@ -123,6 +123,11 @@ impl WashEnv {
         self.term.run_command_fd(stdin, name, args)
     }
 
+    pub fn run_command_outfd(&mut self, stdout:Fd, stdin:Option<Fd>, name:&String,
+                             args:&Vec<String>) -> Result<ProcessExit, String> {
+        self.term.run_command_outfd(stdout, stdin, name, args)
+    }
+
     pub fn run_job_fd(&mut self, stdin:Fd, name:&String,
                       args:&Vec<String>) -> Result<(usize, String), String> {
         self.term.run_job_fd(stdin, name, args)
