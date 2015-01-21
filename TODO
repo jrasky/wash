@@ -1,0 +1,35 @@
+- Implement < and > handlers
+- Handle More case of HandlerResult
+- blocks
+ - implemented through handlers
+- interactive mode
+- loops
+- conditionals
+ - regex
+- function paths?
+- better job control
+ - handle SIGSTP
+ - more gracefully handle running jobs at exit
+ - figure out how to handle input on piped runs
+ - setting variables for one job
+- more keyboard shortcuts
+- settings
+ - maybe vars on a special path?
+- better PS1
+ - figure out PS2 interaction
+- finish scripting
+ - rewrite to not link directly to dl
+ - interactive/compiled mode
+ - permanent caches
+ - pre-caching
+ - startup scripts
+- Re-write functions and handlers in scripts where possible
+- completion
+ - hook into bash completion
+- bash integration
+
+future:
+- better terminal protocol
+ - over dbus
+- terminal client to match
+- wash_start entry points

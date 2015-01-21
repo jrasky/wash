@@ -1,0 +1,13 @@
+[package]
+name = "wash"
+version = "0.0.1"
+authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
+
+[dependencies.sodiumoxide]
+git = "https://github.com/dnaq/sodiumoxide.git"
+
+[dependencies.regex]
+git = "https://github.com/rust-lang/regex"
+
+[dependencies.regex_macros]
+get = "https://github.com/rust-lang/regex"
