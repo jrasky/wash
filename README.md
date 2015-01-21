@@ -9,4 +9,4 @@ You can write "scripts" for wash, but there isn't really a scripting language ye
 
 Read the TODO to learn about what I'm working on. Read the source code (especially builtins.rs) to learn what you can currently do with wash.
 
-Documentation, code optimization, usability, are all WIP.
+Documentation, code optimization, usability, support for anything besides specifically 64-bit linux are all WIP.
