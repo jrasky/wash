@@ -51,6 +51,9 @@ pub fn main() {
             },
             _ => {/* nothing */}
         }
+        if env.block.is_none() {
+            reader.draw_ps1();
+        }
         match reader.read_line() {
             None => {
                 if reader.eof {
@@ -66,12 +69,20 @@ pub fn main() {
             Some(line) => {
                 env.outc(NL);
                 match env.process_line(line) {
-                    Err(e) => env.errf(format_args!("{}\n", e)),
+                    Err(e) => {
+                        if e.is_empty() {
+                            // Stop, not Fail
+                        } else {
+                            env.errf(format_args!("{}\n", e));
+                        }
+                    },
                     Ok(v) => {
-                        env.outs(v.flatten().as_slice());
-                        if v.is_flat() {
-                            // extra newline
-                            env.outc(NL);
+                        if !v.is_empty() {
+                            env.outs(v.flatten().as_slice());
+                            if v.is_flat() {
+                                // extra newline
+                                env.outc(NL);
+                            }
                         }
                     }
                 }

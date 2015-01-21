@@ -40,9 +40,15 @@ pub type HandlerTable = HashMap<String, WashHandler>;
 type WashLoad = extern fn(*const WashArgs, *mut WashEnv) -> Result<WashArgs, String>;
 type WashRun = extern fn(*const WashArgs, *mut WashEnv) -> Result<WashArgs, String>;
 
+pub struct WashBlock {
+    pub start: WashArgs,
+    pub close: InputValue,
+    pub content: Vec<InputValue>
+}
+
 pub enum HandlerResult {
     Continue,
-    More(String)
+    More(WashBlock)
 }
 
 pub struct WashEnv {
@@ -51,7 +57,7 @@ pub struct WashEnv {
     pub functions: FuncTable,
     pub scripts: ScriptTable,
     pub handlers: HandlerTable,
-    pub more: Option<Vec<String>>,
+    pub block: Option<WashBlock>,
     term: TermState
 }
 
@@ -63,7 +69,7 @@ impl WashEnv {
             functions: HashMap::new(),
             scripts: HashMap::new(),
             handlers: HashMap::new(),
-            more: None,
+            block: None,
             term: TermState::new()
         }
     }
@@ -484,32 +490,57 @@ impl WashEnv {
     }
 
     pub fn process_line(&mut self, line:InputValue) -> Result<WashArgs, String> {
-        match line {
-            InputValue::Function(n, a) => {
-                let vec = try!(self.input_to_vec(a));
-                return self.process_function(n, vec);
+        let mut end_block = false;
+        match self.block {
+            Some(ref mut block) => {
+                if block.close == line {
+                    // ending blocks has to occur outside of this borrow
+                    end_block = true;
+                } else {
+                    block.content.push(line);
+                    // continue block
+                    return Ok(Empty);
+                }
             },
-            InputValue::Long(a) => {
-                // run as command
-                let vec = try!(self.input_to_vec(a));
-                return self.process_command(vec);
-            },
-            InputValue::Short(ref s) if VAR_PATH_REGEX.is_match(s.as_slice()) => {
-                let out = try!(self.input_to_args(InputValue::Short(s.clone())));
-                return Ok(Flat(format!("{}\n", out.flatten_with_inner("\n", "="))));
-            },
-            InputValue::Short(ref s) if VAR_REGEX.is_match(s.as_slice()) => {
-                let out = try!(self.input_to_args(InputValue::Short(s.clone())));
-                return Ok(Flat(format!("{}\n", out.flatten())));
-            },
-            InputValue::Short(s) | InputValue::Literal(s) => {
-                // run command without args
-                return self.process_command(vec![Flat(s)]);
-            },
-            _ => {
-                // do nothing
-                return Ok(Empty);
+            None => match line {
+                InputValue::Function(n, a) => {
+                    let vec = try!(self.input_to_vec(a));
+                    return self.process_function(n, vec);
+                },
+                InputValue::Long(a) => {
+                    // run as command
+                    let vec = try!(self.input_to_vec(a));
+                    if vec.is_empty() {
+                        // start of a block
+                        return Ok(Empty);
+                    } else {
+                        return self.process_command(vec);
+                    }
+                },
+                InputValue::Short(ref s) if VAR_PATH_REGEX.is_match(s.as_slice()) => {
+                    let out = try!(self.input_to_args(InputValue::Short(s.clone())));
+                    return Ok(Flat(format!("{}\n", out.flatten_with_inner("\n", "="))));
+                },
+                InputValue::Short(ref s) if VAR_REGEX.is_match(s.as_slice()) => {
+                    let out = try!(self.input_to_args(InputValue::Short(s.clone())));
+                    return Ok(Flat(format!("{}\n", out.flatten())));
+                },
+                InputValue::Short(s) | InputValue::Literal(s) => {
+                    // run command without args
+                    return self.process_command(vec![Flat(s)]);
+                },
+                _ => {
+                    // do nothing
+                    return Ok(Flat(String::new()));
+                }
             }
+        }
+        if end_block {
+            // TODO: implement block handlers
+            self.block = None;
+            return Ok(Flat("End of block".to_string()));
+        } else {
+            return Err("line matching did not return out".to_string());
         }
     }
 
@@ -541,7 +572,11 @@ impl WashEnv {
                     }
                     // this can change out and scope, be careful
                     match try!(self.run_handler(name, &mut out, &mut scope)) {
-                        More(_) => return Err("More not yet implemented".to_string()),
+                        More(block) => {
+                            // start of a block
+                            self.block = Some(block);
+                            return Ok(vec![]);
+                        },
                         Continue => {/* continue */}
                     }
                     // push remaining scope back onto iter

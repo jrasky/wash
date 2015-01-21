@@ -446,15 +446,19 @@ fn geq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashE
     return Err(String::new());
 }
 
-fn t_sblock_handler(_:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
+fn t_sblock_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
     // test function for More case of HandlerResult
-    return Ok(More("test case".to_string()));
+    let block = WashBlock {
+        start: Long(pre.clone()),
+        close: InputValue::Short("}".to_string()),
+        content: vec![]
+    };
+    return Ok(More(block));
 }
 
 fn t_eblock_handler(_:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
-    // test function for More case of HandlerResult
-    // error with empty string means stop, but not fail.
-    return Err(String::new());
+    // helper to tell users not to use this in a line
+    return Err("Close block in incorrect place".to_string());
 }
 
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {

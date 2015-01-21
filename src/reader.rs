@@ -113,12 +113,12 @@ impl LineReader {
         self.restarted = true;
     }
 
+    pub fn draw_ps1(&mut self) {
+        let cwd = os::getcwd().unwrap();
+        self.controls.outf(format_args!("{}$ ", condense_path(cwd).display()));
+    }
+
     pub fn read_line(&mut self) -> Option<InputValue> {
-        if !self.restarted {
-            let cwd = os::getcwd().unwrap();
-            self.controls.outf(format_args!("{}$ ", condense_path(cwd).display()));
-            self.restarted = false;
-        }
         // handle sigint
         self.handle_sigint();
         while !self.finished && !self.eof {
