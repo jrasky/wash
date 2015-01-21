@@ -6,6 +6,7 @@ use std::io::{IoError, IoErrorKind, IoResult};
 use std::io::IoErrorKind::*;
 use std::collections::VecMap;
 use std::os::unix::prelude::*;
+use std::io::{File, Append, Open, Read, Write};
 
 use controls::*;
 use constants::*;
@@ -48,8 +49,10 @@ pub struct TermState {
     pub controls: Controls,
     tios: Termios,
     old_tios: Termios,
-    jobs: VecMap<(String, Process)>,
-    fg_job: Option<usize>
+    jobs: VecMap<(String, Process, Vec<usize>)>,
+    fg_job: Option<usize>,
+    files: VecMap<File>,
+    next_file: Option<usize>
 }
 
 impl TermState {
@@ -70,7 +73,9 @@ impl TermState {
             tios: tios,
             old_tios: old_tios,
             jobs: VecMap::new(),
-            fg_job: None
+            fg_job: None,
+            files: VecMap::new(),
+            next_file: None
         };
     }
 
@@ -133,7 +138,7 @@ impl TermState {
                 desc: "Job not found",
                 detail: None
             }),
-            Some(&mut (_, ref mut job)) => {
+            Some(&mut (_, ref mut job, _)) => {
                 return job.signal(SIGINT as isize);
             }
         }
@@ -154,6 +159,22 @@ impl TermState {
         return last + 1;
     }
 
+    
+    fn find_files_hole(&self) -> usize {
+        // find a hole in the file map
+        let mut last = 0;
+        for key in self.files.keys() {
+            if key - last != 1 {
+                // we've found a hole
+                return key - 1;
+            } else {
+                last = key;
+            }
+        }
+        // file list is full
+        return last + 1;
+    }
+
     pub fn run_job(&mut self, name:&String, args:&Vec<String>) -> Result<(usize, String), String> {
         let mut process = Command::new(name);
         process.args(args.as_slice());
@@ -171,10 +192,15 @@ impl TermState {
         child.set_timeout(Some(0));
         let id = self.find_jobs_hole();
         // panic if we've overwritten a job
-        match self.jobs.insert(id.clone(), (name.clone(), child)) {
+        match self.jobs.insert(id.clone(), (name.clone(), child,
+                                            match self.next_file {
+                                                None => vec![],
+                                                Some(id) => vec![id]
+                                            })) {
             Some(_) => panic!("Overwrote job"),
             _ => {/* nothing */}
         }
+        self.next_file = None;
         return Ok((id, name.clone()));
     }
 
@@ -195,10 +221,15 @@ impl TermState {
         child.set_timeout(Some(0));
         let id = self.find_jobs_hole();
         // panic if we've overwritten a job
-        match self.jobs.insert(id.clone(), (name.clone(), child)) {
+        match self.jobs.insert(id.clone(), (name.clone(), child,
+                                            match self.next_file {
+                                                None => vec![],
+                                                Some(id) => vec![id]
+                                            })) {
             Some(_) => panic!("Overwrote job"),
             _ => {/* nothing */}
         }
+        self.next_file = None;
         return Ok((id, name.clone()));
     }
     
@@ -225,7 +256,7 @@ impl TermState {
                 return Err(format!("Couldn't spawn {}: {}", name, e));
             },
             Ok(v) => v
-        });
+        }, vec![]);
         // insert job
         self.jobs.insert(id, val);
         // set forground job
@@ -245,6 +276,14 @@ impl TermState {
         self.fg_job = None;
         // remove job
         self.jobs.remove(&id);
+        // remove file if there is one
+        match self.next_file {
+            Some(id) => {
+                self.files.remove(&id);
+            },
+            None => {/* do nothing */}
+        }
+        self.next_file = None;
         // unhandle sigint
         self.unhandle_sigint();
         if stdin == 0 {
@@ -269,16 +308,21 @@ impl TermState {
         child.set_timeout(Some(0));
         let id = self.find_jobs_hole();
         // panic if we've overwritten a job
-        match self.jobs.insert(id.clone(), (name.clone(), child)) {
+        match self.jobs.insert(id.clone(), (name.clone(), child,
+                                            match self.next_file {
+                                                None => vec![],
+                                                Some(id) => vec![id]
+                                            })) {
             Some(_) => panic!("Overwrote job"),
             _ => {/* nothing */}
         }
+        self.next_file = None;
         return Ok((id, name.clone()));
     }
 
     pub fn get_jobs(&self) -> Vec<(usize, String, &Process)> {
         let mut out = vec![];
-        for (id, &(ref name, ref child)) in self.jobs.iter() {
+        for (id, &(ref name, ref child, _)) in self.jobs.iter() {
             out.push((id, name.clone(), child));
         }
         return out;
@@ -287,31 +331,70 @@ impl TermState {
     pub fn get_job(&self, id:&usize) -> Option<(String, &Process)> {
         match self.jobs.get(id) {
             None => return None,
-            Some(&(ref name, ref child)) => {
+            Some(&(ref name, ref child, _)) => {
                 return Some((name.clone(), child));
             }
         }
     }
 
+    pub fn get_job_mut(&mut self, id:&usize) -> Option<&mut (String, Process, Vec<usize>)> {
+        return self.jobs.get_mut(id);
+    }
+
+    pub fn output_file(&mut self, path:&Path) -> IoResult<usize> {
+        let fid = self.find_files_hole();
+        // files are opened before they are attached to processes
+        // this allows the next *job function to attach to the file
+        // index, so it can be freed when the job is pruned.
+        self.next_file = Some(fid);
+        let file = try!(File::open_mode(path, Append, Write));
+        self.files.insert(fid, file);
+        return Ok(fid);
+    }
+
+    pub fn input_file(&mut self, path:&Path) -> IoResult<usize> {
+        let fid = self.find_files_hole();
+        self.next_file = Some(fid);
+        let file = try!(File::open_mode(path, Open, Read));
+        self.files.insert(fid, file);
+        return Ok(fid);
+    }
+
+    pub fn get_file(&self, id:&usize) -> Option<&File> {
+        return self.files.get(id);
+    }
+
+    pub fn get_files(&self) -> Vec<(usize, &File)> {
+        return self.files.iter().collect();
+    }
+
     pub fn clean_jobs(&mut self) -> Vec<(usize, String, IoResult<ProcessExit>)> {
         let mut out = vec![];
         let mut remove = vec![];
-        for (id, &mut (ref mut name, ref mut child)) in self.jobs.iter_mut() {
-             match child.wait() {
-                 Err(IoError{kind: IoErrorKind::TimedOut, desc: _, detail: _}) => {
-                     // this is expected, do nothing
-                 },
-                 v => {
-                     // all other outputs mean the job is done
-                     // if it isn't it'll be cleaned up in drop
-                     child.set_timeout(None);
-                     remove.push(id);
-                     out.push((id, name.clone(), v));
-                 }
-             }
+        let mut remove_files = vec![];
+        for (id, &mut (ref mut name, ref mut child,
+                       ref mut files)) in self.jobs.iter_mut() {
+            match child.wait() {
+                Err(IoError{kind: IoErrorKind::TimedOut, desc: _, detail: _}) => {
+                    // this is expected, do nothing
+                },
+                v => {
+                    // all other outputs mean the job is done
+                    // if it isn't it'll be cleaned up in drop
+                    child.set_timeout(None);
+                    remove.push(id);
+                    for item in files.iter() {
+                        remove_files.push(item.clone());
+                    }
+                    out.push((id, name.clone(), v));
+                }
+            }
         }
         for id in remove.iter() {
             self.jobs.remove(id);
+        }
+        for id in remove_files.iter() {
+            self.files.remove(id);
         }
         return out;
     }
@@ -334,7 +417,7 @@ impl TermState {
                 return Err(format!("Couldn't spawn {}: {}", name, e));
             },
             Ok(v) => v
-        });
+        }, vec![]);
         // insert job
         self.jobs.insert(id, val);
         // set forground job
@@ -354,6 +437,14 @@ impl TermState {
         self.fg_job = None;
         // remove job
         self.jobs.remove(&id);
+        // remove file if there is one
+        match self.next_file {
+            Some(id) => {
+                self.files.remove(&id);
+            },
+            None => {/* do nothing */}
+        }
+        self.next_file = None;
         // unhandle sigint
         self.unhandle_sigint();
         // restore settings for Wash
@@ -374,7 +465,7 @@ impl TermState {
                 return Err(format!("Couldn't spawn {}: {}", name, e));
             },
             Ok(v) => v
-        });
+        }, vec![]);
         // put job in jobs list
         self.jobs.insert(id, val);
         // set foreground job
@@ -418,6 +509,14 @@ impl TermState {
         self.fg_job = None;
         // remove job
         self.jobs.remove(&id);
+        // remove file if there is one
+        match self.next_file {
+            Some(id) => {
+                self.files.remove(&id);
+            },
+            None => {/* do nothing */}
+        }
+        self.next_file = None;
         // unhandle sigint
         self.unhandle_sigint();
         return Ok(output);

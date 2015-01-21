@@ -2,6 +2,7 @@ use std::io::process::{ProcessOutput, ProcessExit, Process};
 use std::io::process::ProcessExit::*;
 use std::collections::HashMap;
 use std::os::unix::prelude::*;
+use std::io::File;
 
 use std::mem;
 use std::os;
@@ -174,7 +175,9 @@ impl WashEnv {
     pub fn insvp(&mut self, name:String, path:String, val:WashArgs) -> Result<WashArgs, String> {
         if val.is_empty() {
             // unset
-            if path == "env" {
+            if path == "pipe" || path == "file" {
+                return Err("Pipes and files are read-only variables".to_string())
+            } else if path == "env" {
                 os::unsetenv(name.as_slice());
                 return Ok(Empty);
             } else {
@@ -261,6 +264,9 @@ impl WashEnv {
                 }
             }
             return Ok(Long(out));
+        } else if *path == "file".to_string() {
+            // return list of open files
+            return Ok(self.get_files());
         } else if self.hasp(path) {
             let mut out = vec![];
             let vars = self.paths.get(path).unwrap();
@@ -299,6 +305,16 @@ impl WashEnv {
                 None => return Err("Job has no output handles".to_string()),
                 Some(ref p) => Ok(Flat(format!("@{}", p.as_raw_fd())))
             }
+        } else if *path == "file".to_string() {
+            // file Fd's
+            let fd = match self.get_file(&match str_to_usize(name.as_slice()) {
+                None => return Err("Did not give file number".to_string()),
+                Some(v) => v
+            }) {
+                None => return Err("File not found".to_string()),
+                Some(f) => f
+            }.as_raw_fd();
+            return Ok(Flat(format!("@{}", fd)));
         } else {
             return match self.paths.get(path) {
                 None => Err("Path not found".to_string()),
@@ -376,6 +392,32 @@ impl WashEnv {
         let out = load_func(args, self);
         script.loaded = true;
         return out;
+    }
+
+    pub fn output_file(&mut self, path:&Path) -> Result<usize, String> {
+        match self.term.output_file(path) {
+            Err(e) => return Err(format!("Couldn't open file: {}", e)),
+            Ok(p) => return Ok(p)
+        }
+    }
+
+    pub fn input_file(&mut self, path:&Path) -> Result<usize, String> {
+        match self.term.input_file(path) {
+            Err(e) => return Err(format!("Couldn't open file: {}", e)),
+            Ok(p) => return Ok(p)
+        }
+    }
+
+    pub fn get_file(&self, id:&usize) -> Option<&File> {
+        self.term.get_file(id)
+    }
+
+    pub fn get_files(&self) -> WashArgs {
+        let mut out = vec![];
+        for &(ref id, ref file) in self.term.get_files().iter() {
+            out.push(Flat(format!("{}: {}", id, file.path().display())));
+        }
+        return Long(out);
     }
 
     pub fn get_jobs(&mut self) -> WashArgs {
