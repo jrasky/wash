@@ -1,6 +1,6 @@
 - Change pipe passing
  - Use syntax like @0
-  - @ makes sense because it's like "input zero"
+  - @ makes sense because it's like "at FD zero"
   - better than just numbers which aren't really special-looking
  - Use regex to do this
 - Implement < and > handlers
