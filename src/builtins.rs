@@ -84,7 +84,7 @@ pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
         Flat(v) => v,
         Empty | Long(_) => return Err("Can only run flat names".to_string())
     };
-    if str_to_usize(name.as_slice()).is_some() {
+    if FD_REGEX.is_match(name.as_slice()) {
         // run piped instead
         return pipe_run_func(args, env);
     }
@@ -146,13 +146,14 @@ pub fn pipe_job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, Strin
     if args.len() < 2 {
         return Err("Need at least job number and command".to_string());
     }
-    let pipe = match str_to_usize(match args.get(0) {
+    let pipe_str = match args.get(0) {
         Flat(v) => v,
-        Empty | Long(_) => return Err("Pipe numbers can only be flat".to_string())
-    }.as_slice()) {
-        None => return Err("Not given pipe number".to_string()),
-        Some(v) => v
+        Empty | Long(_) => return Err("File descriptors can only be flat".to_string())
     };
+    if !FD_REGEX.is_match(pipe_str.as_slice()) {
+        return Err("Not given file descriptior".to_string());
+    }
+    let pipe = str_to_usize(FD_REGEX.captures(pipe_str.as_slice()).unwrap().at(1).unwrap()).unwrap();
     let name = match args.get(1) {
         Flat(v) => v,
         Empty | Long(_) => return Err("Can only run flat names".to_string())
@@ -168,15 +169,16 @@ pub fn pipe_run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, Strin
     // creates this new job with the stdout Fd of the given job as the stdin Fd of the new job
     // this new job is also directed
     if args.len() < 2 {
-        return Err("Need at least job number and command".to_string());
+        return Err("Need at least a file descriptor and a command".to_string());
     }
-    let pipe = match str_to_usize(match args.get(0) {
+    let pipe_str = match args.get(0) {
         Flat(v) => v,
-        Empty | Long(_) => return Err("Pipe numbers can only be flat".to_string())
-    }.as_slice()) {
-        None => return Err("Not given pipe number".to_string()),
-        Some(v) => v
+        Empty | Long(_) => return Err("File descriptors can only be flat".to_string())
     };
+    if !FD_REGEX.is_match(pipe_str.as_slice()) {
+        return Err("Not given file descriptior".to_string());
+    }
+    let pipe = str_to_usize(FD_REGEX.captures(pipe_str.as_slice()).unwrap().at(1).unwrap()).unwrap();
     let name = match args.get(1) {
         Flat(v) => v,
         Empty | Long(_) => return Err("Can only run flat names".to_string())
@@ -361,7 +363,7 @@ fn bar_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEnv)
     if pre.len() < 1 {
         return Err("Cannot pipe nothing".to_string());
     }
-    if str_to_usize(pre[0].flatten().as_slice()).is_some() {
+    if FD_REGEX.is_match(pre[0].flatten().as_slice()) {
         // first argument is a pipe number, this is a chained call
         let id = match try!(pipe_job_func(&Long(pre.clone()), env)) {
             Flat(v) => match str_to_usize(v.as_slice()) {

@@ -255,7 +255,7 @@ impl WashEnv {
                     None => {/* don't include this job */},
                     Some(_) => {
                         // include this job
-                        out.push(Long(vec![Flat(format!("{}", id)),
+                        out.push(Long(vec![Flat(format!("@{}", id)),
                                            Flat(name.clone())]));
                     }
                 }
@@ -297,7 +297,7 @@ impl WashEnv {
             };
             match from.stdout {
                 None => return Err("Job has no output handles".to_string()),
-                Some(ref p) => Ok(Flat(format!("{}", p.as_raw_fd())))
+                Some(ref p) => Ok(Flat(format!("@{}", p.as_raw_fd())))
             }
         } else {
             return match self.paths.get(path) {
