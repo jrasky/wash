@@ -496,12 +496,17 @@ impl WashEnv {
         }
         let block = self.block.clone().unwrap();
         self.block = None;
-        let mut lines = block.content.iter();
-        let mut out = Flat(String::new());
-        for line in lines {
-            out = try!(self.process_line(line.clone()));
+        match block.start.flatten_vec() {
+            ref v if *v == vec!["act".to_string()] => {
+                let mut lines = block.content.iter();
+                let mut out = Flat(String::new());
+                for line in lines {
+                    out = try!(self.process_line(line.clone()));
+                }
+                return Ok(out);
+            },
+            _ => return Err(format!("Don't know how to handle block: {}", block.start.flatten()))
         }
-        return Ok(out);
     }
 
     pub fn process_line(&mut self, line:InputValue) -> Result<WashArgs, String> {
