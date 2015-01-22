@@ -40,6 +40,7 @@ pub type HandlerTable = HashMap<String, WashHandler>;
 type WashLoad = extern fn(*const WashArgs, *mut WashEnv) -> Result<WashArgs, String>;
 type WashRun = extern fn(*const WashArgs, *mut WashEnv) -> Result<WashArgs, String>;
 
+#[derive(Clone)]
 pub struct WashBlock {
     pub start: WashArgs,
     pub close: InputValue,
@@ -489,8 +490,22 @@ impl WashEnv {
         return Ok(out);
     }
 
+    pub fn process_block(&mut self) -> Result<WashArgs, String> {
+        if self.block.is_none() {
+            return Err("No block defined".to_string());
+        }
+        let block = self.block.clone().unwrap();
+        self.block = None;
+        let mut lines = block.content.iter();
+        let mut out = Flat(String::new());
+        for line in lines {
+            out = try!(self.process_line(line.clone()));
+        }
+        return Ok(out);
+    }
+
     pub fn process_line(&mut self, line:InputValue) -> Result<WashArgs, String> {
-        let mut end_block = false;
+        let end_block;
         match self.block {
             Some(ref mut block) => {
                 if block.close == line {
@@ -536,9 +551,7 @@ impl WashEnv {
             }
         }
         if end_block {
-            // TODO: implement block handlers
-            self.block = None;
-            return Ok(Flat("End of block".to_string()));
+            return self.process_block();
         } else {
             return Err("line matching did not return out".to_string());
         }
@@ -571,13 +584,15 @@ impl WashEnv {
                         scope.push(iter.pop().unwrap());
                     }
                     // this can change out and scope, be careful
-                    match try!(self.run_handler(name, &mut out, &mut scope)) {
-                        More(block) => {
+                    match self.run_handler(name, &mut out, &mut scope) {
+                        Err(ref e) if e.is_empty() => return Ok(vec![]),
+                        Ok(More(block)) => {
                             // start of a block
                             self.block = Some(block);
                             return Ok(vec![]);
                         },
-                        Continue => {/* continue */}
+                        Ok(Continue) => {/* continue */},
+                        Err(e) => return Err(e) // this is an error
                     }
                     // push remaining scope back onto iter
                     loop {
