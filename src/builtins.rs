@@ -66,7 +66,8 @@ pub fn drun_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     if env.hasf(&name) {
         return env.runf(&name, &arg_slice);
     } else {
-        let out = try!(env.run_command_directed(&name, &arg_slice.flatten_vec()));
+        let id = try!(env.run_job(&name, &arg_slice.flatten_vec()));
+        let out = try!(env.job_output(&id));
         if !out.status.success() {
             return Err(String::from_utf8_lossy(out.error.as_slice()).into_owned());
         }
@@ -147,7 +148,7 @@ pub fn run_outfd_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, Stri
         Empty | Long(_) => return Err("Can only run flat names".to_string())
     };
     env.flush();
-        match try!(env.run_command_outfd(fid as Fd, infd, &name, &arg_slice.flatten_vec())) {
+    match try!(env.run_command_fd(infd, Some(fid as Fd), Some(STDERR), &name, &arg_slice.flatten_vec())) {
         ExitSignal(sig) => {
             return Ok(Long(vec![Flat("signal".to_string()),
                                 Flat(format!("{}", sig))]));
@@ -172,7 +173,7 @@ pub fn job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
         return pipe_job_func(args, env);
     }
     let arg_slice = args.slice(1, -1);
-    let (id, _) = try!(env.run_job_directed(&name, &arg_slice.flatten_vec()));
+    let id = try!(env.run_job(&name, &arg_slice.flatten_vec()));
     return Ok(Flat(format!("{}", id)));
 }
 
@@ -196,7 +197,7 @@ pub fn pipe_job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, Strin
         Empty | Long(_) => return Err("Can only run flat names".to_string())
     };
     let arg_slice = args.slice(2, -1);
-    let (id, _) = try!(env.run_job_fd(pipe as Fd, &name, &arg_slice.flatten_vec()));
+    let id = try!(env.run_job_fd(Some(pipe as Fd), None, None, &name, &arg_slice.flatten_vec()));
     return Ok(Flat(format!("{}", id)));
 }
 
@@ -222,7 +223,8 @@ pub fn pipe_run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, Strin
     };
     let arg_slice = args.slice(2, -1);
     env.flush();
-    match try!(env.run_command_fd(pipe as Fd, &name, &arg_slice.flatten_vec())) {
+    match try!(env.run_command_fd(Some(pipe as Fd), Some(STDOUT), Some(STDERR),
+                                  &name, &arg_slice.flatten_vec())) {
         ExitSignal(sig) => {
             return Ok(Long(vec![Flat("signal".to_string()),
                                 Flat(format!("{}", sig))]));

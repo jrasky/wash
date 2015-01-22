@@ -1,4 +1,4 @@
-use std::io::process::{ProcessOutput, ProcessExit, Process};
+use std::io::process::{ProcessOutput, ProcessExit};
 use std::io::process::ProcessExit::*;
 use std::collections::HashMap;
 use std::os::unix::prelude::*;
@@ -107,39 +107,31 @@ impl WashEnv {
         self.term.controls.flush();
     }
 
-    pub fn run_job(&mut self, name:&String, args:&Vec<String>) -> Result<(usize, String), String> {
+    
+    pub fn run_job_fd(&mut self, stdin:Option<Fd>, stdout:Option<Fd>, stderr:Option<Fd>,
+                      name:&String, args:&Vec<String>) -> Result<usize, String> {
+        self.term.run_job_fd(stdin, stdout, stderr, name, args)
+    }
+
+    pub fn run_job(&mut self, name:&String, args:&Vec<String>) -> Result<usize, String> {
         self.term.run_job(name, args)
     }
 
-    pub fn run_job_directed(&mut self, name:&String, args:&Vec<String>) -> Result<(usize, String), String> {
-        self.term.run_job_directed(name, args)
+    pub fn get_job(&self, id:&usize) -> Result<&Job, String> {
+        self.term.get_job(id)
     }
 
-    pub fn get_job(&self, id:&usize) -> Option<(String, &Process)> {
-        return self.term.get_job(id);
+    pub fn job_output(&mut self, id:&usize) -> Result<ProcessOutput, String> {
+        self.term.job_output(id)
+    }
+    
+    pub fn run_command_fd(&mut self, stdin:Option<Fd>, stdout:Option<Fd>, stderr:Option<Fd>,
+                          name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
+        self.term.run_command_fd(stdin, stdout, stderr, name, args)
     }
 
     pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
         self.term.run_command(name, args)
-    }
-
-    pub fn run_command_directed(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessOutput, String> {
-        self.term.run_command_directed(name, args)
-    }
-
-    pub fn run_command_fd(&mut self, stdin:Fd, name:&String,
-                          args:&Vec<String>) -> Result<ProcessExit, String> {
-        self.term.run_command_fd(stdin, name, args)
-    }
-
-    pub fn run_command_outfd(&mut self, stdout:Fd, stdin:Option<Fd>, name:&String,
-                             args:&Vec<String>) -> Result<ProcessExit, String> {
-        self.term.run_command_outfd(stdout, stdin, name, args)
-    }
-
-    pub fn run_job_fd(&mut self, stdin:Fd, name:&String,
-                      args:&Vec<String>) -> Result<(usize, String), String> {
-        self.term.run_job_fd(stdin, name, args)
     }
 
     pub fn has_handler(&self, word:&String) -> bool {
@@ -267,13 +259,13 @@ impl WashEnv {
         } else if *path == "pipe".to_string() {
             // list of non-background jobs (which can be piped)
             let mut out = vec![];
-            for &(ref id, ref name, ref job) in self.term.get_jobs().iter() {
-                match job.stdout {
+            for (id, job) in self.term.jobs.iter() {
+                match job.process.stdout {
                     None => {/* don't include this job */},
                     Some(_) => {
                         // include this job
                         out.push(Long(vec![Flat(format!("@{}", id)),
-                                           Flat(name.clone())]));
+                                           Flat(job.command.clone())]));
                     }
                 }
             }
@@ -308,26 +300,20 @@ impl WashEnv {
             };
         } else if *path == "pipe".to_string() {
             // pipe Fd's
-            let (_, from) = match self.get_job(&match str_to_usize(name.as_slice()) {
+            let from = try!(self.get_job(&match str_to_usize(name.as_slice()) {
                 None => return Err("Did not give job number".to_string()),
                 Some(v) => v
-            }) {
-                None => return Err("Job not found".to_string()),
-                Some(p) => p
-            };
-            match from.stdout {
+            }));
+            match from.process.stdout {
                 None => return Err("Job has no output handles".to_string()),
                 Some(ref p) => Ok(Flat(format!("@{}", p.as_raw_fd())))
             }
         } else if *path == "file".to_string() {
             // file Fd's
-            let fd = match self.get_file(&match str_to_usize(name.as_slice()) {
+            let fd = try!(self.get_file(&match str_to_usize(name.as_slice()) {
                 None => return Err("Did not give file number".to_string()),
                 Some(v) => v
-            }) {
-                None => return Err("File not found".to_string()),
-                Some(f) => f
-            }.as_raw_fd();
+            })).as_raw_fd();
             return Ok(Flat(format!("@{}", fd)));
         } else {
             return match self.paths.get(path) {
@@ -422,13 +408,13 @@ impl WashEnv {
         }
     }
 
-    pub fn get_file(&self, id:&usize) -> Option<&File> {
+    pub fn get_file(&self, id:&usize) -> Result<&File, String> {
         self.term.get_file(id)
     }
 
     pub fn get_files(&self) -> WashArgs {
         let mut out = vec![];
-        for &(ref id, ref file) in self.term.get_files().iter() {
+        for (id, file) in self.term.files.iter() {
             out.push(Flat(format!("{}: {}", id, file.path().display())));
         }
         return Long(out);
@@ -436,15 +422,15 @@ impl WashEnv {
 
     pub fn get_jobs(&mut self) -> WashArgs {
         let mut out = vec![];
-        for &(ref id, ref name, ref job) in self.term.get_jobs().iter() {
-            match job.stdout {
+        for (id, job) in self.term.jobs.iter() {
+            match job.process.stdout {
                 None => {
                     // background job
-                    out.push(Flat(format!("{}: background job {}", name, id)));
+                    out.push(Flat(format!("{}: background job {}", job.command, id)));
                 },
                 Some(_) => {
                     // foreground job
-                    out.push(Flat(format!("{}: job {}", name, id)));
+                    out.push(Flat(format!("{}: job {}", job.command, id)));
                 }
             }
         }

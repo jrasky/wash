@@ -1,6 +1,7 @@
 use libc::*;
 
-use std::io::process::{Command, ProcessOutput, ProcessExit, Process};
+use std::io::process::{Command, ProcessOutput, ProcessExit,
+                       Process, StdioContainer};
 use std::io::process::StdioContainer::*;
 use std::io::{IoError, IoErrorKind, IoResult};
 use std::io::IoErrorKind::*;
@@ -45,13 +46,19 @@ unsafe extern fn term_sigint(_:c_int, _:*const SigInfo,
     }
 }
 
+pub struct Job {
+    pub command: String,
+    pub process: Process,
+    pub files: Vec<usize>
+}
+
 pub struct TermState {
     pub controls: Controls,
     tios: Termios,
     old_tios: Termios,
-    jobs: VecMap<(String, Process, Vec<usize>)>,
+    pub jobs: VecMap<Job>,
     fg_job: Option<usize>,
-    files: VecMap<File>,
+    pub files: VecMap<File>,
     next_file: Option<usize>
 }
 
@@ -138,8 +145,8 @@ impl TermState {
                 desc: "Job not found",
                 detail: None
             }),
-            Some(&mut (_, ref mut job, _)) => {
-                return job.signal(SIGINT as isize);
+            Some(ref mut job) => {
+                return job.process.signal(SIGINT as isize);
             }
         }
     }
@@ -174,241 +181,7 @@ impl TermState {
         // file list is full
         return last + 1;
     }
-
-    pub fn run_job(&mut self, name:&String, args:&Vec<String>) -> Result<(usize, String), String> {
-        let mut process = Command::new(name);
-        process.args(args.as_slice());
-        // running as job means no input/output handles
-        process.stdin(Ignored);
-        process.stdout(Ignored);
-        process.stderr(Ignored);
-        let mut child = match process.spawn() {
-            Err(e) => {
-                return Err(format!("Couldn't spawn {}: {}", name, e));
-            },
-            Ok(v) => v
-        };
-        // set wait timeout to zero so we can check for process exit quickly
-        child.set_timeout(Some(0));
-        let id = self.find_jobs_hole();
-        // panic if we've overwritten a job
-        match self.jobs.insert(id.clone(), (name.clone(), child,
-                                            match self.next_file {
-                                                None => vec![],
-                                                Some(id) => vec![id]
-                                            })) {
-            Some(_) => panic!("Overwrote job"),
-            _ => {/* nothing */}
-        }
-        self.next_file = None;
-        return Ok((id, name.clone()));
-    }
-
-    pub fn run_command_outfd(&mut self, stdout:Fd, stdin:Option<Fd>, name:&String,
-                             args:&Vec<String>) -> Result<ProcessExit, String> {
-        let mut process = Command::new(name);
-        process.args(args.as_slice());
-        process.stdout(InheritFd(stdout));
-        match stdin {
-            None => {
-                // user can't respond without stdout
-                process.stdin(Ignored);
-            },
-            Some(fd) => {
-                // given stdin
-                process.stdin(InheritFd(fd));
-            }
-        }
-        process.stderr(InheritFd(STDERR));
-        // set terminal settings for process
-        self.restore_terminal();
-        // push job into jobs
-        let id = self.find_jobs_hole();
-        // handle interrupts
-        self.handle_sigint();
-        let val = (name.clone(), match process.spawn() {
-            Err(e) => {
-                self.update_terminal();
-                self.unhandle_sigint();
-                return Err(format!("Couldn't spawn {}: {}", name, e));
-            },
-            Ok(v) => v
-        }, vec![]);
-        // insert job
-        self.jobs.insert(id, val);
-        // set forground job
-        self.fg_job = Some(id);
-        let out = match self.jobs.get_mut(&id).unwrap().1.wait() {
-            Err(e) => {
-                // unset foreground job
-                self.fg_job = None;
-                // remove job
-                self.jobs.remove(&id);
-                self.update_terminal();
-                self.unhandle_sigint();
-                return Err(format!("Couldn't wait for child to exit: {}", e));
-            },
-            Ok(v) => v
-        };
-        // unset forground job
-        self.fg_job = None;
-        // remove job
-        self.jobs.remove(&id);
-        // remove file if there is one
-        match self.next_file {
-            Some(id) => {
-                self.files.remove(&id);
-            },
-            None => {/* do nothing */}
-        }
-        self.next_file = None;
-        // unhandle sigint
-        self.unhandle_sigint();
-        // restore settings for Wash
-        self.update_terminal();
-        return Ok(out);
-    }
-
-
-    pub fn run_job_fd(&mut self, stdin:Fd, name:&String,
-                      args:&Vec<String>) -> Result<(usize, String), String> {
-        let mut process = Command::new(name);
-        process.args(args.as_slice());
-        // given stdin
-        process.stdin(InheritFd(stdin));
-        // new pipes for others
-        let mut child = match process.spawn() {
-            Err(e) => {
-                return Err(format!("Couldn't spawn {}: {}", name, e));
-            },
-            Ok(v) => v
-        };
-        // set wait timeout to zero so we can check for process exit quickly
-        child.set_timeout(Some(0));
-        let id = self.find_jobs_hole();
-        // panic if we've overwritten a job
-        match self.jobs.insert(id.clone(), (name.clone(), child,
-                                            match self.next_file {
-                                                None => vec![],
-                                                Some(id) => vec![id]
-                                            })) {
-            Some(_) => panic!("Overwrote job"),
-            _ => {/* nothing */}
-        }
-        self.next_file = None;
-        return Ok((id, name.clone()));
-    }
-    
-    pub fn run_command_fd(&mut self, stdin:Fd, name:&String,
-                      args:&Vec<String>) -> Result<ProcessExit, String> {
-        let mut process = Command::new(name);
-        process.args(args.as_slice());
-        // given stdin
-        process.stdin(InheritFd(stdin));
-        // output to terminal for others
-        process.stdout(InheritFd(STDOUT));
-        process.stderr(InheritFd(STDERR));
-        if stdin == 0 {
-            // restore terminal if process is reading from it
-            self.restore_terminal();
-        }
-        // push job into jobs
-        let id = self.find_jobs_hole();
-        // handle interrupts
-        self.handle_sigint();
-        let val = (name.clone(), match process.spawn() {
-            Err(e) => {
-                self.update_terminal();
-                self.unhandle_sigint();
-                return Err(format!("Couldn't spawn {}: {}", name, e));
-            },
-            Ok(v) => v
-        }, vec![]);
-        // insert job
-        self.jobs.insert(id, val);
-        // set forground job
-        self.fg_job = Some(id);
-        let out = match self.jobs.get_mut(&id).unwrap().1.wait() {
-            Err(e) => {
-                // unset foreground job
-                self.fg_job = None;
-                // remove job
-                self.jobs.remove(&id);
-                self.update_terminal();
-                self.unhandle_sigint();
-                return Err(format!("Couldn't wait for child to exit: {}", e));
-            },
-            Ok(v) => v
-        };
-        // unset forground job
-        self.fg_job = None;
-        // remove job
-        self.jobs.remove(&id);
-        // remove file if there is one
-        match self.next_file {
-            Some(id) => {
-                self.files.remove(&id);
-            },
-            None => {/* do nothing */}
-        }
-        self.next_file = None;
-        // unhandle sigint
-        self.unhandle_sigint();
-        if stdin == 0 {
-            // restore terminal settings if we changed them earlier
-            self.update_terminal();
-        }
-        return Ok(out);
-    }
-    
-    pub fn run_job_directed(&mut self, name:&String, args:&Vec<String>) -> Result<(usize, String), String> {
-        let mut process = Command::new(name);
-        process.args(args.as_slice());
-        // directed job means all inputs/outputs are pipes
-        // all others are redirected
-        let mut child = match process.spawn() {
-            Err(e) => {
-                return Err(format!("Couldn't spawn {}: {}", name, e));
-            },
-            Ok(v) => v
-        };
-        // set wait timeout to zero so we can check for process exit quickly
-        child.set_timeout(Some(0));
-        let id = self.find_jobs_hole();
-        // panic if we've overwritten a job
-        match self.jobs.insert(id.clone(), (name.clone(), child,
-                                            match self.next_file {
-                                                None => vec![],
-                                                Some(id) => vec![id]
-                                            })) {
-            Some(_) => panic!("Overwrote job"),
-            _ => {/* nothing */}
-        }
-        self.next_file = None;
-        return Ok((id, name.clone()));
-    }
-
-    pub fn get_jobs(&self) -> Vec<(usize, String, &Process)> {
-        let mut out = vec![];
-        for (id, &(ref name, ref child, _)) in self.jobs.iter() {
-            out.push((id, name.clone(), child));
-        }
-        return out;
-    }
-
-    pub fn get_job(&self, id:&usize) -> Option<(String, &Process)> {
-        match self.jobs.get(id) {
-            None => return None,
-            Some(&(ref name, ref child, _)) => {
-                return Some((name.clone(), child));
-            }
-        }
-    }
-
-    pub fn get_job_mut(&mut self, id:&usize) -> Option<&mut (String, Process, Vec<usize>)> {
-        return self.jobs.get_mut(id);
-    }
-
+        
     pub fn output_file(&mut self, path:&Path) -> IoResult<usize> {
         let fid = self.find_files_hole();
         // files are opened before they are attached to processes
@@ -428,33 +201,197 @@ impl TermState {
         return Ok(fid);
     }
 
-    pub fn get_file(&self, id:&usize) -> Option<&File> {
-        return self.files.get(id);
+    pub fn get_file(&self, id:&usize) -> Result<&File, String> {
+        match self.files.get(id) {
+            None => Err("File not found".to_string()),
+            Some(file) => Ok(file)
+        }
     }
 
-    pub fn get_files(&self) -> Vec<(usize, &File)> {
-        return self.files.iter().collect();
+    pub fn get_job(&self, id:&usize) -> Result<&Job, String> {
+        match self.jobs.get(id) {
+            None => Err("Job not found".to_string()),
+            Some(job) => Ok(job)
+        }
+    }
+
+    pub fn get_job_mut(&mut self, id:&usize) -> Result<&mut Job, String> {
+        match self.jobs.get_mut(id) {
+            None => Err("Job not found".to_string()),
+            Some(job) => Ok(job)
+        }
+    }
+
+    pub fn start_job(&mut self, stdin:StdioContainer, stdout:StdioContainer, stderr:StdioContainer,
+                     name:&String, args:&Vec<String>) -> Result<usize, String> {
+        let mut process = Command::new(name);
+        process.args(args.as_slice());
+        process.stdin(stdin);
+        process.stdout(stdout);
+        process.stderr(stderr);
+        let child = match process.spawn() {
+            Err(e) => {
+                self.next_file = None;
+                return Err(format!("Couldn't spawn {}: {}", name, e));
+            },
+            Ok(v) => v
+        };
+        let id = self.find_jobs_hole();
+        match self.jobs.insert(id.clone(), Job {
+            command: name.clone(),
+            process: child,
+            files: match self.next_file {
+                None => vec![],
+                Some(id) => vec![id]
+            }}) {
+            Some(_) => panic!("Overwrote job"),
+            _ => {/* nothing */}
+        }
+        self.next_file = None;
+        return Ok(id);
+    }
+
+    pub fn wait_job(&mut self, id:&usize) -> Result<ProcessExit, String> {
+        let mut child = try!(self.get_job_mut(id));
+        // clear any timeouts
+        child.process.set_timeout(None);
+        match child.process.wait() {
+            Err(e) => Err(format!("Couldn't wait for child to exit: {}", e)),
+            Ok(status) => Ok(status)
+        }
+    }
+
+    pub fn job_output(&mut self, id:&usize) -> Result<ProcessOutput, String> {
+        let mut child = match self.jobs.remove(id) {
+            None => return Err("Job not found".to_string()),
+            Some(job) => job
+        };
+        child.process.set_timeout(None);
+        let out = child.process.wait_with_output();
+        for id in child.files.iter() {
+            self.files.remove(id);
+        }
+        match out {
+            Err(e) => return Err(format!("Could not get job output: {}", e)),
+            Ok(o) => Ok(o)
+        }
+    }
+
+    pub fn start_command(&mut self, stdin:StdioContainer, stdout:StdioContainer, stderr:StdioContainer,
+                         name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
+        // set terminal settings for process
+        self.restore_terminal();
+        // handle interrupts
+        self.handle_sigint();
+        // start job
+        let id = match self.start_job(stdin, stdout, stderr, name, args) {
+            Err(e) => {
+                self.update_terminal();
+                self.unhandle_sigint();
+                return Err(e);
+            },
+            Ok(id) => id
+        };
+        self.fg_job = Some(id);
+        let out = match self.wait_job(&id) {
+            Err(e) => {
+                // unset foreground job
+                self.fg_job = None;
+                // remove job
+                let out = self.jobs.remove(&id);
+                // close files
+                if out.is_some() {
+                    for id in out.unwrap().files.iter() {
+                        self.files.remove(id);
+                    }
+                }
+                self.update_terminal();
+                self.unhandle_sigint();
+                return Err(e);
+            },
+            Ok(v) => v
+        };
+        // unset forground job
+        self.fg_job = None;
+        // remove job
+        let old_job = self.jobs.remove(&id);
+        // close files
+        if old_job.is_some() {
+            for id in old_job.unwrap().files.iter() {
+                self.files.remove(id);
+            }
+        }
+        // unhandle sigint
+        self.unhandle_sigint();
+        // restore settings for Wash
+        self.update_terminal();
+        return Ok(out);
+    }
+
+    pub fn run_job_fd(&mut self, stdin:Option<Fd>, stdout:Option<Fd>, stderr:Option<Fd>,
+                      name:&String, args:&Vec<String>) -> Result<usize, String> {
+        let stdin_o = match stdin {
+            Some(fd) => InheritFd(fd),
+            None => CreatePipe(true, false)
+        };
+        let stdout_o = match stdout {
+            Some(fd) => InheritFd(fd),
+            None => CreatePipe(false, true)
+        };
+        let stderr_o = match stderr {
+            Some(fd) => InheritFd(fd),
+            None => CreatePipe(false, true)
+        };
+        self.start_job(stdin_o, stdout_o, stderr_o, name, args)
+    }
+    
+    pub fn run_job(&mut self, name:&String, args:&Vec<String>) -> Result<usize, String> {
+        // run the job directed
+        self.run_job_fd(None, None, None, name, args)
+    }
+
+    pub fn run_command_fd(&mut self, stdin:Option<Fd>, stdout:Option<Fd>, stderr:Option<Fd>,
+                          name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
+        let stdin_o = match stdin {
+            Some(fd) => InheritFd(fd),
+            None => CreatePipe(true, false)
+        };
+        let stdout_o = match stdout {
+            Some(fd) => InheritFd(fd),
+            None => CreatePipe(false, true)
+        };
+        let stderr_o = match stderr {
+            Some(fd) => InheritFd(fd),
+            None => CreatePipe(false, true)
+        };
+        self.start_command(stdin_o, stdout_o, stderr_o, name, args)
+    }
+    
+    pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
+        // run the command on stdin/out/err
+        self.run_command_fd(Some(STDIN), Some(STDOUT), Some(STDERR), name, args)
     }
 
     pub fn clean_jobs(&mut self) -> Vec<(usize, String, IoResult<ProcessExit>)> {
         let mut out = vec![];
         let mut remove = vec![];
         let mut remove_files = vec![];
-        for (id, &mut (ref mut name, ref mut child,
-                       ref mut files)) in self.jobs.iter_mut() {
-            match child.wait() {
+        for (id, child) in self.jobs.iter_mut() {
+            child.process.set_timeout(Some(0)); // don't block on wait
+            match child.process.wait() {
                 Err(IoError{kind: IoErrorKind::TimedOut, desc: _, detail: _}) => {
                     // this is expected, do nothing
+                    child.process.set_timeout(None);
                 },
                 v => {
                     // all other outputs mean the job is done
                     // if it isn't it'll be cleaned up in drop
-                    child.set_timeout(None);
+                    child.process.set_timeout(None);
                     remove.push(id);
-                    for item in files.iter() {
+                    for item in child.files.iter() {
                         remove_files.push(item.clone());
                     }
-                    out.push((id, name.clone(), v));
+                    out.push((id, child.command.clone(), v));
                 }
             }
         }
@@ -467,132 +404,5 @@ impl TermState {
         return out;
     }
     
-    pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
-        let mut process = Command::new(name);
-        process.args(args.as_slice());
-        process.stdout(InheritFd(STDOUT));
-        process.stdin(InheritFd(STDIN));
-        process.stderr(InheritFd(STDERR));
-        // set terminal settings for process
-        self.restore_terminal();
-        // push job into jobs
-        let id = self.find_jobs_hole();
-        // handle interrupts
-        self.handle_sigint();
-        let val = (name.clone(), match process.spawn() {
-            Err(e) => {
-                self.update_terminal();
-                self.unhandle_sigint();
-                return Err(format!("Couldn't spawn {}: {}", name, e));
-            },
-            Ok(v) => v
-        }, vec![]);
-        // insert job
-        self.jobs.insert(id, val);
-        // set forground job
-        self.fg_job = Some(id);
-        let out = match self.jobs.get_mut(&id).unwrap().1.wait() {
-            Err(e) => {
-                // unset foreground job
-                self.fg_job = None;
-                // remove job
-                self.jobs.remove(&id);
-                self.update_terminal();
-                self.unhandle_sigint();
-                return Err(format!("Couldn't wait for child to exit: {}", e));
-            },
-            Ok(v) => v
-        };
-        // unset forground job
-        self.fg_job = None;
-        // remove job
-        self.jobs.remove(&id);
-        // remove file if there is one
-        match self.next_file {
-            Some(id) => {
-                self.files.remove(&id);
-            },
-            None => {/* do nothing */}
-        }
-        self.next_file = None;
-        // unhandle sigint
-        self.unhandle_sigint();
-        // restore settings for Wash
-        self.update_terminal();
-        return Ok(out);
-    }
-
-    pub fn run_command_directed(&mut self, name:&String,
-                                args:&Vec<String>) -> Result<ProcessOutput, String> {
-        let mut process = Command::new(name);
-        process.args(args.as_slice());
-        let id = self.find_jobs_hole();
-        // handle sigint
-        self.handle_sigint();
-        let val = (name.clone(), match process.spawn() {
-            Err(e) => {
-                self.update_terminal();
-                return Err(format!("Couldn't spawn {}: {}", name, e));
-            },
-            Ok(v) => v
-        }, vec![]);
-        // put job in jobs list
-        self.jobs.insert(id, val);
-        // set foreground job
-        self.fg_job = Some(id);
-        let out = match self.jobs.get_mut(&id).unwrap().1.stdout.as_mut().unwrap().read_to_end() {
-            Ok(v) => v,
-            Err(e) => {
-                // unset foreground job
-                self.fg_job = None;
-                // remove job
-                self.jobs.remove(&id);
-                self.unhandle_sigint();
-                return Err(format!("Couldn't get stdout: {}", e));
-            }
-        };
-        let err = match self.jobs.get_mut(&id).unwrap().1.stderr.as_mut().unwrap().read_to_end() {
-            Ok(v) => v,
-            Err(e) => {
-                // unset foreground job
-                self.fg_job = None;
-                // remove job
-                self.jobs.remove(&id);
-                self.unhandle_sigint();
-                return Err(format!("Couldn't get stderr: {}", e));
-            }
-        };
-        let output = match self.jobs.get_mut(&id).unwrap().1.wait() {
-            Err(e) => {
-                // unset foreground job
-                self.fg_job = None;
-                // remove job
-                self.jobs.remove(&id);
-                self.update_terminal();
-                self.unhandle_sigint();
-                return Err(format!("Couldn't wait for child to exit: {}", e));
-            },
-            Ok(v) => ProcessOutput {
-                status: v,
-                output: out,
-                error: err
-            }
-        };
-        // unset foreground job
-        self.fg_job = None;
-        // remove job
-        self.jobs.remove(&id);
-        // remove file if there is one
-        match self.next_file {
-            Some(id) => {
-                self.files.remove(&id);
-            },
-            None => {/* do nothing */}
-        }
-        self.next_file = None;
-        // unhandle sigint
-        self.unhandle_sigint();
-        return Ok(output);
-    }
 }
 
