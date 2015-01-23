@@ -101,6 +101,24 @@ impl PartialEq for InputValue {
     }
 }
 
+impl PartialEq for WashArgs {
+    fn eq(&self, other:&WashArgs) -> bool {
+        match self {
+            &Long(ref v) => match other {
+                &Long(ref ov) => return v == ov,
+                _ => return false
+            },
+            &Flat(ref s) => match other {
+                &Flat(ref os) => return s == os,
+                _ => return false
+            },
+            &Empty => match other {
+                &Empty => return true,
+                _ => return false
+            }
+        }
+    }
+}
 
 impl WashArgs {
     pub fn flatten_vec(&self) -> Vec<String> {

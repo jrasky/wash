@@ -50,6 +50,7 @@ pub struct WashBlock {
 
 pub enum HandlerResult {
     Continue,
+    Stop,
     More(WashBlock)
 }
 
@@ -472,6 +473,22 @@ impl WashEnv {
                 out = try!(self.process_line(line.clone()));
             }
             return Ok(out);
+        } else if block.start == "if" {
+            let cond = match self.process_line(InputValue::Long(block.next)) {
+                Ok(v) => v,
+                Err(ref e) if *e == "stop" => Flat(String::new()),
+                Err(e) => return Err(e)
+            };
+            if cond.is_empty() {
+                let mut lines = block.content.iter();
+                let mut out = Flat(String::new());
+                for line in lines {
+                    out = try!(self.process_line(line.clone()));
+                }
+                return Ok(out);
+            } else {
+                return Ok(Empty);
+            }
         } else {
             return Err(format!("Don't know how to handle block: {}", block.start));
         }
@@ -499,22 +516,16 @@ impl WashEnv {
                     // run as command
                     let vec = try!(self.input_to_vec(a));
                     if vec.is_empty() {
-                        let process_block;
                         match self.block {
                             Some(ref b) => {
                                 if b.close.is_none() {
                                     // immediately process block
-                                    process_block = true;
+                                    end_block = true;
                                 } else {
                                     return Ok(Empty);
                                 }
                             },
                             _ => return Ok(Empty)
-                        }
-                        if process_block {
-                            return self.process_block();
-                        } else {
-                            return Ok(Empty);
                         }
                     } else {
                         return self.process_command(vec);
@@ -573,7 +584,7 @@ impl WashEnv {
                     }
                     // this can change out and scope, be careful
                     match self.run_handler(name, &mut out, &mut scope) {
-                        Err(ref e) if e.is_empty() => return Ok(vec![]),
+                        Ok(Stop) => return Err("stop".to_string()),
                         Ok(More(block)) => {
                             // start of a block
                             self.block = Some(block);

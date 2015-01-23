@@ -275,6 +275,17 @@ fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut Was
     // In the future this may not be the case
 }
 
+fn equalequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+    let comp = try!(env.input_to_args(InputValue::Long(next.clone())));
+    if Long(pre.clone()).flatten_vec() == comp.flatten_vec() {
+        pre.clear();
+        next.clear();
+        return Ok(Continue);
+    } else {
+        return Ok(Stop);
+    }
+}
+
 fn semiamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
     // effectively the "continue" handler
     // run the part before the line and then continue
@@ -364,7 +375,7 @@ fn geq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashE
     let out = try!(run_func(&Long(pre.clone()), env));
     try!(describe_process_output(&out, env));
     // stop no matter what
-    return Err(String::new());
+    return Ok(Stop);
 }
 
 fn create_content(next:&mut Vec<InputValue>) -> Result<Vec<InputValue>, String> {
@@ -391,7 +402,8 @@ fn create_content(next:&mut Vec<InputValue>) -> Result<Vec<InputValue>, String> 
     }
 }
 
-fn act_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
+fn block_handler(name:String, pre:&mut Vec<WashArgs>,
+               next:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
     if !pre.is_empty() {
         return Err("Malformed block".to_string());
     }
@@ -404,7 +416,7 @@ fn act_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, _:&mut WashEnv
     }
     // test function for More case of HandlerResult
     let block = WashBlock {
-        start: "act".to_string(),
+        start: name,
         next: next.clone(),
         close: close,
         content: content
@@ -415,6 +427,14 @@ fn act_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, _:&mut WashEnv
 fn end_block_handler(_:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
     // helper to tell users not to use this in a line
     return Err("Malformed block".to_string());
+}
+
+fn act_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+    block_handler("act".to_string(), pre, next, env)
+}
+
+fn if_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+    block_handler("if".to_string(), pre, next, env)
 }
 
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
@@ -453,9 +473,11 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insert_handler("|", bar_handler));
     try!(env.insert_handler("<", leq_handler));
     try!(env.insert_handler(">", geq_handler));
+    try!(env.insert_handler("==", equalequal_handler));
 
     // block start/end
     try!(env.insert_handler("act!", act_handler));
+    try!(env.insert_handler("if!", if_handler));
     try!(env.insert_handler("}", end_block_handler));
 
     return Ok(Empty);
