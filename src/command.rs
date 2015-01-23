@@ -49,7 +49,7 @@ unsafe extern fn term_sigint(_:c_int, _:*const SigInfo,
 pub struct Job {
     pub command: String,
     pub process: Process,
-    pub files: Vec<usize>
+    pub files: Vec<File>
 }
 
 pub struct TermState {
@@ -58,8 +58,7 @@ pub struct TermState {
     old_tios: Termios,
     pub jobs: VecMap<Job>,
     fg_job: Option<usize>,
-    pub files: VecMap<File>,
-    next_file: Option<usize>
+    files: VecMap<File>
 }
 
 impl TermState {
@@ -81,8 +80,7 @@ impl TermState {
             old_tios: old_tios,
             jobs: VecMap::new(),
             fg_job: None,
-            files: VecMap::new(),
-            next_file: None
+            files: VecMap::new()
         };
     }
 
@@ -165,58 +163,26 @@ impl TermState {
         // job list is full
         return last + 1;
     }
-
-    
-    fn find_files_hole(&self) -> usize {
-        // find a hole in the file map
-        let mut last = 0;
-        for key in self.files.keys() {
-            if key - last != 1 {
-                // we've found a hole
-                return key - 1;
-            } else {
-                last = key;
-            }
-        }
-        // file list is full
-        return last + 1;
-    }
         
-    pub fn output_file(&mut self, path:&Path) -> IoResult<usize> {
-        let fid = self.find_files_hole();
+    pub fn output_file(&mut self, path:&Path) -> IoResult<Fd> {
         // files are opened before they are attached to processes
         // this allows the next *job function to attach to the file
         // index, so it can be freed when the job is pruned.
-        self.next_file = Some(fid);
         let file = try!(File::open_mode(path, Append, Write));
-        self.files.insert(fid, file);
+        let fid = file.as_raw_fd();
+        self.files.insert(fid as usize, file);
         return Ok(fid);
     }
 
-    pub fn input_file(&mut self, path:&Path) -> IoResult<usize> {
-        let fid = self.find_files_hole();
-        self.next_file = Some(fid);
+    pub fn input_file(&mut self, path:&Path) -> IoResult<Fd> {
         let file = try!(File::open_mode(path, Open, Read));
-        self.files.insert(fid, file);
+        let fid = file.as_raw_fd();
+        self.files.insert(fid as usize, file);
         return Ok(fid);
-    }
-
-    pub fn get_file(&self, id:&usize) -> Result<&File, String> {
-        match self.files.get(id) {
-            None => Err("File not found".to_string()),
-            Some(file) => Ok(file)
-        }
     }
 
     pub fn get_job(&self, id:&usize) -> Result<&Job, String> {
         match self.jobs.get(id) {
-            None => Err("Job not found".to_string()),
-            Some(job) => Ok(job)
-        }
-    }
-
-    pub fn get_job_mut(&mut self, id:&usize) -> Result<&mut Job, String> {
-        match self.jobs.get_mut(id) {
             None => Err("Job not found".to_string()),
             Some(job) => Ok(job)
         }
@@ -231,101 +197,108 @@ impl TermState {
         process.stderr(stderr);
         let child = match process.spawn() {
             Err(e) => {
-                self.next_file = None;
                 return Err(format!("Couldn't spawn {}: {}", name, e));
             },
             Ok(v) => v
         };
         let id = self.find_jobs_hole();
-        match self.jobs.insert(id.clone(), Job {
+        let mut job =  Job {
             command: name.clone(),
             process: child,
-            files: match self.next_file {
-                None => vec![],
-                Some(id) => vec![id]
-            }}) {
+            files: vec![]
+        };
+        // claim file descriptors if they exist in the file table
+        match stdin {
+            InheritFd(fd) if self.files.contains_key(&(fd as usize)) =>
+                job.files.push(self.files.remove(&(fd as usize)).unwrap()),
+            _ => {}
+        }
+        match stdout {
+            InheritFd(fd) if self.files.contains_key(&(fd as usize)) =>
+                job.files.push(self.files.remove(&(fd as usize)).unwrap()),
+            _ => {}
+        }
+        match stderr {
+            InheritFd(fd) if self.files.contains_key(&(fd as usize)) =>
+                job.files.push(self.files.remove(&(fd as usize)).unwrap()),
+            _ => {}
+        }
+        match self.jobs.insert(id.clone(), job) {
             Some(_) => panic!("Overwrote job"),
             _ => {/* nothing */}
         }
-        self.next_file = None;
         return Ok(id);
     }
 
     pub fn wait_job(&mut self, id:&usize) -> Result<ProcessExit, String> {
-        let mut child = try!(self.get_job_mut(id));
-        // clear any timeouts
-        child.process.set_timeout(None);
-        match child.process.wait() {
-            Err(e) => Err(format!("Couldn't wait for child to exit: {}", e)),
-            Ok(status) => Ok(status)
-        }
+        // set the foreground job (before borrowing self)
+        self.fg_job = Some(id.clone());
+        // handle sigint (before borrowing self)
+        self.handle_sigint();
+        let mut out;
+        match self.jobs.get_mut(id) {
+            None => out = Err("Job not found".to_string()),
+            Some(child) => {
+                // clear any timeouts
+                child.process.set_timeout(None);
+                out = match child.process.wait() {
+                    Err(e) => Err(format!("Couldn't wait for child to exit: {}", e)),
+                    Ok(status) => Ok(status)
+                };
+            }
+        };
+        // unhandle sigint
+        self.unhandle_sigint();
+        // unset foreground job
+        self.fg_job = None;
+        return out;
     }
 
     pub fn job_output(&mut self, id:&usize) -> Result<ProcessOutput, String> {
+        // set the foreground job (before borrowing self)
+        self.fg_job = Some(id.clone());
         let mut child = match self.jobs.remove(id) {
-            None => return Err("Job not found".to_string()),
+            None => {
+                self.fg_job = None;
+                return Err("Job not found".to_string());
+            },
             Some(job) => job
         };
         child.process.set_timeout(None);
-        let out = child.process.wait_with_output();
-        for id in child.files.iter() {
-            self.files.remove(id);
-        }
-        match out {
+        // handle sigint
+        self.handle_sigint();
+        let out = match child.process.wait_with_output() {
             Err(e) => return Err(format!("Could not get job output: {}", e)),
             Ok(o) => Ok(o)
-        }
+        };
+        // unset foreground job
+        self.fg_job = None;
+        // unhandle sigint
+        self.unhandle_sigint();
+        return out;
     }
 
     pub fn start_command(&mut self, stdin:StdioContainer, stdout:StdioContainer, stderr:StdioContainer,
                          name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
         // set terminal settings for process
+        // do this before we spawn the process
         self.restore_terminal();
-        // handle interrupts
-        self.handle_sigint();
         // start job
         let id = match self.start_job(stdin, stdout, stderr, name, args) {
             Err(e) => {
+                // reset terminal to original state if spawning failed
                 self.update_terminal();
-                self.unhandle_sigint();
                 return Err(e);
             },
             Ok(id) => id
         };
-        self.fg_job = Some(id);
-        let out = match self.wait_job(&id) {
-            Err(e) => {
-                // unset foreground job
-                self.fg_job = None;
-                // remove job
-                let out = self.jobs.remove(&id);
-                // close files
-                if out.is_some() {
-                    for id in out.unwrap().files.iter() {
-                        self.files.remove(id);
-                    }
-                }
-                self.update_terminal();
-                self.unhandle_sigint();
-                return Err(e);
-            },
-            Ok(v) => v
-        };
-        // unset forground job
-        self.fg_job = None;
+        // wait for job to finish
+        let out = self.wait_job(&id);
         // remove job
-        let old_job = self.jobs.remove(&id);
-        // close files
-        if old_job.is_some() {
-            for id in old_job.unwrap().files.iter() {
-                self.files.remove(id);
-            }
-        }
-        // unhandle sigint
-        self.unhandle_sigint();
+        self.jobs.remove(&id);
         // restore settings for Wash
         self.update_terminal();
-        return Ok(out);
+        return out;
     }
 
     pub fn run_job_fd(&mut self, stdin:Option<Fd>, stdout:Option<Fd>, stderr:Option<Fd>,
@@ -352,30 +325,31 @@ impl TermState {
 
     pub fn run_command_fd(&mut self, stdin:Option<Fd>, stdout:Option<Fd>, stderr:Option<Fd>,
                           name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
+        // commands can only run on existing pipes
+        // to run a command on a new one, use a job
         let stdin_o = match stdin {
             Some(fd) => InheritFd(fd),
-            None => CreatePipe(true, false)
+            None => InheritFd(STDIN)
         };
         let stdout_o = match stdout {
             Some(fd) => InheritFd(fd),
-            None => CreatePipe(false, true)
+            None => InheritFd(STDOUT)
         };
         let stderr_o = match stderr {
             Some(fd) => InheritFd(fd),
-            None => CreatePipe(false, true)
+            None => InheritFd(STDERR)
         };
         self.start_command(stdin_o, stdout_o, stderr_o, name, args)
     }
     
     pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
         // run the command on stdin/out/err
-        self.run_command_fd(Some(STDIN), Some(STDOUT), Some(STDERR), name, args)
+        self.run_command_fd(None, None, None, name, args)
     }
 
     pub fn clean_jobs(&mut self) -> Vec<(usize, String, IoResult<ProcessExit>)> {
         let mut out = vec![];
         let mut remove = vec![];
-        let mut remove_files = vec![];
         for (id, child) in self.jobs.iter_mut() {
             child.process.set_timeout(Some(0)); // don't block on wait
             match child.process.wait() {
@@ -388,18 +362,12 @@ impl TermState {
                     // if it isn't it'll be cleaned up in drop
                     child.process.set_timeout(None);
                     remove.push(id);
-                    for item in child.files.iter() {
-                        remove_files.push(item.clone());
-                    }
                     out.push((id, child.command.clone(), v));
                 }
             }
         }
         for id in remove.iter() {
             self.jobs.remove(id);
-        }
-        for id in remove_files.iter() {
-            self.files.remove(id);
         }
         return out;
     }

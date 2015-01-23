@@ -13,10 +13,6 @@ use types::*;
 use env::*;
 
 fn source_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
-    // in this case args is line
-    if args.is_empty() {
-        return Err("No arguments given".to_string());
-    }
     let name = match args {
         &Empty => return Err("No arguments given".to_string()),
         &Long(_) => return Err("Can only source flat names".to_string()),
@@ -27,7 +23,7 @@ fn source_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
 
 fn cd_func(args:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
     let newp = {
-        if args.is_empty() {
+        if args.len() == 0 {
             expand_path(Path::new("~"))
         } else if args.get_flat(0).slice_to(min(args.get_flat(0).len(), 2)) == "./" {
             // this specifical case can't be put through expand_path
@@ -51,180 +47,104 @@ fn outs_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     return Ok(Empty);
 }
 
-pub fn drun_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
-    // Note: Wash calling convention is for the caller to reduce
-    // arguments to literals
-    if args.len() < 1 {
-        return Err("No arguments provided".to_string());
-    }
-    let name = match args.get(0) {
-        Flat(v) => v,
-        Empty | Long(_) => return Err("Can only run flat names".to_string())
-    };
-    // this could be empty but that's ok
-    let arg_slice = args.slice(1, -1);
-    if env.hasf(&name) {
-        return env.runf(&name, &arg_slice);
-    } else {
-        let id = try!(env.run_job(&name, &arg_slice.flatten_vec()));
-        let out = try!(env.job_output(&id));
-        if !out.status.success() {
-            return Err(String::from_utf8_lossy(out.error.as_slice()).into_owned());
+fn job_args(args:&WashArgs) -> Result<(Option<Fd>, Option<Fd>, Option<Fd>,
+                                       String, Vec<String>), String> {
+    // turns arguments into file descriptor options, command name and args
+    // utility function because job_func and run_func use this same code
+    let (mut stdin, mut stdout, mut stderr) = (None, None, None);
+    let mut argc = args.flatten_vec();
+    let mut name;
+    loop {
+        // fail if only file descriptors given
+        if argc.is_empty() {
+            return Err("Don't know what to do with file descriptors".to_string());
         }
+        // pop out arguments from the front until no more file descriptors remain
+        name = argc.remove(0);
+        if !FD_REGEX.is_match(name.as_slice()) {
+            // we've reached the end of file descriptors
+            break;
+        } else {
+            let caps = FD_REGEX.captures(name.as_slice()).unwrap();
+            match str_to_usize(caps.at(2).unwrap()) {
+                None => return Err(format!("{} could not be turned into usize", caps.at(2).unwrap())),
+                Some(fd) => match caps.at(1).unwrap() {
+                    path if path.is_empty() || path == "in" =>
+                        // default to stdin
+                        stdin = Some(fd as Fd),
+                    path if path == "out" =>
+                        stdout = Some(fd as Fd),
+                    path if path == "err" =>
+                        stderr = Some(fd as Fd),
+                    _ => return Err(format!("{} is not a valid standard output", caps.at(1).unwrap()))
+                }
+            }
+        }
+    }
+    return Ok((stdin, stdout, stderr, name, argc));
+}
+
+pub fn job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+    let id;
+    if args.is_empty() || args.len() < 1 {
+        return Err("No arguments given".to_string());
+    } else if args.is_flat() {
+        // easy case, no arguments to the function
+        id = try!(env.run_job(&args.flatten(), &vec![]));
+    } else if !args.get(0).is_flat() {
+        return Err("Can only run flat names".to_string());
+    } else if !FD_REGEX.is_match(args.get(0).flatten().as_slice()) {
+        // easy case, no file descriptors given
+        let args_slice = args.slice(1, -1);
+        id = try!(env.run_job(&args.get(0).flatten(), &args_slice.flatten_vec()));
+    } else {
+        // hard case, file descriptors given
+        let (stdin, stdout, stderr, name, argc) = try!(job_args(args));
+        id = try!(env.run_job_fd(stdin, stdout, stderr, &name, &argc));
+    }
+    return Ok(Flat(format!("{}", id)));
+}
+
+pub fn job_output_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+    let arg = args.get(0);
+    if !arg.is_flat() {
+        return Err("Give a job number".to_string());
+    }
+    let id = match str_to_usize(arg.flatten().as_slice()) {
+        None => return Err(format!("Couldn't turn {} into a job number", arg.flatten())),
+        Some(num) => num
+    };
+    let out = try!(env.job_output(&id));
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(out.error.as_slice()).into_owned());
+    } else {
         return Ok(Flat(String::from_utf8_lossy(out.output.as_slice()).into_owned()));
     }
 }
 
+pub fn directed_job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+    return job_output_func(&try!(job_func(args, env)), env);
+}
+
 pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
-    // Note: Wash calling convention is for the caller to reduce
-    // arguments to literals
-    if args.len() < 1 {
+    let out;
+    if args.is_empty() || args.len() < 1 {
         return Err("No arguments given".to_string());
-    }
-    let name = match args.get(0) {
-        Flat(v) => v,
-        Empty | Long(_) => return Err("Can only run flat names".to_string())
-    };
-    if FD_REGEX.is_match(name.as_slice()) {
-        // run piped instead
-        return pipe_run_func(args, env);
-    }
-    // this could be empty but that's ok
-    let arg_slice = args.slice(1, -1);
-    if env.hasf(&name) {
-        // run functions before commands
-        let out = try!(env.runf(&name, &arg_slice)).flatten();
-        env.outf(format_args!("{}\n", out));
-        return Ok(Long(vec![Flat("status".to_string()),
-                            Flat("0".to_string())]));
+    } else if args.is_flat() {
+        // easy case, no arguments to the function
+        out = try!(env.run_command(&args.flatten(), &vec![]));
+    } else if !args.get(0).is_flat() {
+        return Err("Can only run flat names".to_string());
+    } else if !FD_REGEX.is_match(args.get(0).flatten().as_slice()) {
+        // easy case, no file descriptors given
+        let args_slice = args.slice(1, -1);
+        out = try!(env.run_command(&args.get(0).flatten(), &args_slice.flatten_vec()));
     } else {
-        // flush output and run command
-        env.flush();
-        match try!(env.run_command(&name, &arg_slice.flatten_vec())) {
-            ExitSignal(sig) => {
-                return Ok(Long(vec![Flat("signal".to_string()),
-                                    Flat(format!("{}", sig))]));
-            },
-            ExitStatus(status) => {
-                return Ok(Long(vec![Flat("status".to_string()),
-                                    Flat(format!("{}", status))]));
-            }
-        }
+        // hard case, file descriptors given
+        let (stdin, stdout, stderr, name, argc) = try!(job_args(args));
+        out = try!(env.run_command_fd(stdin, stdout, stderr, &name, &argc));
     }
-}
-
-pub fn run_outfd_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
-    // Note: Wash calling convention is for the caller to reduce
-    // arguments to literals
-    if args.len() < 2 {
-        return Err("Give file discriptor and command".to_string());
-    }
-    let fid = match args.get(0) {
-        Flat(v) => {
-            if FD_REGEX.is_match(v.as_slice()) {
-                str_to_usize(FD_REGEX.captures(v.as_slice()).unwrap().at(1).unwrap()).unwrap()
-            } else {
-                return Err("Not given a file descriptor".to_string());
-            }
-        },
-        Empty | Long(_) => return Err("File descriptors can only be flat".to_string())
-    };  
-    let mut arg_slice;
-    let mut infd = None;
-    let name = match args.get(1) {
-        Flat(v) => {
-            if FD_REGEX.is_match(v.as_slice()) {
-                infd = Some(str_to_usize(FD_REGEX.captures(v.as_slice()).unwrap().at(1).unwrap()).unwrap() as Fd);
-                arg_slice = args.slice(3, -1);
-                match args.get(2) {
-                    Flat(v) => v,
-                    _ => return Err("Can only run flat names".to_string())
-                }
-            } else {
-                arg_slice = args.slice(2, -1);
-                v
-            }
-        },
-        Empty | Long(_) => return Err("Can only run flat names".to_string())
-    };
-    env.flush();
-    match try!(env.run_command_fd(infd, Some(fid as Fd), Some(STDERR), &name, &arg_slice.flatten_vec())) {
-        ExitSignal(sig) => {
-            return Ok(Long(vec![Flat("signal".to_string()),
-                                Flat(format!("{}", sig))]));
-        },
-        ExitStatus(status) => {
-            return Ok(Long(vec![Flat("status".to_string()),
-                                Flat(format!("{}", status))]));
-        }
-    }
-}
-
-pub fn job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
-    if args.len() < 1 {
-        return Err("No arguments given".to_string());
-    }
-    let name = match args.get(0) {
-        Flat(v) => v,
-        Empty | Long(_) => return Err("Can only run flat names".to_string())
-    };
-    if FD_REGEX.is_match(name.as_slice()) {
-        // run piped instead
-        return pipe_job_func(args, env);
-    }
-    let arg_slice = args.slice(1, -1);
-    let id = try!(env.run_job(&name, &arg_slice.flatten_vec()));
-    return Ok(Flat(format!("{}", id)));
-}
-
-pub fn pipe_job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
-    // takes a directed job number, then arguments for a new job
-    // creates this new job with the stdout Fd of the given job as the stdin Fd of the new job
-    // this new job is also directed
-    if args.len() < 2 {
-        return Err("Need at least job number and command".to_string());
-    }
-    let pipe_str = match args.get(0) {
-        Flat(v) => v,
-        Empty | Long(_) => return Err("File descriptors can only be flat".to_string())
-    };
-    if !FD_REGEX.is_match(pipe_str.as_slice()) {
-        return Err("Not given file descriptior".to_string());
-    }
-    let pipe = str_to_usize(FD_REGEX.captures(pipe_str.as_slice()).unwrap().at(1).unwrap()).unwrap();
-    let name = match args.get(1) {
-        Flat(v) => v,
-        Empty | Long(_) => return Err("Can only run flat names".to_string())
-    };
-    let arg_slice = args.slice(2, -1);
-    let id = try!(env.run_job_fd(Some(pipe as Fd), None, None, &name, &arg_slice.flatten_vec()));
-    return Ok(Flat(format!("{}", id)));
-}
-
-
-pub fn pipe_run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
-    // takes a directed job number, then arguments for a new job
-    // creates this new job with the stdout Fd of the given job as the stdin Fd of the new job
-    // this new job is also directed
-    if args.len() < 2 {
-        return Err("Need at least a file descriptor and a command".to_string());
-    }
-    let pipe_str = match args.get(0) {
-        Flat(v) => v,
-        Empty | Long(_) => return Err("File descriptors can only be flat".to_string())
-    };
-    if !FD_REGEX.is_match(pipe_str.as_slice()) {
-        return Err("Not given file descriptior".to_string());
-    }
-    let pipe = str_to_usize(FD_REGEX.captures(pipe_str.as_slice()).unwrap().at(1).unwrap()).unwrap();
-    let name = match args.get(1) {
-        Flat(v) => v,
-        Empty | Long(_) => return Err("Can only run flat names".to_string())
-    };
-    let arg_slice = args.slice(2, -1);
-    env.flush();
-    match try!(env.run_command_fd(Some(pipe as Fd), Some(STDOUT), Some(STDERR),
-                                  &name, &arg_slice.flatten_vec())) {
+    return match out {
         ExitSignal(sig) => {
             return Ok(Long(vec![Flat("signal".to_string()),
                                 Flat(format!("{}", sig))]));
@@ -290,11 +210,10 @@ pub fn setp_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
             return Err("Cannot set variable path to environment variables".to_string());
         } else if path == "pipe".to_string() {
             return Err("Cannot set variable path to job pipes".to_string());
-        } else if path == "file".to_string() {
-            return Err("Cannot set variable path to files".to_string());
+        } else {
+            env.variables = path.clone();
+            return Ok(Flat(path));
         }
-        env.variables = path.clone();
-        return Ok(Flat(path))
     }
 }
 
@@ -426,7 +345,7 @@ fn leq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashE
     };
     let fpath = expand_path(Path::new(fname));
     let fid = try!(env.input_file(&fpath));
-    pre.insert(0, try!(env.getvp(&format!("{}", fid), &"file".to_string())));
+    pre.insert(0, Flat(format!("@{}", fid)));
     return Ok(Continue);
 }
 
@@ -441,8 +360,8 @@ fn geq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashE
     };
     let fpath = expand_path(Path::new(fname));
     let fid = try!(env.output_file(&fpath));
-    pre.insert(0, try!(env.getvp(&format!("{}", fid), &"file".to_string())));
-    let out = try!(run_outfd_func(&Long(pre.clone()), env));
+    pre.insert(0, Flat(format!("@out:{}", fid)));
+    let out = try!(run_func(&Long(pre.clone()), env));
     try!(describe_process_output(&out, env));
     // stop no matter what
     return Err(String::new());
@@ -481,13 +400,11 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insf("cd", cd_func));
     try!(env.insf("builtins", builtins_func));
     try!(env.insf("outs", outs_func));
-    try!(env.insf("$", drun_func));
+    try!(env.insf("$", directed_job_func));
     try!(env.insf("run", run_func));
     try!(env.insf("get", get_func));
     try!(env.insf("setp", setp_func));
     try!(env.insf("jobs", jobs_func));
-    try!(env.insf("pipe_job", pipe_job_func));
-    try!(env.insf("pipe_run", pipe_run_func));
     try!(env.insf("job", job_func));
 
     // commands that aren't really meant to be called by users
