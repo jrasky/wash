@@ -1,6 +1,7 @@
-- loops
 - conditionals
  - regex
+- sigint handler for function running
+- loops
 - function paths?
 - better job control
  - handle SIGSTP
