@@ -159,6 +159,18 @@ pub fn signal_ignore(signal:c_int) -> bool {
     }
 }
 
+pub fn signal_default(signal:c_int) -> bool {
+    unsafe {
+        let action = SigAction {
+            handler: mem::transmute::<size_t, SigHandler>(0),
+            mask: [0; SIGSET_NWORDS],
+            flags: 0,
+            restorer: 0
+        };
+        signal_handle(signal, &action)
+    }
+}
+
 pub fn full_sigset() -> Option<SigSet> {
     let mut output:SigSet = [0; SIGSET_NWORDS];
     unsafe {

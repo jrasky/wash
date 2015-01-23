@@ -197,12 +197,17 @@ impl TermState {
         process.stdin(stdin);
         process.stdout(stdout);
         process.stderr(stderr);
+        // reset signal to default before spawning
+        signal_default(SIGINT);
         let child = match process.spawn() {
             Err(e) => {
+                signal_ignore(SIGINT);
                 return Err(format!("Couldn't spawn {}: {}", name, e));
             },
             Ok(v) => v
         };
+        // re-ignore signal
+        signal_ignore(SIGINT);
         let id = self.find_jobs_hole();
         let mut job =  Job {
             command: name.clone(),
