@@ -34,7 +34,9 @@ unsafe extern fn term_sigint(_:c_int, _:*const SigInfo,
     term.controls.outs("\nInterrupt\n");
     // pass on to foreground job, if there is one
     match term.fg_job {
-        None => {/* nothing */},
+        None => {
+            term.controls.err("No running job found");
+        },
         Some(id) => {
             match term.interrupt_job(&id) {
                 Err(e) => {
