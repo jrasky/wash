@@ -367,7 +367,7 @@ fn geq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashE
     return Err(String::new());
 }
 
-fn act_handler(_:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
+fn create_content(next:&mut Vec<InputValue>) -> Result<Vec<InputValue>, String> {
     let mut one_line = false;
     let mut line = vec![];
     loop {
@@ -384,17 +384,23 @@ fn act_handler(_:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, _:&mut WashEnv) 
             _ => return Err("Malformed block".to_string())
         }
     }
-    let content;
     if line.is_empty() {
-        content = vec![];
+        return Ok(vec![]);
     } else {
-        content = vec![InputValue::Long(line)];
+        return Ok(vec![InputValue::Long(line)]);
     }
+}
+
+fn act_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
+    if !pre.is_empty() {
+        return Err("Malformed block".to_string());
+    }
+    let content = try!(create_content(next));
     let close;
-    if one_line {
-        close = None;
-    } else {
+    if content.is_empty() {
         close = Some(InputValue::Short("}".to_string()));
+    } else {
+        close = None;
     }
     // test function for More case of HandlerResult
     let block = WashBlock {
@@ -408,7 +414,7 @@ fn act_handler(_:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, _:&mut WashEnv) 
 
 fn end_block_handler(_:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
     // helper to tell users not to use this in a line
-    return Err("Close block in incorrect place".to_string());
+    return Err("Malformed block".to_string());
 }
 
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
