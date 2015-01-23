@@ -42,8 +42,9 @@ type WashRun = extern fn(*const WashArgs, *mut WashEnv) -> Result<WashArgs, Stri
 
 #[derive(Clone)]
 pub struct WashBlock {
-    pub start: WashArgs,
-    pub close: InputValue,
+    pub start: String,
+    pub next: Vec<InputValue>,
+    pub close: Option<InputValue>,
     pub content: Vec<InputValue>
 }
 
@@ -464,16 +465,15 @@ impl WashEnv {
         }
         let block = self.block.clone().unwrap();
         self.block = None;
-        match block.start.flatten_vec() {
-            ref v if *v == vec!["act".to_string()] => {
-                let mut lines = block.content.iter();
-                let mut out = Flat(String::new());
-                for line in lines {
-                    out = try!(self.process_line(line.clone()));
-                }
-                return Ok(out);
-            },
-            _ => return Err(format!("Don't know how to handle block: {}", block.start.flatten()))
+        if block.start == "act" {
+            let mut lines = block.content.iter();
+            let mut out = Flat(String::new());
+            for line in lines {
+                out = try!(self.process_line(line.clone()));
+            }
+            return Ok(out);
+        } else {
+            return Err(format!("Don't know how to handle block: {}", block.start));
         }
     }
 
@@ -481,7 +481,7 @@ impl WashEnv {
         let end_block;
         match self.block {
             Some(ref mut block) => {
-                if block.close == line {
+                if block.close == Some(line.clone()) || block.close.is_none() {
                     // ending blocks has to occur outside of this borrow
                     end_block = true;
                 } else {
@@ -499,8 +499,23 @@ impl WashEnv {
                     // run as command
                     let vec = try!(self.input_to_vec(a));
                     if vec.is_empty() {
-                        // start of a block
-                        return Ok(Empty);
+                        let process_block;
+                        match self.block {
+                            Some(ref b) => {
+                                if b.close.is_none() {
+                                    // immediately process block
+                                    process_block = true;
+                                } else {
+                                    return Ok(Empty);
+                                }
+                            },
+                            _ => return Ok(Empty)
+                        }
+                        if process_block {
+                            return self.process_block();
+                        } else {
+                            return Ok(Empty);
+                        }
                     } else {
                         return self.process_command(vec);
                     }

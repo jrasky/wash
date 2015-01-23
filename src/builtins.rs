@@ -367,17 +367,46 @@ fn geq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashE
     return Err(String::new());
 }
 
-fn t_sblock_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
+fn act_handler(_:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
+    let mut one_line = false;
+    let mut line = vec![];
+    loop {
+        match next.pop() {
+            Some(InputValue::Short(ref s)) if *s == "{".to_string() => break,
+            Some(InputValue::Short(ref s)) if *s == "}".to_string() && !one_line => {
+                // one-line block
+                one_line = true;
+            },
+            Some(InputValue::Split(_)) if !one_line => continue,
+            Some(ref v) if one_line => {
+                line.insert(0, v.clone())
+            }
+            _ => return Err("Malformed block".to_string())
+        }
+    }
+    let content;
+    if line.is_empty() {
+        content = vec![];
+    } else {
+        content = vec![InputValue::Long(line)];
+    }
+    let close;
+    if one_line {
+        close = None;
+    } else {
+        close = Some(InputValue::Short("}".to_string()));
+    }
     // test function for More case of HandlerResult
     let block = WashBlock {
-        start: Long(pre.clone()),
-        close: InputValue::Short("}".to_string()),
-        content: vec![]
+        start: "act".to_string(),
+        next: next.clone(),
+        close: close,
+        content: content
     };
     return Ok(More(block));
 }
 
-fn t_eblock_handler(_:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
+fn end_block_handler(_:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
     // helper to tell users not to use this in a line
     return Err("Close block in incorrect place".to_string());
 }
@@ -419,9 +448,9 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insert_handler("<", leq_handler));
     try!(env.insert_handler(">", geq_handler));
 
-    // test cases
-    try!(env.insert_handler("{", t_sblock_handler));
-    try!(env.insert_handler("}", t_eblock_handler));
+    // block start/end
+    try!(env.insert_handler("act!", act_handler));
+    try!(env.insert_handler("}", end_block_handler));
 
     return Ok(Empty);
 }
