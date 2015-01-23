@@ -57,14 +57,14 @@ impl Controls {
         {
             let mut start = 1;
             while start < width {
-                match try!(self.stdin.read(buf.slice_mut(start, width))) {
+                match try!(self.stdin.read(&mut buf[start..width])) {
                     n if n == width - start => break,
                     n if n < width - start => { start += n; }
                     _ => return Err(io::standard_error(InvalidInput)),
                 }
             }
         }
-        match str::from_utf8(&buf[0..width]).ok() {
+        match str::from_utf8(&buf[..width]).ok() {
             Some(s) => Ok(s.char_at(0)),
             None => Err(io::standard_error(InvalidInput))
         }

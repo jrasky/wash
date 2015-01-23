@@ -446,7 +446,7 @@ impl WashEnv {
             return Ok(Empty);
         } else if self.hasf(&args[0].flatten()) {
             // run as a function instead
-            return self.runf(&args[0].flatten(), &Long(args[min(1, args.len())..args.len()].to_vec()));
+            return self.runf(&args[0].flatten(), &Long(args[min(1, args.len())..].to_vec()));
         } else {
             let out = try!(self.process_function("run".to_string(), args));
             return self.describe_process_output(&out);

@@ -25,7 +25,7 @@ fn cd_func(args:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
     let newp = {
         if args.len() == 0 {
             expand_path(Path::new("~"))
-        } else if args.get_flat(0).slice_to(min(args.get_flat(0).len(), 2)) == "./" {
+        } else if &args.get_flat(0)[..min(args.get_flat(0).len(), 2)] == "./" {
             // this specifical case can't be put through expand_path
             Path::new(&args.get_flat(0))
         } else {

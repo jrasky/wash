@@ -67,7 +67,7 @@ pub fn expand_path(path:Path) -> Path {
         return match os::homedir() {
             None => Path::new("/"),
             Some(val) => Path::new(val)
-        }.join(Path::new(path.as_vec().slice_from(min(path.as_vec().len(), 2))));
+        }.join(Path::new(&path.as_vec()[min(path.as_vec().len(), 2)..]));
     } else {
         return path;
     }
