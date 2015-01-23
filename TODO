@@ -1,3 +1,5 @@
+- nested blocks
+- else, if else
 - regex conditional
 - sigint handler for function running
 - loops
