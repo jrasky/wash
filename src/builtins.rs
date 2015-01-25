@@ -1,3 +1,5 @@
+use regex::Regex;
+
 use std::io::process::ProcessExit::*;
 use std::os::unix::prelude::*;
 
@@ -286,6 +288,23 @@ fn equalequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mu
     }
 }
 
+fn tildaequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+    let re = match Regex::new(try!(env.input_to_args(InputValue::Long(next.clone()))).flatten().as_slice()) {
+        Err(e) => return Err(format!("{}", e)),
+        Ok(v) => v
+    };
+    if re.is_match(match pre.pop() {
+        None => return Err("Nothing to compare to".to_string()),
+        Some(v) => v
+    }.flatten().as_slice()) {
+        pre.clear();
+        next.clear();
+        return Ok(Continue);
+    } else {
+        return Ok(Stop);
+    }
+}
+
 fn semiamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
     // effectively the "continue" handler
     // run the part before the line and then continue
@@ -454,6 +473,7 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insert_handler("<", leq_handler));
     try!(env.insert_handler(">", geq_handler));
     try!(env.insert_handler("==", equalequal_handler));
+    try!(env.insert_handler("~=", tildaequal_handler));
 
     // block start/end
     try!(env.insert_handler("act!", act_handler));
