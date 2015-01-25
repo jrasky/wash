@@ -471,7 +471,11 @@ impl WashEnv {
             let mut lines = block.content.iter();
             let mut out = Flat(String::new());
             for line in lines {
-                out = try!(self.process_line(line.clone()));
+                out = match self.process_line(line.clone()) {
+                    Err(ref e) if *e == STOP => Empty,
+                    Err(e) => return Err(e),
+                    Ok(v) => v
+                }
             }
             return Ok(out);
         } else if block.start == "if" || block.start == "else" {
@@ -488,7 +492,11 @@ impl WashEnv {
                 let mut lines = block.content.iter();
                 let mut out = Flat(String::new());
                 for line in lines {
-                    out = try!(self.process_line(line.clone()));
+                    out = match self.process_line(line.clone()) {
+                        Err(ref e) if *e == STOP => Empty,
+                        Err(e) => return Err(e),
+                        Ok(v) => v
+                    }
                 }
                 return Ok(out);
             } else {
