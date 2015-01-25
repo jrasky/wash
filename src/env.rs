@@ -475,14 +475,16 @@ impl WashEnv {
             }
             return Ok(out);
         } else if block.start == "if" || block.start == "else" {
-            let cond;
-            if block.next.is_empty() {
-                // if no condition is provided, use the output of the last command
-                cond = self.last.clone().unwrap_or(Err("No last value".to_string()));
-            } else {
+            let mut cond = self.last.clone().unwrap_or(Err("No last value".to_string()));
+            let next_empty = block.next.is_empty();
+            if block.start == "else" && cond.is_ok() {
+                // return early in the else case
+                return Err(STOP.to_string());
+            }
+            if !next_empty {
                 cond = self.process_line(InputValue::Long(block.next));
             }
-            if cond.is_ok() || block.start == "else" {
+            if cond.is_ok() || (block.start == "else" && next_empty) {
                 let mut lines = block.content.iter();
                 let mut out = Flat(String::new());
                 for line in lines {
