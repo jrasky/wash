@@ -462,22 +462,25 @@ impl WashEnv {
         return Ok(out);
     }
 
+    pub fn process_lines<'a, T:Iterator<Item=&'a InputValue>>(&mut self, mut lines:T) -> Result<WashArgs, String> {
+        let mut out = Flat(String::new());
+        for line in lines {
+            out = match self.process_line(line.clone()) {
+                Err(ref e) if *e == STOP => Empty,
+                Err(e) => return Err(e),
+                Ok(v) => v
+            }
+        }
+        return Ok(out);
+    }
+
     pub fn process_block(&mut self) -> Result<WashArgs, String> {
         if self.blocks.is_empty() {
             return Err("No block defined".to_string());
         }
         let block = self.blocks.pop().unwrap();
         if block.start == "act" {
-            let mut lines = block.content.iter();
-            let mut out = Flat(String::new());
-            for line in lines {
-                out = match self.process_line(line.clone()) {
-                    Err(ref e) if *e == STOP => Empty,
-                    Err(e) => return Err(e),
-                    Ok(v) => v
-                }
-            }
-            return Ok(out);
+            return self.process_lines(block.content.iter());
         } else if block.start == "if" || block.start == "else" {
             let mut cond = self.last.clone().unwrap_or(Err("No last value".to_string()));
             let next_empty = block.next.is_empty();
@@ -489,16 +492,7 @@ impl WashEnv {
                 cond = self.process_line(InputValue::Long(block.next));
             }
             if cond.is_ok() || (block.start == "else" && next_empty) {
-                let mut lines = block.content.iter();
-                let mut out = Flat(String::new());
-                for line in lines {
-                    out = match self.process_line(line.clone()) {
-                        Err(ref e) if *e == STOP => Empty,
-                        Err(e) => return Err(e),
-                        Ok(v) => v
-                    }
-                }
-                return Ok(out);
+                return self.process_lines(block.content.iter());
             } else {
                 return Err(STOP.to_string());
             }
