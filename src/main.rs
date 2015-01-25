@@ -51,7 +51,7 @@ pub fn main() {
             },
             _ => {/* nothing */}
         }
-        if env.block.is_none() {
+        if env.blocks.is_empty() {
             reader.draw_ps1();
         }
         match reader.read_line() {

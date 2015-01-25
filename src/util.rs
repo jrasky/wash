@@ -1,6 +1,8 @@
 use std::cmp::*;
 use std::os;
 
+use types::*;
+
 pub fn get_index<T>(mut vec:&mut Vec<T>, index:usize) -> Option<&mut T> {
     if index >= vec.len() {
         return None;
@@ -85,6 +87,31 @@ pub fn condense_path(path:Path) -> Path {
         }
     } else {
         return path;
+    }
+}
+
+
+pub fn create_content(next:&mut Vec<InputValue>) -> Result<Vec<InputValue>, String> {
+    let mut one_line = false;
+    let mut line = vec![];
+    loop {
+        match next.pop() {
+            Some(InputValue::Short(ref s)) if *s == "{".to_string() => break,
+            Some(InputValue::Short(ref s)) if *s == "}".to_string() && !one_line => {
+                // one-line block
+                one_line = true;
+            },
+            Some(InputValue::Split(_)) if !one_line => continue,
+            Some(ref v) if one_line => {
+                line.insert(0, v.clone())
+            }
+            _ => return Err("Malformed block".to_string())
+        }
+    }
+    if line.is_empty() {
+        return Ok(vec![]);
+    } else {
+        return Ok(vec![InputValue::Long(line)]);
     }
 }
 

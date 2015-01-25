@@ -378,30 +378,6 @@ fn geq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashE
     return Ok(Stop);
 }
 
-fn create_content(next:&mut Vec<InputValue>) -> Result<Vec<InputValue>, String> {
-    let mut one_line = false;
-    let mut line = vec![];
-    loop {
-        match next.pop() {
-            Some(InputValue::Short(ref s)) if *s == "{".to_string() => break,
-            Some(InputValue::Short(ref s)) if *s == "}".to_string() && !one_line => {
-                // one-line block
-                one_line = true;
-            },
-            Some(InputValue::Split(_)) if !one_line => continue,
-            Some(ref v) if one_line => {
-                line.insert(0, v.clone())
-            }
-            _ => return Err("Malformed block".to_string())
-        }
-    }
-    if line.is_empty() {
-        return Ok(vec![]);
-    } else {
-        return Ok(vec![InputValue::Long(line)]);
-    }
-}
-
 fn block_handler(name:String, pre:&mut Vec<WashArgs>,
                next:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
     if !pre.is_empty() {
@@ -410,9 +386,9 @@ fn block_handler(name:String, pre:&mut Vec<WashArgs>,
     let content = try!(create_content(next));
     let close;
     if content.is_empty() {
-        close = Some(InputValue::Short("}".to_string()));
+        close = vec![InputValue::Short("}".to_string())];
     } else {
-        close = None;
+        close = vec![];
     }
     // test function for More case of HandlerResult
     let block = WashBlock {

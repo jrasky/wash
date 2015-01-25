@@ -44,7 +44,7 @@ type WashRun = extern fn(*const WashArgs, *mut WashEnv) -> Result<WashArgs, Stri
 pub struct WashBlock {
     pub start: String,
     pub next: Vec<InputValue>,
-    pub close: Option<InputValue>,
+    pub close: Vec<InputValue>,
     pub content: Vec<InputValue>
 }
 
@@ -60,7 +60,7 @@ pub struct WashEnv {
     pub functions: FuncTable,
     pub scripts: ScriptTable,
     pub handlers: HandlerTable,
-    pub block: Option<WashBlock>,
+    pub blocks: Vec<WashBlock>,
     term: TermState
 }
 
@@ -72,7 +72,7 @@ impl WashEnv {
             functions: HashMap::new(),
             scripts: HashMap::new(),
             handlers: HashMap::new(),
-            block: None,
+            blocks: vec![],
             term: TermState::new()
         }
     }
@@ -461,11 +461,10 @@ impl WashEnv {
     }
 
     pub fn process_block(&mut self) -> Result<WashArgs, String> {
-        if self.block.is_none() {
+        if self.blocks.is_empty() {
             return Err("No block defined".to_string());
         }
-        let block = self.block.clone().unwrap();
-        self.block = None;
+        let block = self.blocks.pop().unwrap();
         if block.start == "act" {
             let mut lines = block.content.iter();
             let mut out = Flat(String::new());
@@ -495,19 +494,8 @@ impl WashEnv {
     }
 
     pub fn process_line(&mut self, line:InputValue) -> Result<WashArgs, String> {
-        let end_block;
-        match self.block {
-            Some(ref mut block) => {
-                if block.close == Some(line.clone()) || block.close.is_none() {
-                    // ending blocks has to occur outside of this borrow
-                    end_block = true;
-                } else {
-                    block.content.push(line);
-                    // continue block
-                    return Ok(Empty);
-                }
-            },
-            None => match line {
+        if self.blocks.is_empty() {
+            match line {
                 InputValue::Function(n, a) => {
                     let vec = try!(self.input_to_vec(a));
                     return self.process_function(n, vec);
@@ -516,16 +504,12 @@ impl WashEnv {
                     // run as command
                     let vec = try!(self.input_to_vec(a));
                     if vec.is_empty() {
-                        match self.block {
-                            Some(ref b) => {
-                                if b.close.is_none() {
-                                    // immediately process block
-                                    end_block = true;
-                                } else {
-                                    return Ok(Empty);
-                                }
-                            },
-                            _ => return Ok(Empty)
+                        if self.blocks.is_empty() {
+                            return Ok(Empty);
+                        } else if !self.blocks[0].close.is_empty() {
+                            return Ok(Empty);
+                        } else {
+                            return self.process_block();
                         }
                     } else {
                         return self.process_command(vec);
@@ -548,11 +532,29 @@ impl WashEnv {
                     return Ok(Flat(String::new()));
                 }
             }
-        }
-        if end_block {
-            return self.process_block();
         } else {
-            return Err("line matching did not return out".to_string());
+            if self.blocks[0].close.is_empty() {
+                return self.process_block();
+            } else if self.blocks[0].close[0] == line.clone() {
+                self.blocks[0].close.pop();
+                if self.blocks[0].close.is_empty() {
+                    return self.process_block();
+                } else {
+                    self.blocks[0].content.push(line);
+                    return Ok(Empty);
+                }
+            } else {
+                match line {
+                    InputValue::Long(ref v) =>
+                        if create_content(&mut v.clone()) == Ok(vec![]) {
+                            self.blocks[0].close.push(InputValue::Short("}".to_string()));
+                        },
+                    _ => {}
+                }
+                self.blocks[0].content.push(line);
+                // continue block
+                return Ok(Empty);
+            }
         }
     }
 
@@ -587,7 +589,7 @@ impl WashEnv {
                         Ok(Stop) => return Err("stop".to_string()),
                         Ok(More(block)) => {
                             // start of a block
-                            self.block = Some(block);
+                            self.blocks.push(block);
                             return Ok(vec![]);
                         },
                         Ok(Continue) => {/* continue */},

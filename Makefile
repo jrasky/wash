@@ -5,3 +5,9 @@ h:
 
 n:
 	cargo run --bin key_helper
+
+c:
+	cargo build
+
+d:
+	cargo clean
