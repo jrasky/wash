@@ -61,7 +61,8 @@ pub struct WashEnv {
     pub scripts: ScriptTable,
     pub handlers: HandlerTable,
     pub blocks: Vec<WashBlock>,
-    term: TermState
+    term: TermState,
+    last: Option<Result<WashArgs, String>>
 }
 
 impl WashEnv {
@@ -73,7 +74,8 @@ impl WashEnv {
             scripts: HashMap::new(),
             handlers: HashMap::new(),
             blocks: vec![],
-            term: TermState::new()
+            term: TermState::new(),
+            last: None
         }
     }
 
@@ -472,13 +474,15 @@ impl WashEnv {
                 out = try!(self.process_line(line.clone()));
             }
             return Ok(out);
-        } else if block.start == "if" {
-            let cond = match self.process_line(InputValue::Long(block.next)) {
-                Ok(v) => v,
-                Err(ref e) if *e == "stop" => Flat(String::new()),
-                Err(e) => return Err(e)
-            };
-            if cond.is_empty() {
+        } else if block.start == "if" || block.start == "else" {
+            let cond;
+            if block.next.is_empty() {
+                // if no condition is provided, use the output of the last command
+                cond = self.last.clone().unwrap_or(Err("No last value".to_string()));
+            } else {
+                cond = self.process_line(InputValue::Long(block.next));
+            }
+            if cond.is_ok() || block.start == "else" {
                 let mut lines = block.content.iter();
                 let mut out = Flat(String::new());
                 for line in lines {
@@ -486,7 +490,7 @@ impl WashEnv {
                 }
                 return Ok(out);
             } else {
-                return Ok(Empty);
+                return Err(STOP.to_string());
             }
         } else {
             return Err(format!("Don't know how to handle block: {}", block.start));
@@ -494,6 +498,12 @@ impl WashEnv {
     }
 
     pub fn process_line(&mut self, line:InputValue) -> Result<WashArgs, String> {
+        let out = self.process_line_inner(line);
+        self.last = Some(out.clone());
+        return out;
+    }
+
+    pub fn process_line_inner(&mut self, line:InputValue) -> Result<WashArgs, String> {
         if self.blocks.is_empty() {
             match line {
                 InputValue::Function(n, a) => {
@@ -586,7 +596,7 @@ impl WashEnv {
                     }
                     // this can change out and scope, be careful
                     match self.run_handler(name, &mut out, &mut scope) {
-                        Ok(Stop) => return Err("stop".to_string()),
+                        Ok(Stop) => return Err(STOP.to_string()),
                         Ok(More(block)) => {
                             // start of a block
                             self.blocks.push(block);

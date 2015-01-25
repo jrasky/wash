@@ -95,3 +95,6 @@ pub static VAR_PATH_REGEX:Regex = regex!("^\\$([^ \t\r\n\"():]*):([^ \t\r\n\"():
 pub static EQ_VAR_REGEX:Regex = regex!("^[^ \t\r\n\"()]+$");
 pub static EQ_PATH_REGEX:Regex = regex!("^([^ \t\r\n\"():]*):([^ \t\r\n\"():]+)$");
 pub static FD_REGEX:Regex = regex!("^@([^ \t\r\n\"():]*):?(\\d+)$");
+
+// stop error
+pub const STOP:&'static str = "stop";

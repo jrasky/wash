@@ -70,7 +70,7 @@ pub fn main() {
                 env.outc(NL);
                 match env.process_line(line) {
                     Err(e) => {
-                        if e.is_empty() {
+                        if e == STOP.to_string() {
                             // Stop, not Fail
                         } else {
                             env.errf(format_args!("{}\n", e));

@@ -413,6 +413,10 @@ fn if_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEn
     block_handler("if".to_string(), pre, next, env)
 }
 
+fn else_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+    block_handler("else".to_string(), pre, next, env)
+}
+
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
     return Ok(Long(vec![
         Flat("$".to_string()),
@@ -454,6 +458,7 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     // block start/end
     try!(env.insert_handler("act!", act_handler));
     try!(env.insert_handler("if!", if_handler));
+    try!(env.insert_handler("else!", else_handler));
     try!(env.insert_handler("}", end_block_handler));
 
     return Ok(Empty);
