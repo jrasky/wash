@@ -1,8 +1,8 @@
 - better job control
+ - write custom wait routine for Job
+  - the one in process.rs doesn't suite our needs
  - handle SIGTSTP
  - setting variables for one job
-- wrap all calls to process.wait with unhandling any sigchld handlers
-  - to avoid panics in process.rs
 - more keyboard shortcuts
 - settings
  - maybe vars on a special path?
