@@ -1,4 +1,3 @@
-- loops
 - function paths?
 - better job control
  - handle SIGSTP
