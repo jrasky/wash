@@ -11,7 +11,7 @@ extern crate regex_macros;
 
 use reader::*;
 use constants::*;
-use env::*;
+use state::*;
 use builtins::*;
 use types::*;
 
@@ -27,31 +27,34 @@ mod builtins;
 mod command;
 mod types;
 mod env;
+mod state;
 
 // public so no warnings when we run tests
 pub fn main() {
     let mut reader = LineReader::new();
-    let mut env = WashEnv::new();
+    let mut state = ShellState::new();
     let mut cleaned_jobs;
-    match load_builtins(&mut env) {
-        Err(e) => {
-            env.errf(format_args!("Could not load builtings: {}\n", e));
-        }
+    match load_builtins(&mut state.env) {
+        Err(e) => state.env.errf(format_args!("Could not load builtings: {}\n", e)),
         _ => {}
     }
-    env.update_terminal();
+    match load_handlers(&mut state) {
+        Err(e) => state.env.errf(format_args!("Could not load handlers: {}\n", e)),
+        _ => {}
+    }
+    state.env.update_terminal();
     loop {
-        env.flush();
-        cleaned_jobs = env.clean_jobs();
+        state.env.flush();
+        cleaned_jobs = state.env.clean_jobs();
         match cleaned_jobs {
             WashArgs::Long(v) => {
                 for status in v.iter() {
-                    env.outf(format_args!("{}\n", status.flatten()));
+                    state.env.outf(format_args!("{}\n", status.flatten()));
                 }
             },
             _ => {/* nothing */}
         }
-        if env.blocks.is_empty() {
+        if !state.in_block() {
             reader.draw_ps1();
         }
         match reader.read_line() {
@@ -59,29 +62,29 @@ pub fn main() {
                 if reader.eof {
                     break;
                 } else if !reader.line.is_empty() {
-                    env.outc(BEL);
+                    state.env.outc(BEL);
                     reader.restart();
                 } else {
-                    env.outc(NL);
+                    state.env.outc(NL);
                     reader.clear();
                 }
             },
             Some(line) => {
-                env.outc(NL);
-                match env.process_line(line) {
+                state.env.outc(NL);
+                match state.process_line(line) {
                     Err(e) => {
                         if e == STOP.to_string() {
                             // Stop, not Fail
                         } else {
-                            env.errf(format_args!("{}\n", e));
+                            state.env.errf(format_args!("{}\n", e));
                         }
                     },
                     Ok(v) => {
                         if !v.is_empty() {
-                            env.outs(v.flatten().as_slice());
+                            state.env.outs(v.flatten().as_slice());
                             if v.is_flat() {
                                 // extra newline
-                                env.outc(NL);
+                                state.env.outc(NL);
                             }
                         }
                     }
@@ -90,7 +93,7 @@ pub fn main() {
             }
         }
     }
-    env.outs("\nExiting\n");
-    env.flush();
-    env.restore_terminal();
+    state.env.outs("\nExiting\n");
+    state.env.flush();
+    state.env.restore_terminal();
 }

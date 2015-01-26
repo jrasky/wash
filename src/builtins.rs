@@ -7,12 +7,13 @@ use std::os;
 use std::cmp::*;
 
 use types::WashArgs::*;
-use env::HandlerResult::*;
+use state::HandlerResult::*;
 
 use util::*;
 use constants::*;
 use types::*;
 use env::*;
+use state::*;
 
 fn source_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     let name = match args {
@@ -232,7 +233,7 @@ pub fn describe_process_output(args:&WashArgs, _:&mut WashEnv) -> Result<WashArg
     }
 }
 
-fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
     // other l-values might eventually be supported,
     // for now you can only set variables
     // consume only the first variable before the equals
@@ -253,7 +254,7 @@ fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut Was
         val = Empty;
     } else {
         // This is O(n), but we need the first value so.
-        val = try!(env.input_to_args(next.remove(0)));
+        val = try!(state.input_to_args(next.remove(0)));
     }
     if EQ_PATH_REGEX.is_match(name.as_slice()) {
         let caps = EQ_PATH_REGEX.captures(name.as_slice()).unwrap();
@@ -263,22 +264,22 @@ fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut Was
             // use default path
             // this can be used to set a variable
             // with a name containing a colon
-            try!(env.insv(name, val.clone()));
+            try!(state.env.insv(name, val.clone()));
             return Err(val.flatten());
         } else {
-            try!(env.insvp(name, path, val.clone()));
+            try!(state.env.insvp(name, path, val.clone()));
             return Err(val.flatten());
         }
     } else {
-        try!(env.insv(name, val.clone()));
+        try!(state.env.insv(name, val.clone()));
         return Err(val.flatten());
     }
     // right now equals can only produce Stop.
     // In the future this may not be the case
 }
 
-fn equalequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
-    let comp = try!(env.input_to_args(InputValue::Long(next.clone())));
+fn equalequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+    let comp = try!(state.input_to_args(InputValue::Long(next.clone())));
     if Long(pre.clone()).flatten_vec() == comp.flatten_vec() {
         pre.clear();
         next.clear();
@@ -288,8 +289,8 @@ fn equalequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mu
     }
 }
 
-fn tildaequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
-    let re = match Regex::new(try!(env.input_to_args(InputValue::Long(next.clone()))).flatten().as_slice()) {
+fn tildaequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+    let re = match Regex::new(try!(state.input_to_args(InputValue::Long(next.clone()))).flatten().as_slice()) {
         Err(e) => return Err(format!("{}", e)),
         Ok(v) => v
     };
@@ -305,16 +306,16 @@ fn tildaequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mu
     }
 }
 
-fn semiamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+fn semiamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
     // effectively the "continue" handler
     // run the part before the line and then continue
     // onto the next one no matter what
     // but one after the other
-    match run_func(&Long(pre.clone()), env) {
-        Err(e) => env.errf(format_args!("{}\n", e)),
-        Ok(v) => match describe_process_output(&v, env) {
+    match run_func(&Long(pre.clone()), &mut state.env) {
+        Err(e) => state.env.errf(format_args!("{}\n", e)),
+        Ok(v) => match describe_process_output(&v, &mut state.env) {
             Err(e) => {
-                env.errf(format_args!("{}\n",e));
+                state.env.errf(format_args!("{}\n",e));
             },
             _ => {/* nothing */}
         }
@@ -325,34 +326,34 @@ fn semiamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut Wa
 }
 
 
-fn amperamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+fn amperamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
     // "and then:" run this command and continue only if it succeded
     // onto the next one no matter what
-    let out = try!(run_func(&Long(pre.clone()), env));
+    let out = try!(run_func(&Long(pre.clone()), &mut state.env));
     // will return on error
-    try!(describe_process_output(&out, env));
+    try!(describe_process_output(&out, &mut state.env));
     // && does not pass on the value of the previous command
     pre.clear();
     return Ok(Continue);
 }
 
-fn amper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+fn amper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
     // almost directly calls job
     // ignore errors
-    match job_func(&Long(pre.clone()), env) {
-        Err(e) => env.errf(format_args!("{}\n", e)),
-        Ok(v) => env.outf(format_args!("Started job: {}\n", v.flatten()))
+    match job_func(&Long(pre.clone()), &mut state.env) {
+        Err(e) => state.env.errf(format_args!("{}\n", e)),
+        Ok(v) => state.env.outf(format_args!("Started job: {}\n", v.flatten()))
     }
     // & does not pass on the value of the previous command
     pre.clear();
     return Ok(Continue);
 }
 
-fn bar_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+fn bar_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
     if pre.len() < 1 {
         return Err("Cannot pipe nothing".to_string());
     }
-    let id = match try!(job_func(&Long(pre.clone()), env)) {
+    let id = match try!(job_func(&Long(pre.clone()), &mut state.env)) {
         Flat(v) => match str_to_usize(v.as_slice()) {
             None => return Err("djob did not return a job number".to_string()),
             Some(v) => v
@@ -360,45 +361,45 @@ fn bar_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, env:&mut WashEnv)
         _ => return Err("djob did not return a job number".to_string())
     };
     pre.clear();
-    pre.push(try!(env.getvp(&format!("{}", id), &"pipe".to_string())));
+    pre.push(try!(state.env.getvp(&format!("{}", id), &"pipe".to_string())));
     return Ok(Continue);
 }
 
-fn leq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+fn leq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
     // file input
     if next.is_empty() {
         return Err("File name must be provided".to_string());
     }
-    let fname = match try!(env.input_to_args(next.remove(0))) {
+    let fname = match try!(state.input_to_args(next.remove(0))) {
         Flat(s) => s,
         _ => return Err("File name must be flat".to_string())
     };
     let fpath = expand_path(Path::new(fname));
-    let fid = try!(env.input_file(&fpath));
+    let fid = try!(state.env.input_file(&fpath));
     pre.insert(0, Flat(format!("@{}", fid)));
     return Ok(Continue);
 }
 
-fn geq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
+fn geq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
     // file output
     if next.is_empty() {
         return Err("File name must be provided".to_string());
     }
-    let fname = match try!(env.input_to_args(next.remove(0))) {
+    let fname = match try!(state.input_to_args(next.remove(0))) {
         Flat(s) => s,
         _ => return Err("File name must be flat".to_string())
     };
     let fpath = expand_path(Path::new(fname));
-    let fid = try!(env.output_file(&fpath));
+    let fid = try!(state.env.output_file(&fpath));
     pre.insert(0, Flat(format!("@out:{}", fid)));
-    let out = try!(run_func(&Long(pre.clone()), env));
-    try!(describe_process_output(&out, env));
+    let out = try!(run_func(&Long(pre.clone()), &mut state.env));
+    try!(describe_process_output(&out, &mut state.env));
     // stop no matter what
     return Ok(Stop);
 }
 
 fn block_handler(name:String, pre:&mut Vec<WashArgs>,
-               next:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
+               next:&mut Vec<InputValue>, _:&mut ShellState) -> Result<HandlerResult, String> {
     if !pre.is_empty() {
         return Err("Malformed block".to_string());
     }
@@ -419,21 +420,21 @@ fn block_handler(name:String, pre:&mut Vec<WashArgs>,
     return Ok(More(block));
 }
 
-fn end_block_handler(_:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, _:&mut WashEnv) -> Result<HandlerResult, String> {
+fn end_block_handler(_:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, _:&mut ShellState) -> Result<HandlerResult, String> {
     // helper to tell users not to use this in a line
     return Err("Malformed block".to_string());
 }
 
-fn act_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
-    block_handler("act".to_string(), pre, next, env)
+fn act_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+    block_handler("act".to_string(), pre, next, state)
 }
 
-fn if_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
-    block_handler("if".to_string(), pre, next, env)
+fn if_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+    block_handler("if".to_string(), pre, next, state)
 }
 
-fn else_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, env:&mut WashEnv) -> Result<HandlerResult, String> {
-    block_handler("else".to_string(), pre, next, env)
+fn else_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+    block_handler("else".to_string(), pre, next, state)
 }
 
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
@@ -464,22 +465,26 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     // commands that aren't really meant to be called by users
     try!(env.insf("describe_process_output", describe_process_output));
 
+    return Ok(Empty);
+}
+
+pub fn load_handlers(state:&mut ShellState) -> Result<WashArgs, String> {
     // handlers
-    try!(env.insert_handler("=", equal_handler));
-    try!(env.insert_handler(";&", semiamper_handler));
-    try!(env.insert_handler("&&", amperamper_handler));
-    try!(env.insert_handler("&", amper_handler));
-    try!(env.insert_handler("|", bar_handler));
-    try!(env.insert_handler("<", leq_handler));
-    try!(env.insert_handler(">", geq_handler));
-    try!(env.insert_handler("==", equalequal_handler));
-    try!(env.insert_handler("~=", tildaequal_handler));
+    try!(state.insert_handler("=", equal_handler));
+    try!(state.insert_handler(";&", semiamper_handler));
+    try!(state.insert_handler("&&", amperamper_handler));
+    try!(state.insert_handler("&", amper_handler));
+    try!(state.insert_handler("|", bar_handler));
+    try!(state.insert_handler("<", leq_handler));
+    try!(state.insert_handler(">", geq_handler));
+    try!(state.insert_handler("==", equalequal_handler));
+    try!(state.insert_handler("~=", tildaequal_handler));
 
     // block start/end
-    try!(env.insert_handler("act!", act_handler));
-    try!(env.insert_handler("if!", if_handler));
-    try!(env.insert_handler("else!", else_handler));
-    try!(env.insert_handler("}", end_block_handler));
+    try!(state.insert_handler("act!", act_handler));
+    try!(state.insert_handler("if!", if_handler));
+    try!(state.insert_handler("else!", else_handler));
+    try!(state.insert_handler("}", end_block_handler));
 
     return Ok(Empty);
 }
