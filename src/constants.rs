@@ -80,6 +80,8 @@ pub const SA_NOCLDWAIT:c_int = 2;
 pub const SA_SIGINFO:c_int   = 4;
 pub const SA_RESTART:c_int   = 0x10000000;
 
+pub const CLD_EXITED:c_int = 1;
+
 pub const RTLD_LOCAL:c_int = 0;
 pub const RTLD_LAZY:c_int = 1;
 

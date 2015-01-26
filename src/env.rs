@@ -108,6 +108,11 @@ impl WashEnv {
     pub fn flush(&mut self) {
         self.term.controls.flush();
     }
+
+    pub fn handle_sigchld(&mut self) {
+        self.term.set_pointer();
+        self.term.handle_sigchld();
+    }
     
     pub fn run_job_fd(&mut self, stdin:Option<Fd>, stdout:Option<Fd>, stderr:Option<Fd>,
                       name:&String, args:&Vec<String>) -> Result<usize, String> {

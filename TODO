@@ -1,7 +1,8 @@
 - better job control
- - handle SIGCHLD
  - handle SIGTSTP
  - setting variables for one job
+- wrap all calls to process.wait with unhandling any sigchld handlers
+  - to avoid panics in process.rs
 - more keyboard shortcuts
 - settings
  - maybe vars on a special path?

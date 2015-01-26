@@ -48,6 +48,34 @@ unsafe extern fn term_sigint(_:c_int, _:*const SigInfo,
     }
 }
 
+unsafe extern fn term_sigchld(_:c_int, u_info:*const SigInfo,
+                              _:*const c_void) {
+    let term:&mut TermState = match uglobal_term.as_mut() {
+        Some(v) => v,
+        None => {
+            // this handler shouldn't be called when Term isn't active
+            panic!("Term signal interrupt called when Term not active");
+        }
+    };
+    let info:&SigInfo = match u_info.as_ref() {
+        Some(v) => v,
+        None => panic!("Given a null pointer for signal info")
+    };
+    // find the child by pid
+    for (_, ref mut job) in term.jobs.iter_mut() {
+        if job.process.id() == info.pid {
+            let exit = match info.code {
+                CLD_EXITED => ProcessExit::ExitStatus(info.status as isize),
+                _ => ProcessExit::ExitSignal(info.status as isize)
+            };
+            job.exit = Some(Ok(exit));
+            return;
+        }
+    }
+    // child was not found
+    term.controls.errf(format_args!("\nSent SIGCHLD for process not found in job table: {}\n", info.pid));
+}
+
 pub struct Job {
     pub command: String,
     pub process: Process,
@@ -112,6 +140,13 @@ pub struct TermState {
     pub catch_sigint: bool
 }
 
+impl Drop for TermState {
+    fn drop (&mut self) {
+        self.unhandle_sigchld();
+        self.unset_pointer();
+    }
+}
+
 impl TermState {
     pub fn new() -> TermState {
         let mut controls = Controls::new();
@@ -125,7 +160,7 @@ impl TermState {
         let old_tios = tios.clone();
         tios.fdisable(0, 0, ICANON|ECHO, 0);
         
-        return TermState {
+        TermState {
             controls: controls,
             tios: tios,
             old_tios: old_tios,
@@ -133,7 +168,7 @@ impl TermState {
             fg_job: None,
             files: VecMap::new(),
             catch_sigint: true
-        };
+        }
     }
 
     pub fn update_terminal(&mut self) {
@@ -148,7 +183,7 @@ impl TermState {
         }
     }
 
-    fn set_pointer(&mut self) {
+    pub fn set_pointer(&mut self) {
         unsafe {
             if !uglobal_term.is_null() {
                 panic!("Tried to set Term location twice");
@@ -166,9 +201,22 @@ impl TermState {
         }
     }
 
+    pub fn handle_sigchld(&mut self) {
+        let sa = SigAction::handler(term_sigchld);
+        if !signal_handle(SIGCHLD, &sa) {
+            self.controls.err("Warning: could not set handlher for SIGCHLD\n");
+        }
+    }
+    
+    pub fn unhandle_sigchld(&mut self) {
+        if !signal_default(SIGCHLD) {
+            self.controls.err("Warning: could not unset handler for SIGCHLD\n");
+        }
+    }
+
+
     fn handle_sigint(&mut self) {
         if !self.catch_sigint {return}
-        self.set_pointer();
         let sa = SigAction::handler(term_sigint);
         if !signal_handle(SIGINT, &sa) {
             self.controls.err("Warning: could not set handler for SIGINT\n");
@@ -177,7 +225,6 @@ impl TermState {
     
     fn unhandle_sigint(&mut self) {
         if !self.catch_sigint {return}
-        self.unset_pointer();
         if !signal_ignore(SIGINT) {
             self.controls.err("Warning: could not unset handler for SIGINT\n");
         }
@@ -422,12 +469,18 @@ impl TermState {
     pub fn clean_jobs(&mut self) -> Vec<(usize, String, IoResult<ProcessExit>)> {
         let mut out = vec![];
         let mut remove = vec![];
+        // unhandle sigchld because we're calling wait
+        // which will register another handler
+        // which doesn't use SIGINFO
+        // which will panic when it tries to run the old handler
+        self.unhandle_sigchld();
         for (id, child) in self.jobs.iter_mut() {
             if child.check_exit() {
                 out.push((id, child.command.clone(), child.exit.clone().unwrap()));
                 remove.push(id);
             }
         }
+        self.handle_sigchld();
         for id in remove.iter() {
             self.jobs.remove(id);
         }

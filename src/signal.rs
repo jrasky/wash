@@ -3,9 +3,10 @@ use std::mem;
 
 use constants::*;
 
-// This could also be a pointer,
-// but it probably isn't
-pub type SigVal = c_int;
+pub struct SigVal {
+    pub val_int: c_int,
+    pub val_ptr: *const c_void
+}
 
 // The size_t at the end is a pointer to a ucontext_t
 // do I want to implement that type? Lol no
@@ -16,90 +17,25 @@ pub type SigVal = c_int;
 pub type SigHandler = unsafe extern fn(c_int, *const SigInfo, *const c_void);
 pub type SigSet = [c_ulong; SIGSET_NWORDS];
 
-// _pad is needed to make all these types the same size
-// this is the case because rust doesn't have an equivalent to C unions
-// it's really a bitch
-// at least let me transmute between different sized types I mean jesus christ
-
-#[derive(Copy)]
-pub struct KillFields {
-    pub pid: pid_t,
-    pub uid: uid_t,
-    _pad: [c_int; (SI_PAD_SIZE - 2)]
-}
-
-#[derive(Copy)]
-pub struct PTimerFields {
-    pub tid: c_int,
-    pub overrun: c_int,
-    pub sigval: SigVal,
-    _pad: [c_int; (SI_PAD_SIZE - 3)]
-}
-
-#[derive(Copy)]
-pub struct PSignalFields {
-    pub pid: pid_t,
-    pub uid: uid_t,
-    pub sigval: SigVal,
-    _pad: [c_int; (SI_PAD_SIZE - 3)]
-}
-
-#[derive(Copy)]
-pub struct SigChldFields {
+pub struct SigInfo {
+    pub signo: c_int,
+    pub errno: c_int,
+    pub code: c_int,
+    pub trapno: c_int,
     pub pid: pid_t,
     pub uid: uid_t,
     pub status: c_int,
     pub utime: clock_t,
     pub stime: clock_t,
-    _pad: [c_int; (SI_PAD_SIZE - 8)]
-}
-
-#[derive(Copy)]
-pub struct SigFaultFields {
-    pub addr: size_t, // pointer
-    pub addr_lsb: c_short,
-    _pad: [c_int; (SI_PAD_SIZE - 3)]
-}
-
-#[derive(Copy)]
-pub struct SigPollFields {
+    pub value: SigVal,
+    pub int: c_int,
+    pub ptr: *const c_void,
+    pub overrun: c_int,
+    pub timerid: c_int,
+    pub addr: *const c_void,
     pub band: c_long,
     pub fd: c_int,
-    _pad: [c_int; (SI_PAD_SIZE - 3)]
-}
-
-#[derive(Copy)]
-pub struct SigSysFields {
-    _call_addr: size_t, // pointer
-    _syscall: c_int,
-    _arch: c_uint,
-    _pad: [c_int; (SI_PAD_SIZE - 4)]
-}
-
-// If only Rust had a C union equivalent.
-#[derive(Copy)]
-pub enum SigFields {
-    Kill(KillFields),
-    PTimer(PTimerFields),
-    PSignal(PSignalFields),
-    SigChld(SigChldFields),
-    SigFault(SigFaultFields),
-    SigPoll(SigPollFields),
-    SigSys(SigSysFields)
-}
-
-#[repr(C)]
-#[derive(Copy)]
-pub struct SigInfo {
-    signo: c_int,
-    errno: c_int,
-    code: c_int,
-
-    // Rust doesn't currently support unions for FFI's
-    // the best option is to have a generic pad and use
-    // transmute to change between types
-    // No, you can't just use enums, that would be too easy
-    pad: [c_int; SI_PAD_SIZE]
+    pub addr_lsb: c_short
 }
 
 #[repr(C)]
@@ -120,7 +56,7 @@ impl SigAction {
         SigAction {
             handler: unsafe {mem::transmute::<usize, SigHandler>(0)},
             mask: full_sigset().unwrap_or([0; SIGSET_NWORDS]),
-            flags: SA_RESTART | SA_SIGINFO,
+            flags: SA_RESTART,
             restorer: 0
         }
     }
@@ -129,7 +65,7 @@ impl SigAction {
         SigAction {
             handler: unsafe {mem::transmute::<usize, SigHandler>(1)},
             mask: full_sigset().unwrap_or([0; SIGSET_NWORDS]),
-            flags: SA_RESTART | SA_SIGINFO,
+            flags: SA_RESTART,
             restorer: 0
         }
     }
@@ -140,24 +76,6 @@ impl SigAction {
             mask: full_sigset().unwrap_or([0; SIGSET_NWORDS]),
             flags: SA_RESTART | SA_SIGINFO,
             restorer: 0
-        }
-    }
-}
-
-impl SigInfo {
-    // included for completeness, not currently used
-    #[allow(dead_code)]
-    pub fn determine_sigfields(&self) -> SigFields {
-        unsafe {
-            match self.signo {
-                SIGKILL => SigFields::Kill(mem::transmute(self.pad)),
-                SIGALRM | SIGVTALRM | SIGPROF => SigFields::PTimer(mem::transmute(self.pad)),
-                SIGCHLD => SigFields::SigChld(mem::transmute(self.pad)),
-                SIGILL | SIGFPE | SIGSEGV | SIGBUS => SigFields::SigFault(mem::transmute(self.pad)),
-                SIGPOLL => SigFields::SigPoll(mem::transmute(self.pad)),
-                SIGSYS => SigFields::SigSys(mem::transmute(self.pad)),
-                _ => SigFields::PSignal(mem::transmute(self.pad))
-            }
         }
     }
 }
@@ -188,6 +106,16 @@ pub fn signal_ignore(signal:c_int) -> bool {
 
 pub fn signal_ignore_inner(signal:c_int) -> (bool, *const SigAction) {
     let action = SigAction::ignore();
+    signal_handle_inner(signal, &action)
+}
+
+pub fn signal_default(signal:c_int) -> bool {
+    let (status, _) = signal_default_inner(signal);
+    return status;
+}
+
+pub fn signal_default_inner(signal:c_int) -> (bool, *const SigAction) {
+    let action = SigAction::new();
     signal_handle_inner(signal, &action)
 }
 
