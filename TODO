@@ -1,6 +1,5 @@
 - better job control
  - handle SIGSTP
- - more gracefully handle running jobs at exit
  - setting variables for one job
 - more keyboard shortcuts
 - settings

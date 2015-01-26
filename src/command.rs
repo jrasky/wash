@@ -54,6 +54,32 @@ pub struct Job {
     pub files: Vec<File>
 }
 
+impl Drop for Job {
+    fn drop(&mut self) {
+        self.process.set_timeout(Some(0));
+        match self.process.wait() {
+            Ok(_) => return,
+            Err(_) => {/* continue */}
+        }
+        
+        self.process.set_timeout(Some(1000));
+        match self.process.signal_exit() {
+            Err(e) => println!("Could not signal {} to exit: {}", self.process.id(), e),
+            _ => {/* ok */}
+        }
+        match self.process.wait() {
+            Ok(_) => return,
+            Err(_) => {/* continue */}
+        }
+        
+        match self.process.signal_kill() {
+            Err(e) => println!("Could not kill {}: {}", self.process.id(), e),
+            _ => {/* ok */}
+        }
+        self.process.set_timeout(None);
+    }
+}
+
 pub struct TermState {
     pub controls: Controls,
     tios: Termios,
@@ -271,15 +297,34 @@ impl TermState {
         child.process.set_timeout(None);
         // handle sigint
         self.handle_sigint();
-        let out = match child.process.wait_with_output() {
-            Err(e) => return Err(format!("Could not get job output: {}", e)),
-            Ok(o) => Ok(o)
-        };
+        let exit = child.process.wait();
         // unset foreground job
         self.fg_job = None;
         // unhandle sigint
         self.unhandle_sigint();
-        return out;
+        let status = match exit {
+            Err(e) => return Err(format!("Could not get job output: {}", e)),
+            Ok(s) => s
+        };
+        let stdout = match child.process.stdout.as_mut() {
+            None => return Err("Child had no stdout".to_string()),
+            Some(st) => match st.read_to_end() {
+                Err(e) => return Err(format!("Could not read stdout: {}", e)),
+                Ok(v) => v
+            }
+        };
+        let stderr = match child.process.stderr.as_mut() {
+            None => return Err("Child had no stderr".to_string()),
+            Some(st) => match st.read_to_end() {
+                Err(e) => return Err(format!("Could not read stderr: {}", e)),
+                Ok(v) => v
+            }
+        };
+        return Ok(ProcessOutput {
+            status: status,
+            output: stdout,
+            error: stderr
+        });
     }
 
     pub fn start_command(&mut self, stdin:StdioContainer, stdout:StdioContainer, stderr:StdioContainer,
