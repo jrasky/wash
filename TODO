@@ -1,4 +1,5 @@
 - better job control
+ - handle SIGCHLD
  - handle SIGTSTP
  - setting variables for one job
 - more keyboard shortcuts
