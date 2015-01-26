@@ -1,5 +1,5 @@
 - better job control
- - handle SIGSTP
+ - handle SIGTSTP
  - setting variables for one job
 - more keyboard shortcuts
 - settings
