@@ -13,6 +13,7 @@ use reader::*;
 use constants::*;
 use state::*;
 use builtins::*;
+use handlers::*;
 use types::*;
 
 mod constants;
@@ -28,6 +29,7 @@ mod command;
 mod types;
 mod env;
 mod state;
+mod handlers;
 
 // public so no warnings when we run tests
 pub fn main() {
