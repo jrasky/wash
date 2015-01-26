@@ -49,7 +49,8 @@ pub struct WashEnv {
     pub variables: String,
     pub functions: FuncTable,
     pub scripts: ScriptTable,
-    pub term: TermState
+    pub term: TermState,
+    pub catch_sigint: bool
 }
 
 impl WashEnv {
@@ -59,7 +60,8 @@ impl WashEnv {
             variables: String::new(),
             functions: HashMap::new(),
             scripts: HashMap::new(),
-            term: TermState::new()
+            term: TermState::new(),
+            catch_sigint: true
         }
     }
 
@@ -283,6 +285,8 @@ impl WashEnv {
     }
 
     pub fn handle_sigint(&mut self) {
+        // sigint handling in env may be disabled from above
+        if !self.catch_sigint {return}
         self.func_unstop();
         let mut sa = SigAction {
             handler: env_sigint,
@@ -297,7 +301,9 @@ impl WashEnv {
         }
     }
 
-    fn unhandle_sigint(&mut self) {
+    pub fn unhandle_sigint(&mut self) {
+        // sigint handling in env may be disabled from above
+        if !self.catch_sigint {return}
         self.func_unstop();
         if !signal_ignore(SIGINT) {
             self.term.controls.err("Warning: could not unset handler for SIGINT\n");

@@ -89,13 +89,25 @@ impl ShellState {
 
     pub fn process_lines<'a, T:Iterator<Item=&'a InputValue>>(&mut self, mut lines:T) -> Result<WashArgs, String> {
         let mut out = Flat(String::new());
+        // handle sigint
+        self.env.handle_sigint();
+        // prevent env from unsetting that handler
+        self.env.catch_sigint = false;
         for line in lines {
+            // check for stop
+            try!(self.env.func_stop());
             out = match self.process_line(line.clone()) {
                 Err(ref e) if *e == STOP => Empty,
-                Err(e) => return Err(e),
+                Err(e) => {
+                    self.env.catch_sigint = true;
+                    self.env.unhandle_sigint();
+                    return Err(e);
+                },
                 Ok(v) => v
             }
         }
+        self.env.catch_sigint = true;
+        self.env.unhandle_sigint();
         return Ok(out);
     }
 
