@@ -51,7 +51,29 @@ unsafe extern fn term_sigint(_:c_int, _:*const SigInfo,
 pub struct Job {
     pub command: String,
     pub process: Process,
-    pub files: Vec<File>
+    pub files: Vec<File>,
+    pub exit: Option<IoResult<ProcessExit>>
+}
+
+impl Job {
+    pub fn check_exit(&mut self) -> bool {
+        if self.exit.is_some() {return true} // process has already exited
+        self.process.set_timeout(Some(0));
+        let exited;
+        match self.process.wait() {
+            Err(IoError{kind: IoErrorKind::TimedOut, desc: _, detail: _}) => {
+                // we aren't dead yet
+                exited = false;
+            },
+            v => {
+                // we are dead
+                self.exit = Some(v);
+                exited = true;
+            }
+        }
+        self.process.set_timeout(None);
+        return exited;
+    }
 }
 
 impl Drop for Job {
@@ -233,7 +255,8 @@ impl TermState {
         let mut job =  Job {
             command: name.clone(),
             process: child,
-            files: vec![]
+            files: vec![],
+            exit: None
         };
         // claim file descriptors if they exist in the file table
         match stdin {
@@ -400,19 +423,9 @@ impl TermState {
         let mut out = vec![];
         let mut remove = vec![];
         for (id, child) in self.jobs.iter_mut() {
-            child.process.set_timeout(Some(0)); // don't block on wait
-            match child.process.wait() {
-                Err(IoError{kind: IoErrorKind::TimedOut, desc: _, detail: _}) => {
-                    // this is expected, do nothing
-                    child.process.set_timeout(None);
-                },
-                v => {
-                    // all other outputs mean the job is done
-                    // if it isn't it'll be cleaned up in drop
-                    child.process.set_timeout(None);
-                    remove.push(id);
-                    out.push((id, child.command.clone(), v));
-                }
+            if child.check_exit() {
+                out.push((id, child.command.clone(), child.exit.clone().unwrap()));
+                remove.push(id);
             }
         }
         for id in remove.iter() {
