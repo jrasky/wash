@@ -1,6 +1,5 @@
 use libc::*;
 use std::mem;
-use std::ptr;
 
 use constants::*;
 
@@ -116,6 +115,35 @@ pub struct SigAction {
     pub restorer: size_t
 }
 
+impl SigAction {
+    pub fn new() -> SigAction {
+        SigAction {
+            handler: unsafe {mem::transmute::<usize, SigHandler>(0)},
+            mask: full_sigset().unwrap_or([0; SIGSET_NWORDS]),
+            flags: SA_RESTART | SA_SIGINFO,
+            restorer: 0
+        }
+    }
+
+    pub fn ignore() -> SigAction {
+        SigAction {
+            handler: unsafe {mem::transmute::<usize, SigHandler>(1)},
+            mask: full_sigset().unwrap_or([0; SIGSET_NWORDS]),
+            flags: SA_RESTART | SA_SIGINFO,
+            restorer: 0
+        }
+    }
+
+    pub fn handler(handler:SigHandler) -> SigAction {
+        SigAction {
+            handler: handler,
+            mask: full_sigset().unwrap_or([0; SIGSET_NWORDS]),
+            flags: SA_RESTART | SA_SIGINFO,
+            restorer: 0
+        }
+    }
+}
+
 impl SigInfo {
     // included for completeness, not currently used
     #[allow(dead_code)]
@@ -140,35 +168,27 @@ extern {
     fn sigfillset(mask:*mut SigSet) -> c_int;
 }
 
-
 pub fn signal_handle(signal:c_int, action:&SigAction) -> bool {
+    let (status, _) = signal_handle_inner(signal, action);
+    return status;
+}
+
+pub fn signal_handle_inner(signal:c_int, action:*const SigAction) -> (bool, *const SigAction) {
     unsafe {
-        return sigaction(signal, action, ptr::null_mut::<SigAction>()) == 0;
+        let old_act:*mut SigAction = &mut SigAction::new();
+        let status = sigaction(signal, action, old_act) == 0;
+        return (status, old_act);
     }
 }
 
 pub fn signal_ignore(signal:c_int) -> bool {
-    unsafe {
-        let action = SigAction {
-            handler: mem::transmute::<size_t, SigHandler>(1),
-            mask: [0; SIGSET_NWORDS],
-            flags: 0,
-            restorer: 0
-        };
-        signal_handle(signal, &action)
-    }
+    let (status, _) = signal_ignore_inner(signal);
+    return status;
 }
 
-pub fn signal_default(signal:c_int) -> bool {
-    unsafe {
-        let action = SigAction {
-            handler: mem::transmute::<size_t, SigHandler>(0),
-            mask: [0; SIGSET_NWORDS],
-            flags: 0,
-            restorer: 0
-        };
-        signal_handle(signal, &action)
-    }
+pub fn signal_ignore_inner(signal:c_int) -> (bool, *const SigAction) {
+    let action = SigAction::ignore();
+    signal_handle_inner(signal, &action)
 }
 
 pub fn full_sigset() -> Option<SigSet> {

@@ -89,25 +89,39 @@ impl ShellState {
 
     pub fn process_lines<'a, T:Iterator<Item=&'a InputValue>>(&mut self, mut lines:T) -> Result<WashArgs, String> {
         let mut out = Flat(String::new());
-        // handle sigint
-        self.env.handle_sigint();
-        // prevent env from unsetting that handler
-        self.env.catch_sigint = false;
+        let reset_sigint;
+        if self.env.catch_sigint {
+            reset_sigint = true;
+            // handle sigint
+            self.env.handle_sigint();
+            // prevent env from unsetting that handler
+            self.env.catch_sigint = false;
+            // prevent term from unsetting that handler
+            self.env.term.catch_sigint = false;
+        } else {
+            reset_sigint = false;
+        }
         for line in lines {
             // check for stop
             try!(self.env.func_stop());
             out = match self.process_line(line.clone()) {
                 Err(ref e) if *e == STOP => Empty,
                 Err(e) => {
-                    self.env.catch_sigint = true;
-                    self.env.unhandle_sigint();
+                    if reset_sigint {
+                        self.env.term.catch_sigint = true;
+                        self.env.catch_sigint = true;
+                        self.env.unhandle_sigint();
+                    }
                     return Err(e);
                 },
                 Ok(v) => v
             }
         }
-        self.env.catch_sigint = true;
-        self.env.unhandle_sigint();
+        if reset_sigint {
+            self.env.term.catch_sigint = true;
+            self.env.catch_sigint = true;
+            self.env.unhandle_sigint();
+        }
         return Ok(out);
     }
 
@@ -141,16 +155,42 @@ impl ShellState {
                 cond = self.process_line(InputValue::Long(block.next.clone()));
             }
             let mut out = Err(STOP.to_string());
+            // handle sigint
+            self.env.handle_sigint();
+            // prevent env from unsetting that handler
+            self.env.catch_sigint = false;
+            // prevent term from unsetting that handler
+            self.env.term.catch_sigint = false;
             while cond.is_ok() {
                 // check for stop
-                try!(self.env.func_stop());
-                out = self.process_lines(block.content.iter());
+                match self.env.func_stop() {
+                    Err(e) => {
+                        self.env.term.catch_sigint = true;
+                        self.env.catch_sigint = true;
+                        self.env.unhandle_sigint();
+                        return Err(e);
+                    },
+                    _ => {/* nothing */}
+                }
+                out = match self.process_lines(block.content.iter()) {
+                    Err(ref e) if *e == STOP => Ok(Empty),
+                    Err(e) => {
+                        self.env.term.catch_sigint = true;
+                        self.env.catch_sigint = true;
+                        self.env.unhandle_sigint();
+                        return Err(e);
+                    },
+                    v => v
+                };
                 if block.next.is_empty() {
                     cond = Ok(Flat(String::new()));
                 } else {
                     cond = self.process_line(InputValue::Long(block.next.clone()));
                 }
             }
+            self.env.term.catch_sigint = true;
+            self.env.catch_sigint = true;
+            self.env.unhandle_sigint();
             return out;
         } else {
             return Err(format!("Don't know how to handle block: {}", block.start));

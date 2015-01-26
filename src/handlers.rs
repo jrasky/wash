@@ -41,14 +41,14 @@ fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut S
             // this can be used to set a variable
             // with a name containing a colon
             try!(state.env.insv(name, val.clone()));
-            return Err(val.flatten());
+            return Err(STOP.to_string());
         } else {
             try!(state.env.insvp(name, path, val.clone()));
-            return Err(val.flatten());
+            return Err(STOP.to_string());
         }
     } else {
         try!(state.env.insv(name, val.clone()));
-        return Err(val.flatten());
+        return Err(STOP.to_string());
     }
     // right now equals can only produce Stop.
     // In the future this may not be the case

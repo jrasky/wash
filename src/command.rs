@@ -60,7 +60,8 @@ pub struct TermState {
     old_tios: Termios,
     pub jobs: VecMap<Job>,
     fg_job: Option<usize>,
-    files: VecMap<File>
+    files: VecMap<File>,
+    pub catch_sigint: bool
 }
 
 impl TermState {
@@ -82,7 +83,8 @@ impl TermState {
             old_tios: old_tios,
             jobs: VecMap::new(),
             fg_job: None,
-            files: VecMap::new()
+            files: VecMap::new(),
+            catch_sigint: true
         };
     }
 
@@ -117,21 +119,16 @@ impl TermState {
     }
 
     fn handle_sigint(&mut self) {
+        if !self.catch_sigint {return}
         self.set_pointer();
-        let mut sa = SigAction {
-            handler: term_sigint,
-            mask: [0; SIGSET_NWORDS],
-            flags: SA_RESTART | SA_SIGINFO,
-            restorer: 0 // null pointer
-        };
-        let mask = full_sigset().expect("Could not get a full sigset");
-        sa.mask = mask;
+        let sa = SigAction::handler(term_sigint);
         if !signal_handle(SIGINT, &sa) {
             self.controls.err("Warning: could not set handler for SIGINT\n");
         }
     }
     
     fn unhandle_sigint(&mut self) {
+        if !self.catch_sigint {return}
         self.unset_pointer();
         if !signal_ignore(SIGINT) {
             self.controls.err("Warning: could not unset handler for SIGINT\n");
@@ -192,13 +189,13 @@ impl TermState {
 
     pub fn start_job(&mut self, stdin:StdioContainer, stdout:StdioContainer, stderr:StdioContainer,
                      name:&String, args:&Vec<String>) -> Result<usize, String> {
+        // set a signal handler while spawning the process
+        self.handle_sigint();
         let mut process = Command::new(name);
         process.args(args.as_slice());
         process.stdin(stdin);
         process.stdout(stdout);
         process.stderr(stderr);
-        // reset signal to default before spawning
-        signal_default(SIGINT);
         let child = match process.spawn() {
             Err(e) => {
                 signal_ignore(SIGINT);
@@ -206,8 +203,6 @@ impl TermState {
             },
             Ok(v) => v
         };
-        // re-ignore signal
-        signal_ignore(SIGINT);
         let id = self.find_jobs_hole();
         let mut job =  Job {
             command: name.clone(),
@@ -234,6 +229,8 @@ impl TermState {
             Some(_) => panic!("Overwrote job"),
             _ => {/* nothing */}
         }
+        // unhandle sigint
+        self.unhandle_sigint();
         return Ok(id);
     }
 

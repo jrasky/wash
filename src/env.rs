@@ -37,9 +37,25 @@ type WashRun = extern fn(*const WashArgs, *mut WashEnv) -> Result<WashArgs, Stri
 
 // global stop check
 static mut uexec_stop:bool = false;
+static mut uglobal_env:*mut WashEnv = 0 as *mut WashEnv;
 
 unsafe extern fn env_sigint(_:c_int, _:*const SigInfo,
                             _:*const c_void) {
+    // get env pointer
+    let env:&mut WashEnv = match uglobal_env.as_mut() {
+        Some(v) => v,
+        None => {
+            // this handler shouldn't be called when the env pointer is null
+            panic!("Env signal interrupt called when Env not active");
+        }
+    };
+    // delete the ^C
+    env.outc(BS);
+    env.outc(BS);
+    env.outc(SPC);
+    env.outc(SPC);
+    env.outc(BS);
+    env.outc(BS);
     // set the stop global to true
     uexec_stop = true;
 }
@@ -283,11 +299,30 @@ impl WashEnv {
             };
         }
     }
+    
+    fn set_pointer(&mut self) {
+        unsafe {
+            if !uglobal_env.is_null() {
+                panic!("Tried to set Env location twice");
+            }
+            uglobal_env = self as *mut WashEnv;
+        }
+    }
+
+    fn unset_pointer(&mut self) {
+        unsafe {
+            if uglobal_env.is_null() {
+                panic!("Tried to unset Env location twice");
+            }
+            uglobal_env = 0 as *mut WashEnv;
+        }
+    }
 
     pub fn handle_sigint(&mut self) {
         // sigint handling in env may be disabled from above
         if !self.catch_sigint {return}
         self.func_unstop();
+        self.set_pointer();
         let mut sa = SigAction {
             handler: env_sigint,
             mask: [0; SIGSET_NWORDS],
@@ -305,6 +340,7 @@ impl WashEnv {
         // sigint handling in env may be disabled from above
         if !self.catch_sigint {return}
         self.func_unstop();
+        self.unset_pointer();
         if !signal_ignore(SIGINT) {
             self.term.controls.err("Warning: could not unset handler for SIGINT\n");
         }
