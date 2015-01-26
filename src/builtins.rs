@@ -46,14 +46,16 @@ fn outs_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     return Ok(Empty);
 }
 
-fn job_args(args:&WashArgs) -> Result<(Option<Fd>, Option<Fd>, Option<Fd>,
-                                       String, Vec<String>), String> {
+fn job_args(args:&WashArgs, env:&mut WashEnv) -> Result<(Option<Fd>, Option<Fd>, Option<Fd>,
+                                                         String, Vec<String>), String> {
     // turns arguments into file descriptor options, command name and args
     // utility function because job_func and run_func use this same code
     let (mut stdin, mut stdout, mut stderr) = (None, None, None);
     let mut argc = args.flatten_vec();
     let mut name;
     loop {
+        // check for stop
+        try!(env.func_stop());
         // fail if only file descriptors given
         if argc.is_empty() {
             return Err("Don't know what to do with file descriptors".to_string());
@@ -98,7 +100,7 @@ pub fn job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
         id = try!(env.run_job(&args.get(0).flatten(), &args_slice.flatten_vec()));
     } else {
         // hard case, file descriptors given
-        let (stdin, stdout, stderr, name, argc) = try!(job_args(args));
+        let (stdin, stdout, stderr, name, argc) = try!(job_args(args, env));
         id = try!(env.run_job_fd(stdin, stdout, stderr, &name, &argc));
     }
     return Ok(Flat(format!("{}", id)));
@@ -140,7 +142,7 @@ pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
         out = try!(env.run_command(&args.get(0).flatten(), &args_slice.flatten_vec()));
     } else {
         // hard case, file descriptors given
-        let (stdin, stdout, stderr, name, argc) = try!(job_args(args));
+        let (stdin, stdout, stderr, name, argc) = try!(job_args(args, env));
         out = try!(env.run_command_fd(stdin, stdout, stderr, &name, &argc));
     }
     return match out {

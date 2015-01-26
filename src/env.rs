@@ -1,3 +1,5 @@
+use libc::*;
+
 use std::io::process::{ProcessOutput, ProcessExit};
 use std::io::process::ProcessExit::*;
 use std::collections::HashMap;
@@ -13,6 +15,8 @@ use command::*;
 use types::*;
 use util::*;
 use script::*;
+use signal::*;
+use constants::*;
 
 // !!!
 // Wash function calling convention
@@ -30,6 +34,15 @@ pub type PathTable = HashMap<String, VarTable>;
 // the second the same of variables
 type WashLoad = extern fn(*const WashArgs, *mut WashEnv) -> Result<WashArgs, String>;
 type WashRun = extern fn(*const WashArgs, *mut WashEnv) -> Result<WashArgs, String>;
+
+// global stop check
+static mut uexec_stop:bool = false;
+
+unsafe extern fn env_sigint(_:c_int, _:*const SigInfo,
+                            _:*const c_void) {
+    // set the stop global to true
+    uexec_stop = true;
+}
 
 pub struct WashEnv {
     pub paths: PathTable,
@@ -269,12 +282,53 @@ impl WashEnv {
         }
     }
 
+    pub fn handle_sigint(&mut self) {
+        self.func_unstop();
+        let mut sa = SigAction {
+            handler: env_sigint,
+            mask: [0; SIGSET_NWORDS],
+            flags: SA_RESTART | SA_SIGINFO,
+            restorer: 0 // null pointer
+        };
+        let mask = full_sigset().expect("Could not get a full sigset");
+        sa.mask = mask;
+        if !signal_handle(SIGINT, &sa) {
+            self.term.controls.err("Warning: could not set handler for SIGINT\n");
+        }
+    }
+
+    fn unhandle_sigint(&mut self) {
+        self.func_unstop();
+        if !signal_ignore(SIGINT) {
+            self.term.controls.err("Warning: could not unset handler for SIGINT\n");
+        }
+    }
+
+    pub fn func_unstop(&self) {
+        unsafe {
+            uexec_stop = false;
+        }
+    }
+
+    pub fn func_stop(&self) -> Result<(), String> {
+        unsafe {
+            if uexec_stop {
+                return Err("Interrupt".to_string());
+            } else {
+                return Ok(());
+            }
+        }
+    }
+
     pub fn runf(&mut self, name:&String, args:&WashArgs) -> Result<WashArgs, String> {
         let func = match self.functions.get(name) {
             None => return Err("Function not found".to_string()),
             Some(func) => func.clone()
         };
-        return func(args, self);
+        self.handle_sigint();
+        let out = func(args, self);
+        self.unhandle_sigint();
+        return out;
     }
 
     pub fn runfs(&mut self, name:&str, args:&WashArgs) -> Result<WashArgs, String> {
