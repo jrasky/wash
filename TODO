@@ -1,8 +1,6 @@
-- function paths?
 - better job control
  - handle SIGSTP
  - more gracefully handle running jobs at exit
- - figure out how to handle input on piped runs
  - setting variables for one job
 - more keyboard shortcuts
 - settings
@@ -21,6 +19,7 @@
 - bash integration
 
 future:
+- function paths?
 - better terminal protocol
  - over dbus
 - terminal client to match
