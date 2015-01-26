@@ -133,6 +133,25 @@ impl ShellState {
             } else {
                 return Err(STOP.to_string());
             }
+        } else if block.start == "loop" {
+            let mut cond;
+            if block.next.is_empty() {
+                cond = Ok(Flat(String::new()));
+            } else {
+                cond = self.process_line(InputValue::Long(block.next.clone()));
+            }
+            let mut out = Err(STOP.to_string());
+            while cond.is_ok() {
+                // check for stop
+                try!(self.env.func_stop());
+                out = self.process_lines(block.content.iter());
+                if block.next.is_empty() {
+                    cond = Ok(Flat(String::new()));
+                } else {
+                    cond = self.process_line(InputValue::Long(block.next.clone()));
+                }
+            }
+            return out;
         } else {
             return Err(format!("Don't know how to handle block: {}", block.start));
         }

@@ -213,6 +213,10 @@ fn else_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut Sh
     block_handler("else".to_string(), pre, next, state)
 }
 
+fn loop_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+    block_handler("loop".to_string(), pre, next, state)
+}
+
 pub fn load_handlers(state:&mut ShellState) -> Result<WashArgs, String> {
     // handlers
     try!(state.insert_handler("=", equal_handler));
@@ -229,6 +233,7 @@ pub fn load_handlers(state:&mut ShellState) -> Result<WashArgs, String> {
     try!(state.insert_handler("act!", act_handler));
     try!(state.insert_handler("if!", if_handler));
     try!(state.insert_handler("else!", else_handler));
+    try!(state.insert_handler("loop!", loop_handler));
     try!(state.insert_handler("}", end_block_handler));
 
     return Ok(Empty);
