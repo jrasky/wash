@@ -95,7 +95,7 @@ pub struct SigInfo {
     pub code: c_int,
 
     // Rust has no struct alignment, so manual padding is necessary
-    _align: c_int,
+    _align: c_int, // four bytes of padding
 
     // Generic memory pad for union contents
     _data: [c_int; SI_PAD_SIZE]

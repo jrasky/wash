@@ -72,7 +72,8 @@ pub const SIGUNUSED:c_int = 31;
 // sizeof(int) = 4
 // sizeof(unsigned long int) = 8
 pub const SI_MAX_SIZE:usize = 128;
-pub const SI_PAD_SIZE:usize = ((SI_MAX_SIZE - 4 * 4) / 4);
+pub const SI_PREAMBLE:usize = 4;
+pub const SI_PAD_SIZE:usize = ((SI_MAX_SIZE - (SI_PREAMBLE * 4)) / 4);
 pub const SIGSET_NWORDS:usize = (1024 / (8 * 8));
 pub const SI_VAL_SIZE:usize = 2;
 
