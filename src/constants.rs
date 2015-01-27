@@ -74,6 +74,7 @@ pub const SIGUNUSED:c_int = 31;
 pub const SI_MAX_SIZE:usize = 128;
 pub const SI_PAD_SIZE:usize = ((SI_MAX_SIZE - 4 * 4) / 4);
 pub const SIGSET_NWORDS:usize = (1024 / (8 * 8));
+pub const SI_VAL_SIZE:usize = 2;
 
 pub const SA_NOCLDSTOP:c_int = 1;
 pub const SA_NOCLDWAIT:c_int = 2;

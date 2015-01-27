@@ -3,9 +3,11 @@ use std::mem;
 
 use constants::*;
 
-// This could also be a pointer,
-// but it probably isn't
-pub type SigVal = c_int;
+#[derive(Copy)]
+pub struct SigVal {
+    // _data is either a c_int (4 bytes), or a *const c_void (8 bytes)
+    _data: [c_int; SI_VAL_SIZE]
+}
 
 // The size_t at the end is a pointer to a ucontext_t
 // do I want to implement that type? Lol no
@@ -31,7 +33,7 @@ pub struct PTimerFields {
     pub tid: c_int,
     pub overrun: c_int,
     pub sigval: SigVal,
-    _pad: [c_int; (SI_PAD_SIZE - 3)]
+    _pad: [c_int; (SI_PAD_SIZE - 4)]
 }
 
 #[derive(Copy)]
@@ -39,7 +41,7 @@ pub struct PSignalFields {
     pub pid: pid_t,
     pub uid: uid_t,
     pub sigval: SigVal,
-    _pad: [c_int; (SI_PAD_SIZE - 3)]
+    _pad: [c_int; (SI_PAD_SIZE - 4)]
 }
 
 #[derive(Copy)]
