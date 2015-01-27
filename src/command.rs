@@ -17,38 +17,6 @@ use signal::*;
 // start off as null pointer
 static mut uglobal_term:*mut TermState = 0 as *mut TermState;
 
-unsafe extern fn term_sigint(_:c_int, _:*const SigInfo,
-                             _:*const c_void) {
-    let term:&mut TermState = match uglobal_term.as_mut() {
-        Some(v) => v,
-        None => {
-            // this handler shouldn't be called when Term isn't active
-            panic!("Term signal interrupt called when Term not active");
-        }
-    };
-    // delete "^C"
-    term.controls.outc(BS);
-    term.controls.outc(BS);
-    term.controls.outc(SPC);
-    term.controls.outc(SPC);
-    term.controls.outs("\nInterrupt\n");
-    // pass on to foreground job, if there is one
-    // Note: this may actually be pointless
-    match term.fg_job {
-        None => {
-            term.controls.err("No running job found");
-        },
-        Some(id) => {
-            match term.interrupt_job(&id) {
-                Err(e) => {
-                    term.controls.errf(format_args!("Could not interrupt job: {}", e));
-                },
-                Ok(_) => {/* nothing */}
-            }
-        }
-    }
-}
-
 unsafe extern fn term_sigchld(_:c_int, u_info:*const SigInfo,
                               _:*const c_void) {
     let term:&mut TermState = match uglobal_term.as_mut() {
@@ -149,9 +117,7 @@ pub struct TermState {
     tios: Termios,
     old_tios: Termios,
     pub jobs: VecMap<Job>,
-    fg_job: Option<usize>,
-    files: VecMap<File>,
-    pub catch_sigint: bool
+    files: VecMap<File>
 }
 
 impl Drop for TermState {
@@ -185,9 +151,7 @@ impl TermState {
             tios: tios,
             old_tios: old_tios,
             jobs: VecMap::new(),
-            fg_job: None,
             files: VecMap::new(),
-            catch_sigint: true
         }
     }
 
@@ -236,37 +200,6 @@ impl TermState {
         }
     }
 
-
-    fn handle_sigint(&mut self) {
-        if !self.catch_sigint {return}
-        let sa = SigAction::handler(term_sigint);
-        match signal_handle(SIGINT, &sa) {
-            Err(e) => self.controls.errf(format_args!("Could not set handler for SIGINT: {}\n", e)),
-            _ => {}
-        }
-    }
-    
-    fn unhandle_sigint(&mut self) {
-        if !self.catch_sigint {return}
-        match signal_ignore(SIGINT) {
-            Err(e) => self.controls.errf(format_args!("Could not unset handler for SIGINT: {}\n", e)),
-            _ => {}
-        }
-    }
-
-    pub fn interrupt_job(&mut self, id:&usize) -> IoResult<()> {
-        match self.jobs.get_mut(id) {
-            None => return Err(IoError {
-                kind: OtherIoError,
-                desc: "Job not found",
-                detail: None
-            }),
-            Some(ref mut job) => {
-                return job.process.signal(SIGINT as isize);
-            }
-        }
-    }
-
     fn find_jobs_hole(&self) -> usize {
         // find a hole in the job map
         let mut last = 0;
@@ -309,7 +242,7 @@ impl TermState {
     pub fn start_job(&mut self, stdin:StdioContainer, stdout:StdioContainer, stderr:StdioContainer,
                      name:&String, args:&Vec<String>) -> Result<usize, String> {
         // set a signal handler while spawning the process
-        self.handle_sigint();
+        //self.handle_sigint();
         let mut process = Command::new(name);
         process.args(args.as_slice());
         process.stdin(stdin);
@@ -317,7 +250,7 @@ impl TermState {
         process.stderr(stderr);
         let child = match process.spawn() {
             Err(e) => {
-                self.unhandle_sigint();
+                //self.unhandle_sigint();
                 return Err(format!("Couldn't spawn {}: {}", name, e));
             },
             Ok(v) => v
@@ -350,65 +283,88 @@ impl TermState {
             _ => {/* nothing */}
         }
         // unhandle sigint
-        self.unhandle_sigint();
+        //self.unhandle_sigint();
         return Ok(id);
     }
 
     pub fn wait_job(&mut self, id:&usize) -> Result<ProcessExit, String> {
-        // set the foreground job (before borrowing self)
-        self.fg_job = Some(id.clone());
-        // handle sigint (before borrowing self)
-        self.handle_sigint();
-        let mut out;
-        match self.jobs.get_mut(id) {
-            None => out = Err("Job not found".to_string()),
-            Some(child) => {
-                loop {
-                    match child.wait(None) {
-                        Err(IoError{kind:OtherIoError, desc:_, ref detail})
-                            if *detail == Some("interrupted system call".to_string()) => {
-                                // our waiting was interrupted, try again
-                            },
-                        Err(e) => {
-                            out = Err(format!("Couldn't wait for child to exit: {}", e));
-                            break;
+        if !self.jobs.contains_key(id) {
+            return Err("Job not found".to_string());
+        } else {
+            if self.jobs.get_mut(id).unwrap().check_exit() {
+                // child has already exited
+                return Ok(self.jobs.get_mut(id).unwrap().exit.clone().unwrap());
+            }
+            let mut info; let mut fields;
+            let mut set = match empty_sigset() {
+                Ok(s) => s,
+                Err(e) => return Err(format!("Couldn't get empty sigset: {}", e))
+            };
+            match sigset_add(&mut set, SIGCHLD) {
+                Ok(_) => {/* ok */},
+                Err(e) => return Err(format!("Couldn't add SIGCHLD to sigset: {}", e))
+            }
+            match sigset_add(&mut set, SIGINT) {
+                Ok(_) => {/* ok */},
+                Err(e) => return Err(format!("Couldn't add SIGINT to sigset: {}", e))
+            }
+            loop {
+                info = match signal_wait_set(set, None) {
+                    Ok(i) => i,
+                    Err(IoError{kind:OtherIoError, desc:_, ref detail})
+                        if *detail == Some("interrupted system call".to_string()) => {
+                            // our waiting was interrupted, try again
+                            continue;
                         },
-                        Ok(status) => {
-                            out = Ok(status);
-                            break;
+                    Err(e) => return Err(format!("Couldn't wait for child to exit: {}", e))
+                };
+                if info.signo == SIGINT {
+                    // delete "^C"
+                    self.controls.outc(BS);
+                    self.controls.outc(BS);
+                    self.controls.outc(SPC);
+                    self.controls.outc(SPC);
+                    self.controls.outs("\nInterrupt\n");
+                    continue;
+                } else if info.signo == SIGCHLD {
+                    fields = match info.determine_sigfields() {
+                        SigFields::SigChld(f) => f,
+                        _ => return Err(format!("Caught signal {} instead of SIGCHLD", info.signo))
+                    };
+                    if fields.pid == self.jobs.get_mut(id).unwrap().process.id() {
+                        // process of interest died
+                        let exit = match info.code {
+                            CLD_EXITED => ProcessExit::ExitStatus(fields.status as isize),
+                            _ => ProcessExit::ExitSignal(fields.status as isize)
+                        };
+                        self.jobs.get_mut(id).unwrap().exit = Some(exit.clone());
+                        return Ok(exit);
+                    } else {
+                        // some other job finished
+                        // find the child by pid
+                        for (_, ref mut job) in self.jobs.iter_mut() {
+                            if job.process.id() == fields.pid {
+                                let exit = match info.code {
+                                    CLD_EXITED => ProcessExit::ExitStatus(fields.status as isize),
+                                    _ => ProcessExit::ExitSignal(fields.status as isize)
+                                };
+                                job.exit = Some(exit);
+                                continue;
+                            }
                         }
+                        // job wasn't found, do nothing
                     }
+                } else {
+                    return Err(format!("Caught unexpected signal: {}", info.signo));
                 }
             }
-        };
-        // unhandle sigint
-        self.unhandle_sigint();
-        // unset foreground job
-        self.fg_job = None;
-        return out;
+        }
     }
 
     pub fn job_output(&mut self, id:&usize) -> Result<ProcessOutput, String> {
         // set the foreground job (before borrowing self)
-        self.fg_job = Some(id.clone());
-        let mut child = match self.jobs.remove(id) {
-            None => {
-                self.fg_job = None;
-                return Err("Job not found".to_string());
-            },
-            Some(job) => job
-        };
-        // handle sigint
-        self.handle_sigint();
-        let exit = child.wait(None);
-        // unset foreground job
-        self.fg_job = None;
-        // unhandle sigint
-        self.unhandle_sigint();
-        let status = match exit {
-            Err(e) => return Err(format!("Could not get job output: {}", e)),
-            Ok(s) => s
-        };
+        let status = try!(self.wait_job(id));
+        let mut child = self.jobs.remove(id).unwrap();
         let stdout = match child.process.stdout.as_mut() {
             None => return Err("Child had no stdout".to_string()),
             Some(st) => match st.read_to_end() {

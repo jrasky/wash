@@ -96,8 +96,6 @@ impl ShellState {
             self.env.handle_sigint();
             // prevent env from unsetting that handler
             self.env.catch_sigint = false;
-            // prevent term from unsetting that handler
-            self.env.term.catch_sigint = false;
         } else {
             reset_sigint = false;
         }
@@ -108,7 +106,6 @@ impl ShellState {
                 Err(ref e) if *e == STOP => Empty,
                 Err(e) => {
                     if reset_sigint {
-                        self.env.term.catch_sigint = true;
                         self.env.catch_sigint = true;
                         self.env.unhandle_sigint();
                     }
@@ -118,7 +115,6 @@ impl ShellState {
             }
         }
         if reset_sigint {
-            self.env.term.catch_sigint = true;
             self.env.catch_sigint = true;
             self.env.unhandle_sigint();
         }
@@ -159,13 +155,10 @@ impl ShellState {
             self.env.handle_sigint();
             // prevent env from unsetting that handler
             self.env.catch_sigint = false;
-            // prevent term from unsetting that handler
-            self.env.term.catch_sigint = false;
             while cond.is_ok() {
                 // check for stop
                 match self.env.func_stop() {
                     Err(e) => {
-                        self.env.term.catch_sigint = true;
                         self.env.catch_sigint = true;
                         self.env.unhandle_sigint();
                         return Err(e);
@@ -175,7 +168,6 @@ impl ShellState {
                 out = match self.process_lines(block.content.iter()) {
                     Err(ref e) if *e == STOP => Ok(Empty),
                     Err(e) => {
-                        self.env.term.catch_sigint = true;
                         self.env.catch_sigint = true;
                         self.env.unhandle_sigint();
                         return Err(e);
@@ -188,7 +180,6 @@ impl ShellState {
                     cond = self.process_line(InputValue::Long(block.next.clone()));
                 }
             }
-            self.env.term.catch_sigint = true;
             self.env.catch_sigint = true;
             self.env.unhandle_sigint();
             return out;

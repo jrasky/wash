@@ -188,9 +188,13 @@ extern {
 }
 
 pub fn signal_wait(signal:c_int, timeout:Option<usize>) -> IoResult<SigInfo> {
-    let mut info = SigInfo::new();
     let mut set = try!(empty_sigset());
     try!(sigset_add(&mut set, signal));
+    return signal_wait_set(set, timeout);
+}
+
+pub fn signal_wait_set(set:SigSet, timeout:Option<usize>) -> IoResult<SigInfo> {
+    let mut info = SigInfo::new();
     match timeout {
         None => match unsafe {sigwaitinfo(&set, &mut info)} {
             v if v > 0 => Ok(info),
