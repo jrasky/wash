@@ -1,10 +1,7 @@
 - better job control
- - finalize SIGCHLD handling
-  - in wait(), send SICHLD's for other processes
-    up to the "background" SIGCHLD handler so it
-    can correctly remove those jobs
- - move SIGINT handling in Term to job
  - handle SIGTSTP
+ - use helper threads instead of signal handlers
+  - makes for safer code
  - setting variables for one job
 - more keyboard shortcuts
 - settings
