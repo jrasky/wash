@@ -235,8 +235,6 @@ impl TermState {
 
     pub fn start_job(&mut self, stdin:StdioContainer, stdout:StdioContainer, stderr:StdioContainer,
                      name:&String, args:&Vec<String>) -> Result<usize, String> {
-        // set a signal handler while spawning the process
-        //self.handle_sigint();
         let mut process = Command::new(name);
         process.args(args.as_slice());
         process.stdin(stdin);
@@ -244,7 +242,6 @@ impl TermState {
         process.stderr(stderr);
         let child = match process.spawn() {
             Err(e) => {
-                //self.unhandle_sigint();
                 return Err(format!("Couldn't spawn {}: {}", name, e));
             },
             Ok(v) => v
@@ -276,8 +273,6 @@ impl TermState {
             Some(_) => panic!("Overwrote job"),
             _ => {/* nothing */}
         }
-        // unhandle sigint
-        //self.unhandle_sigint();
         return Ok(id);
     }
 
@@ -318,6 +313,8 @@ impl TermState {
                     self.controls.outc(BS);
                     self.controls.outc(SPC);
                     self.controls.outc(SPC);
+                    self.controls.outc(BS);
+                    self.controls.outc(BS);
                     self.controls.outs("\nInterrupt\n");
                     continue;
                 } else if info.signo == SIGCHLD {
