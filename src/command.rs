@@ -61,19 +61,23 @@ unsafe extern fn term_sigchld(_:c_int, u_info:*const SigInfo,
         Some(v) => v,
         None => panic!("Given a null pointer for signal info")
     };
+    let fields = match info.determine_sigfields() {
+        SigFields::SigChld(f) => f,
+        _ => panic!("Signal wasn't a SIGCHLD")
+    };
     // find the child by pid
     for (_, ref mut job) in term.jobs.iter_mut() {
-        if job.process.id() == info.pid {
+        if job.process.id() == fields.pid {
             let exit = match info.code {
-                CLD_EXITED => ProcessExit::ExitStatus(info.status as isize),
-                _ => ProcessExit::ExitSignal(info.status as isize)
+                CLD_EXITED => ProcessExit::ExitStatus(fields.status as isize),
+                _ => ProcessExit::ExitSignal(fields.status as isize)
             };
             job.exit = Some(Ok(exit));
             return;
         }
     }
     // child was not found
-    term.controls.errf(format_args!("\nSent SIGCHLD for process not found in job table: {}\n", info.pid));
+    term.controls.errf(format_args!("\nSent SIGCHLD for process not found in job table: {}\n", fields.pid));
 }
 
 pub struct Job {
@@ -84,23 +88,12 @@ pub struct Job {
 }
 
 impl Job {
+    pub fn wait(&mut self, timeout:Option<usize>) -> Result<ProcessExit, String> {
+        return Err("Don't call this yet".to_string());
+    }
+
     pub fn check_exit(&mut self) -> bool {
-        if self.exit.is_some() {return true} // process has already exited
-        self.process.set_timeout(Some(0));
-        let exited;
-        match self.process.wait() {
-            Err(IoError{kind: IoErrorKind::TimedOut, desc: _, detail: _}) => {
-                // we aren't dead yet
-                exited = false;
-            },
-            v => {
-                // we are dead
-                self.exit = Some(v);
-                exited = true;
-            }
-        }
-        self.process.set_timeout(None);
-        return exited;
+        return self.exit.is_some();
     }
 }
 
