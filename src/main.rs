@@ -45,7 +45,6 @@ pub fn main() {
         _ => {}
     }
     state.env.update_terminal();
-    state.env.handle_sigchld();
     loop {
         state.env.flush();
         cleaned_jobs = state.env.clean_jobs();
@@ -98,5 +97,4 @@ pub fn main() {
     }
     state.env.outs("\nExiting\n");
     state.env.flush();
-    state.env.restore_terminal();
 }

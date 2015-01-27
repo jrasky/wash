@@ -169,18 +169,12 @@ impl TermState {
 
     pub fn set_pointer(&mut self) {
         unsafe {
-            if !uglobal_term.is_null() {
-                panic!("Tried to set Term location twice");
-            }
             uglobal_term = self as *mut TermState;
         }
     }
 
-    fn unset_pointer(&mut self) {
+    pub fn unset_pointer(&mut self) {
         unsafe {
-            if uglobal_term.is_null() {
-                panic!("Tried to unset Term location twice");
-            }
             uglobal_term = 0 as *mut TermState;
         }
     }

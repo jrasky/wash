@@ -69,6 +69,13 @@ pub struct WashEnv {
     pub catch_sigint: bool
 }
 
+impl Drop for WashEnv {
+    fn drop(&mut self) {
+        // guarentee that the terminal is restored on exit
+        self.restore_terminal();
+    }
+}
+
 impl WashEnv {
     pub fn new() -> WashEnv {
         WashEnv {
@@ -83,6 +90,10 @@ impl WashEnv {
 
     pub fn update_terminal(&mut self) {
         self.term.update_terminal();
+        // these two steps happen here so the pointer is correctly set
+        // TODO: change signal handling to not depend on global pointers
+        self.term.set_pointer();
+        self.term.handle_sigchld();
     }
 
     pub fn restore_terminal(&mut self) {
@@ -107,11 +118,6 @@ impl WashEnv {
 
     pub fn flush(&mut self) {
         self.term.controls.flush();
-    }
-
-    pub fn handle_sigchld(&mut self) {
-        self.term.set_pointer();
-        self.term.handle_sigchld();
     }
     
     pub fn run_job_fd(&mut self, stdin:Option<Fd>, stdout:Option<Fd>, stderr:Option<Fd>,
