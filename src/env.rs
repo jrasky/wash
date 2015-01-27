@@ -334,10 +334,11 @@ impl WashEnv {
             flags: SA_RESTART | SA_SIGINFO,
             restorer: 0 // null pointer
         };
-        let mask = full_sigset().expect("Could not get a full sigset");
+        let mask = full_sigset().unwrap();
         sa.mask = mask;
-        if !signal_handle(SIGINT, &sa) {
-            self.term.controls.err("Warning: could not set handler for SIGINT\n");
+        match signal_handle(SIGINT, &sa) {
+            Err(e) => self.errf(format_args!("Could not set handler for SIGINT: {}\n", e)),
+            _ => {}
         }
     }
 
@@ -346,8 +347,9 @@ impl WashEnv {
         if !self.catch_sigint {return}
         self.func_unstop();
         self.unset_pointer();
-        if !signal_ignore(SIGINT) {
-            self.term.controls.err("Warning: could not unset handler for SIGINT\n");
+        match signal_ignore(SIGINT) {
+            Err(e) => self.errf(format_args!("Could not unset handler for SIGINT: {}\n", e)),
+            _ => {}
         }
     }
 
@@ -472,19 +474,19 @@ impl WashEnv {
     pub fn clean_jobs(&mut self) -> WashArgs {
         let mut out = vec![];
         let result = self.term.clean_jobs();
-        for &(ref id, ref name, ref job) in result.iter() {
-            match job {
-                &Err(ref e) => out.push(Flat(format!("Job {} ({}) failed: {}", id, name, e))),
-                &Ok(v) => {
+        for &(ref id, ref job) in result.iter() {
+            match job.exit {
+                None => panic!("Removed running job"),
+                Some(v) => {
                     if v.success() {
-                        out.push(Flat(format!("Job {} ({}) finished", id, name)));
+                        out.push(Flat(format!("Job {} ({}) finished", id, job.command)));
                     } else {
                         match v {
                             ExitSignal(sig) => {
-                                out.push(Flat(format!("Job {} ({}) failed: signal {}", id, name, sig)));
+                                out.push(Flat(format!("Job {} ({}) failed: signal {}", id, job.command, sig)));
                             },
                             ExitStatus(status) => {
-                                out.push(Flat(format!("Job {} ({}) failed: status {}", id, name, status)));
+                                out.push(Flat(format!("Job {} ({}) failed: status {}", id, job.command, status)));
                             }
                         }
                     }

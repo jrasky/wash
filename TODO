@@ -1,6 +1,5 @@
 - better job control
- - write custom wait routine for Job
-  - the one in process.rs doesn't suite our needs
+ - move SIGINT handling in Term to job
  - handle SIGTSTP
  - setting variables for one job
 - more keyboard shortcuts

@@ -33,6 +33,7 @@ unsafe extern fn term_sigint(_:c_int, _:*const SigInfo,
     term.controls.outc(SPC);
     term.controls.outs("\nInterrupt\n");
     // pass on to foreground job, if there is one
+    // Note: this may actually be pointless
     match term.fg_job {
         None => {
             term.controls.err("No running job found");
@@ -72,7 +73,7 @@ unsafe extern fn term_sigchld(_:c_int, u_info:*const SigInfo,
                 CLD_EXITED => ProcessExit::ExitStatus(fields.status as isize),
                 _ => ProcessExit::ExitSignal(fields.status as isize)
             };
-            job.exit = Some(Ok(exit));
+            job.exit = Some(exit);
             return;
         }
     }
@@ -84,12 +85,35 @@ pub struct Job {
     pub command: String,
     pub process: Process,
     pub files: Vec<File>,
-    pub exit: Option<IoResult<ProcessExit>>
+    pub exit: Option<ProcessExit>
 }
 
 impl Job {
-    pub fn wait(&mut self, timeout:Option<usize>) -> Result<ProcessExit, String> {
-        return Err("Don't call this yet".to_string());
+    pub fn wait(&mut self, timeout:Option<usize>) -> IoResult<ProcessExit> {
+        if self.check_exit() {
+            // we're already dead
+            return Ok(self.exit.clone().unwrap());
+        }
+        let mut info; let mut fields;
+        loop {
+            info = try!(signal_wait(SIGCHLD, timeout));
+            fields = match info.determine_sigfields() {
+                SigFields::SigChld(f) => f,
+                _ => return Err(IoError {kind: IoErrorKind::OtherIoError,
+                                         desc: "Didn't catch SIGCHLD",
+                                         detail: Some(format!("Caught signal {} instead", info.signo))
+                })
+            };
+            if fields.pid == self.process.id() {
+                // we're dead (or stopped, but that comes later)
+                let exit = match info.code {
+                    CLD_EXITED => ProcessExit::ExitStatus(fields.status as isize),
+                    _ => ProcessExit::ExitSignal(fields.status as isize)
+                };
+                self.exit = Some(exit.clone());
+                return Ok(exit);
+            }
+        }
     }
 
     pub fn check_exit(&mut self) -> bool {
@@ -99,18 +123,16 @@ impl Job {
 
 impl Drop for Job {
     fn drop(&mut self) {
-        self.process.set_timeout(Some(0));
-        match self.process.wait() {
+        match self.wait(Some(0)) {
             Ok(_) => return,
             Err(_) => {/* continue */}
         }
         
-        self.process.set_timeout(Some(1000));
         match self.process.signal_exit() {
             Err(e) => println!("Could not signal {} to exit: {}", self.process.id(), e),
             _ => {/* ok */}
         }
-        match self.process.wait() {
+        match self.wait(Some(1000)) {
             Ok(_) => return,
             Err(_) => {/* continue */}
         }
@@ -119,7 +141,6 @@ impl Drop for Job {
             Err(e) => println!("Could not kill {}: {}", self.process.id(), e),
             _ => {/* ok */}
         }
-        self.process.set_timeout(None);
     }
 }
 
@@ -135,6 +156,12 @@ pub struct TermState {
 
 impl Drop for TermState {
     fn drop (&mut self) {
+        // jobs need to all be dropped first
+        let ids:Vec<usize> = self.jobs.keys().collect();
+        for id in ids.iter() {
+            self.jobs.remove(id);
+        }
+        // then unhandle sigchld and remove the pointer
         self.unhandle_sigchld();
         self.unset_pointer();
     }
@@ -196,14 +223,16 @@ impl TermState {
 
     pub fn handle_sigchld(&mut self) {
         let sa = SigAction::handler(term_sigchld);
-        if !signal_handle(SIGCHLD, &sa) {
-            self.controls.err("Warning: could not set handlher for SIGCHLD\n");
+        match signal_handle(SIGCHLD, &sa) {
+            Err(e) => self.controls.errf(format_args!("Could not set handler for SIGCHLD: {}\n", e)),
+            _ => {}
         }
     }
     
     pub fn unhandle_sigchld(&mut self) {
-        if !signal_default(SIGCHLD) {
-            self.controls.err("Warning: could not unset handler for SIGCHLD\n");
+        match signal_default(SIGCHLD) {
+            Err(e) => self.controls.errf(format_args!("Could not unset handler for SIGCHLD: {}\n", e)),
+            _ => {}
         }
     }
 
@@ -211,15 +240,17 @@ impl TermState {
     fn handle_sigint(&mut self) {
         if !self.catch_sigint {return}
         let sa = SigAction::handler(term_sigint);
-        if !signal_handle(SIGINT, &sa) {
-            self.controls.err("Warning: could not set handler for SIGINT\n");
+        match signal_handle(SIGINT, &sa) {
+            Err(e) => self.controls.errf(format_args!("Could not set handler for SIGINT: {}\n", e)),
+            _ => {}
         }
     }
     
     fn unhandle_sigint(&mut self) {
         if !self.catch_sigint {return}
-        if !signal_ignore(SIGINT) {
-            self.controls.err("Warning: could not unset handler for SIGINT\n");
+        match signal_ignore(SIGINT) {
+            Err(e) => self.controls.errf(format_args!("Could not unset handler for SIGINT: {}\n", e)),
+            _ => {}
         }
     }
 
@@ -286,7 +317,7 @@ impl TermState {
         process.stderr(stderr);
         let child = match process.spawn() {
             Err(e) => {
-                signal_ignore(SIGINT);
+                self.unhandle_sigint();
                 return Err(format!("Couldn't spawn {}: {}", name, e));
             },
             Ok(v) => v
@@ -332,12 +363,22 @@ impl TermState {
         match self.jobs.get_mut(id) {
             None => out = Err("Job not found".to_string()),
             Some(child) => {
-                // clear any timeouts
-                child.process.set_timeout(None);
-                out = match child.process.wait() {
-                    Err(e) => Err(format!("Couldn't wait for child to exit: {}", e)),
-                    Ok(status) => Ok(status)
-                };
+                loop {
+                    match child.wait(None) {
+                        Err(IoError{kind:OtherIoError, desc:_, ref detail})
+                            if *detail == Some("interrupted system call".to_string()) => {
+                                // our waiting was interrupted, try again
+                            },
+                        Err(e) => {
+                            out = Err(format!("Couldn't wait for child to exit: {}", e));
+                            break;
+                        },
+                        Ok(status) => {
+                            out = Ok(status);
+                            break;
+                        }
+                    }
+                }
             }
         };
         // unhandle sigint
@@ -357,10 +398,9 @@ impl TermState {
             },
             Some(job) => job
         };
-        child.process.set_timeout(None);
         // handle sigint
         self.handle_sigint();
-        let exit = child.process.wait();
+        let exit = child.wait(None);
         // unset foreground job
         self.fg_job = None;
         // unhandle sigint
@@ -459,23 +499,16 @@ impl TermState {
         self.run_command_fd(None, None, None, name, args)
     }
 
-    pub fn clean_jobs(&mut self) -> Vec<(usize, String, IoResult<ProcessExit>)> {
-        let mut out = vec![];
+    pub fn clean_jobs(&mut self) -> Vec<(usize, Job)> {
         let mut remove = vec![];
-        // unhandle sigchld because we're calling wait
-        // which will register another handler
-        // which doesn't use SIGINFO
-        // which will panic when it tries to run the old handler
-        self.unhandle_sigchld();
         for (id, child) in self.jobs.iter_mut() {
             if child.check_exit() {
-                out.push((id, child.command.clone(), child.exit.clone().unwrap()));
                 remove.push(id);
             }
         }
-        self.handle_sigchld();
+        let mut out = vec![];
         for id in remove.iter() {
-            self.jobs.remove(id);
+            out.push((id.clone(), self.jobs.remove(id).unwrap()));
         }
         return out;
     }

@@ -83,17 +83,19 @@ impl LineReader {
             flags: SA_RESTART | SA_SIGINFO,
             restorer: 0 // null pointer
         };
-        let mask = full_sigset().expect("Could not get a full sigset");
+        let mask = full_sigset().unwrap();
         sa.mask = mask;
-        if !signal_handle(SIGINT, &sa) {
-            self.controls.err("Warning: could not set handler for SIGINT\n");
+        match signal_handle(SIGINT, &sa) {
+            Err(e) => self.controls.errf(format_args!("Failed to set SIGINT handler: {}", e)),
+            _ => {/* ok */}
         }
     }
 
     fn unhandle_sigint(&mut self) {
         self.unset_pointer();
-        if !signal_ignore(SIGINT) {
-            self.controls.err("Warning: could not unset handler for SIGINT\n");
+        match signal_ignore(SIGINT) {
+            Err(e) => self.controls.errf(format_args!("Failed to unset SIGINT handler: {}\n", e)),
+            _ => {}
         }
     }
 
