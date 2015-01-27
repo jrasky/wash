@@ -1,9 +1,9 @@
 - Bite the bullet
- - Implement own process.rs
-  - Drop dependency on Rust's command.rs and process.rs
  - Implement own thread.rs
   - based on pthreads, implement all the functionality Rust's
     thread.rs is sorely missing
+ - Implement own process.rs
+  - Drop dependency on Rust's command.rs and process.rs
 - better job control
  - handle SIGTSTP
  - use helper threads instead of signal handlers
