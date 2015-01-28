@@ -1,4 +1,4 @@
-use std::io::process::ProcessExit::*;
+use std::old_io::process::ProcessExit::*;
 use std::os::unix::prelude::*;
 
 use std::os;

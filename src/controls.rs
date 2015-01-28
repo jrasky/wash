@@ -1,15 +1,15 @@
-use std::io::IoErrorKind::*;
+use std::old_io::IoErrorKind::*;
 use unicode::str::*;
 
 use std::str;
-use std::io;
+use std::old_io;
 use std::fmt;
 
 use constants::*;
 use util::*;
 
-type Stdr = io::stdio::StdReader;
-type Stdw = io::stdio::StdWriter;
+type Stdr = old_io::stdio::StdReader;
+type Stdw = old_io::stdio::StdWriter;
 
 pub struct Controls {
     stdin: Stdr,
@@ -20,9 +20,9 @@ pub struct Controls {
 impl Controls {
     pub fn new() -> Controls {
         Controls {
-            stdin: io::stdio::stdin_raw(),
-            stdout: io::stdio::stdout_raw(),
-            stderr: io::stdio::stderr_raw()
+            stdin: old_io::stdio::stdin_raw(),
+            stdout: old_io::stdio::stdout_raw(),
+            stderr: old_io::stdio::stderr_raw()
         }
     }
 
@@ -46,13 +46,13 @@ impl Controls {
         self.stderr.write_fmt(args).unwrap();
     }
 
-    pub fn read(&mut self) -> io::IoResult<char> {
+    pub fn read(&mut self) -> old_io::IoResult<char> {
         // Below lifted almost verbatim from rust's read_char.
         // In compliance with MIT, nothing to worry about
         let first_byte = try!(self.stdin.read_byte());
         let width = utf8_char_width(first_byte);
         if width == 1 { return Ok(first_byte as char) }
-        if width == 0 { return Err(io::standard_error(InvalidInput)) } // not utf8
+        if width == 0 { return Err(old_io::standard_error(InvalidInput)) } // not utf8
         let mut buf = [first_byte, 0, 0, 0];
         {
             let mut start = 1;
@@ -60,13 +60,13 @@ impl Controls {
                 match try!(self.stdin.read(&mut buf[start..width])) {
                     n if n == width - start => break,
                     n if n < width - start => { start += n; }
-                    _ => return Err(io::standard_error(InvalidInput)),
+                    _ => return Err(old_io::standard_error(InvalidInput)),
                 }
             }
         }
         match str::from_utf8(&buf[..width]).ok() {
             Some(s) => Ok(s.char_at(0)),
-            None => Err(io::standard_error(InvalidInput))
+            None => Err(old_io::standard_error(InvalidInput))
         }
     }
     

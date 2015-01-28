@@ -4,8 +4,8 @@
 extern crate regex_macros;
 extern crate regex;
 
-use std::io::fs::PathExtensions;
-use std::io;
+use std::old_io::fs::PathExtensions;
+use std::old_io;
 use std::os;
 
 const TOP:&'static str = "
@@ -167,8 +167,8 @@ pub fn main() {
     if !inp.exists() {
         panic!("File does not exist");
     }
-    let mut stdout = io::stdout();
-    let mut inf = io::BufferedReader::new(io::File::open(&inp));
+    let mut stdout = old_io::stdout();
+    let mut inf = old_io::BufferedReader::new(old_io::File::open(&inp));
     stdout.write_str(TOP).unwrap();
     stdout.write_str(RUN_TOP).unwrap();
     loop {

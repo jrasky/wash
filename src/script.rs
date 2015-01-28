@@ -4,10 +4,10 @@ use sodiumoxide::crypto::hash::sha256;
 
 use serialize::hex::ToHex;
 
-use std::io::process::Command;
-use std::io::fs::PathExtensions;
+use std::old_io::process::Command;
+use std::old_io::fs::PathExtensions;
 
-use std::io;
+use std::old_io;
 use std::ffi;
 use std::str;
 
@@ -27,7 +27,7 @@ impl Drop for WashScript {
         match self.close() {
             Ok(_) => {},
             Err(e) => {
-                io::stdio::stderr().write_str(e.as_slice()).unwrap();
+                old_io::stdio::stderr().write_str(e.as_slice()).unwrap();
             }
         }
     }
@@ -105,13 +105,13 @@ impl WashScript {
         if !self.path.exists() {
             return Err(format!("Could not find {}", self.path.display()));
         }
-        let inf = match io::File::open(&self.path) {
+        let inf = match old_io::File::open(&self.path) {
             Ok(f) => f,
             Err(e) => {
                 return Err(format!("File error: {}", e));
             }
         };
-        let mut reader = io::BufferedReader::new(inf);
+        let mut reader = old_io::BufferedReader::new(inf);
         let content_s = reader.read_to_end().unwrap();
         let contents = content_s.as_slice();
         self.hash = sha256::hash(contents).0.to_hex();
@@ -122,7 +122,7 @@ impl WashScript {
         };
         if !outp.exists() {
             // scripts needs to be compiled
-            match io::fs::mkdir_recursive(&outp.dir_path(), io::USER_RWX) {
+            match old_io::fs::mkdir_recursive(&outp.dir_path(), old_io::USER_RWX) {
                 Ok(_) => {
                     // nothing
                 },
@@ -142,7 +142,7 @@ impl WashScript {
                 // TODO: maybe write match statements instead of
                 // just calling unwrap
                 let mut input = child.stdin.as_mut().unwrap();
-                input.write(contents).unwrap();
+                input.write_all(contents).unwrap();
                 input.flush().unwrap();
             }
 

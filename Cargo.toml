@@ -7,7 +7,7 @@ authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
 git = "https://github.com/dnaq/sodiumoxide.git"
 
 [dependencies.regex]
-git = "https://github.com/rust-lang/regex"
+git = "https://github.com/jrasky/regex"
 
 [dependencies.regex_macros]
-get = "https://github.com/rust-lang/regex"
+get = "https://github.com/jrasky/regex"

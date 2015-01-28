@@ -1,6 +1,6 @@
 use libc::*;
 
-use std::io::*;
+use std::old_io::*;
 
 use std::mem;
 
@@ -10,13 +10,6 @@ use constants::*;
 pub struct SigVal {
     // _data is either a c_int (4 bytes), or a *const c_void (8 bytes)
     _data: [c_int; SI_VAL_SIZE]
-}
-
-#[derive(Copy)]
-#[repr(C)]
-pub struct TimeSpec {
-    pub sec: c_longlong,
-    pub nsec: c_long
 }
 
 // The size_t at the end is a pointer to a ucontext_t
@@ -184,7 +177,7 @@ extern {
     fn sigemptyset(set:*mut SigSet) -> c_int;
     fn sigaddset(set:*mut SigSet, signal:c_int) -> c_int;
     fn sigwaitinfo(set:*const SigSet, info:*mut SigInfo) -> c_int;
-    fn sigtimedwait(set:*const SigSet, info:*mut SigInfo, timeout:*const TimeSpec) -> c_int;
+    fn sigtimedwait(set:*const SigSet, info:*mut SigInfo, timeout:*const timespec) -> c_int;
 }
 
 pub fn signal_wait(signal:c_int, timeout:Option<usize>) -> IoResult<SigInfo> {
@@ -201,9 +194,9 @@ pub fn signal_wait_set(set:SigSet, timeout:Option<usize>) -> IoResult<SigInfo> {
             _ => return Err(IoError::last_error())
         },
         Some(t) => {
-            let time = TimeSpec {
-                sec: (t / 1000) as c_longlong,
-                nsec: ((t % 1000) * 1000) as c_long
+            let time = timespec {
+                tv_sec: (t / 1000) as c_longlong,
+                tv_nsec: ((t % 1000) * 1000) as c_long
             };
             match unsafe {sigtimedwait(&set, &mut info, &time)} {
                 v if v > 0 => Ok(info),

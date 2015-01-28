@@ -1,5 +1,5 @@
 #![allow(unstable)]
-use std::io;
+use std::old_io;
 
 fn empty_escape(esc:&mut Iterator<Item=char>) -> String {
     let mut out = String::new();
@@ -13,7 +13,7 @@ fn empty_escape(esc:&mut Iterator<Item=char>) -> String {
 }
 
 pub fn main() {
-    let mut stdin = io::stdin();
+    let mut stdin = old_io::stdin();
 
     print!("Type a key: ");
     let c = stdin.read_char().unwrap();

@@ -1,13 +1,13 @@
 use libc::*;
 
-use std::io::process::{Command, ProcessOutput, ProcessExit,
-                       Process, StdioContainer};
-use std::io::process::StdioContainer::*;
-use std::io::{IoError, IoErrorKind, IoResult};
-use std::io::IoErrorKind::*;
+use std::old_io::process::{Command, ProcessOutput, ProcessExit,
+                           Process, StdioContainer};
+use std::old_io::process::StdioContainer::*;
+use std::old_io::{IoError, IoErrorKind, IoResult};
+use std::old_io::IoErrorKind::*;
 use std::collections::VecMap;
 use std::os::unix::prelude::*;
-use std::io::{File, Append, Open, Read, Write};
+use std::old_io::{File, Append, Open, Read, Write};
 
 use controls::*;
 use constants::*;

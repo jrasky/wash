@@ -1,7 +1,7 @@
 use libc::*;
 
-use std::io::process::{ProcessOutput, ProcessExit};
-use std::io::process::ProcessExit::*;
+use std::old_io::process::{ProcessOutput, ProcessExit};
+use std::old_io::process::ProcessExit::*;
 use std::collections::HashMap;
 use std::os::unix::prelude::*;
 
