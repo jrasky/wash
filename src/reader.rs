@@ -1,4 +1,3 @@
-#![allow(unstable)]
 use libc::*;
 
 use std::os;

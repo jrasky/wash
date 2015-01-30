@@ -1,4 +1,12 @@
-#![allow(unstable)]
+#![feature(collections)]
+#![feature(core)]
+#![feature(path)]
+#![feature(os)]
+#![feature(io)]
+#![feature(libc)]
+#![feature(std_misc)]
+#![feature(unicode)]
+#![feature(rustc_private)]
 #![feature(plugin)]
 extern crate sodiumoxide;
 extern crate libc;

@@ -1,5 +1,3 @@
-#![allow(unstable)]
-
 use libc::{c_uint, c_uchar, c_int};
 
 use constants::*;
