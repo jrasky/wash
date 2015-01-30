@@ -166,10 +166,21 @@ pub fn jobs_func(_:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     }
 }
 
-pub fn fg_func(_:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
-    let mut id = try!(env.front_job());
-    while !env.has_job(&id) {
+pub fn fg_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+    let mut id;
+    if args.len() < 1 {
         id = try!(env.front_job());
+        while !env.has_job(&id) {
+            id = try!(env.front_job());
+        }
+    } else {
+        id = match str_to_usize(args.get(0).flatten().as_slice()) {
+            None => return Err(format!("Not given a job number")),
+            Some(v) => v
+        };
+        if !env.has_job(&id) {
+            return Err(format!("Job not found"));
+        }
     }
     let name = try!(env.get_job(&id)).command.clone();
     env.outf(format_args!("Returning to: {}\n", name));
