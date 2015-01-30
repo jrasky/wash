@@ -97,8 +97,11 @@ impl LineReader {
         let mut sread;
         let old_set = tryp!(signal_proc_mask(SIG_BLOCK, &set));
         while !self.finished && !self.eof {
-            sread = tryp!(select(&read, &emvc, &emvc,
-                                 None, &set));
+            sread = match select(&read, &emvc, &emvc,
+                                 None, &set) {
+                Err(_) => continue, // try again
+                Ok(v) => v
+            };
             if sread.len() == 2 {
                 // prefer SIGINT
                 self.handle_signal(&set);
