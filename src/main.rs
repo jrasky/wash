@@ -93,10 +93,8 @@ pub fn main() {
                     Ok(v) => {
                         if !v.is_empty() {
                             state.env.outs(v.flatten().as_slice());
-                            if v.is_flat() {
-                                // extra newline
-                                state.env.outc(NL);
-                            }
+                            // add extra newline
+                            state.env.outc(NL);
                         }
                     }
                 }

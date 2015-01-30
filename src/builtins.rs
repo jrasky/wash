@@ -224,6 +224,9 @@ pub fn describe_process_output(args:&WashArgs, _:&mut WashEnv) -> Result<WashArg
         return Err("Command Failed".to_string());
     } else if argv.len() < 2 {
         return Err(format!("Command failed: {}", args.flatten()));
+    } else if argv == vec!["signal", "19"] || // SIGSTOP
+        argv == vec!["signal", "20"] { // SIGTSTP
+            return Err(format!("Command stopped"));
     } else if argv != vec!["status", "0"] {
         return Err(format!("Command failed with {} {}", argv[0], argv[1]));
     } else {

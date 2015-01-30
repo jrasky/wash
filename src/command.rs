@@ -51,7 +51,7 @@ unsafe extern fn term_signal(signo:c_int, u_info:*const SigInfo,
             term.controls.errf(format_args!("\nSent SIGCHLD for process not found in job table: {}\n", fields.pid));
         },
         SIGTSTP => {
-            // don't forward SIGTSTP to background jobs
+            // ignore background SIGCHLDS
         },
         _ => term.controls.errf(format_args!("\nTerm caught unexpected signal: {}\n", signo))
     }
@@ -92,8 +92,15 @@ impl Job {
         }
     }
 
-    pub fn check_exit(&mut self) -> bool {
-        return self.exit.is_some();
+    pub fn check_exit(&self) -> bool {
+        match self.exit {
+            Some(ProcessExit::ExitSignal(v))
+                if v == SIGTSTP as isize ||
+                v == SIGSTOP as isize ||
+                v == SIGCONT as isize => return false,
+            Some(_) => return true,
+            None => return false
+        }
     }
 }
 
@@ -130,14 +137,14 @@ pub struct TermState {
 
 impl Drop for TermState {
     fn drop (&mut self) {
-        // jobs need to all be dropped first
+        // drop our signal handlers
+        self.unhandle_signals();
+        self.unset_pointer();
+        // then drop all of our jobs
         let ids:Vec<usize> = self.jobs.keys().collect();
         for id in ids.iter() {
             self.jobs.remove(id);
         }
-        // then unhandle sigchld and remove the pointer
-        self.unhandle_signals();
-        self.unset_pointer();
     }
 }
 
@@ -292,38 +299,20 @@ impl TermState {
         return Ok(id);
     }
 
-    pub fn wait_job(&mut self, id:&usize) -> Result<ProcessExit, String> {
-        if !self.jobs.contains_key(id) {
-            return Err("Job not found".to_string());
-        } else {
-            if self.jobs.get_mut(id).unwrap().check_exit() {
-                // child has already exited
-                return Ok(self.jobs.get_mut(id).unwrap().exit.clone().unwrap());
-            }
-            let mut info; let mut fields;
-            let mut set = match empty_sigset() {
-                Ok(s) => s,
-                Err(e) => return Err(format!("Couldn't get empty sigset: {}", e))
+    fn wait_job_signal(&mut self, id:&usize, set:&SigSet) -> Result<ProcessExit, String> {
+        let mut info; let mut fields;
+        loop {
+            info = match signal_wait_set(set, None) {
+                Ok(i) => i,
+                Err(IoError{kind:OtherIoError, desc:_, ref detail})
+                    if *detail == Some("interrupted system call".to_string()) => {
+                        // our waiting was interrupted, try again
+                        continue;
+                    },
+                Err(e) => return Err(format!("Couldn't wait for child to exit: {}", e))
             };
-            match sigset_add(&mut set, SIGCHLD) {
-                Ok(_) => {/* ok */},
-                Err(e) => return Err(format!("Couldn't add SIGCHLD to sigset: {}", e))
-            }
-            match sigset_add(&mut set, SIGINT) {
-                Ok(_) => {/* ok */},
-                Err(e) => return Err(format!("Couldn't add SIGINT to sigset: {}", e))
-            }
-            loop {
-                info = match signal_wait_set(&set, None) {
-                    Ok(i) => i,
-                    Err(IoError{kind:OtherIoError, desc:_, ref detail})
-                        if *detail == Some("interrupted system call".to_string()) => {
-                            // our waiting was interrupted, try again
-                            continue;
-                        },
-                    Err(e) => return Err(format!("Couldn't wait for child to exit: {}", e))
-                };
-                if info.signo == SIGINT {
+            match info.signo {
+                SIGINT => {
                     // delete "^C"
                     self.controls.outc(BS);
                     self.controls.outc(BS);
@@ -333,7 +322,19 @@ impl TermState {
                     self.controls.outc(BS);
                     self.controls.outs("\nInterrupt\n");
                     continue;
-                } else if info.signo == SIGCHLD {
+                },
+                SIGTSTP => {
+                    // delete "^Z"
+                    self.controls.outc(BS);
+                    self.controls.outc(BS);
+                    self.controls.outc(SPC);
+                    self.controls.outc(SPC);
+                    self.controls.outc(BS);
+                    self.controls.outc(BS);
+                    self.controls.outs("\nStop\n");
+                    continue;
+                },
+                SIGCHLD => {
                     fields = match info.determine_sigfields() {
                         SigFields::SigChld(f) => f,
                         _ => return Err(format!("Caught signal {} instead of SIGCHLD", info.signo))
@@ -356,15 +357,49 @@ impl TermState {
                                     _ => ProcessExit::ExitSignal(fields.status as isize)
                                 };
                                 job.exit = Some(exit);
-                                continue;
+                                break;
                             }
                         }
-                        // job wasn't found, do nothing
                     }
-                } else {
-                    return Err(format!("Caught unexpected signal: {}", info.signo));
-                }
+                }, _ => return Err(format!("Caught unexpected signal: {}", info.signo))
             }
+        }
+    }
+
+    pub fn wait_job(&mut self, id:&usize) -> Result<ProcessExit, String> {
+        if !self.jobs.contains_key(id) {
+            return Err("Job not found".to_string());
+        }
+        if self.jobs.get(id).unwrap().check_exit() {
+            // child has already exited
+            return Ok(self.jobs.get(id).unwrap().exit.clone().unwrap());
+        }
+        let mut set = match empty_sigset() {
+            Ok(s) => s,
+            Err(e) => return Err(format!("Couldn't get empty sigset: {}", e))
+        };
+        match sigset_add(&mut set, SIGCHLD) {
+            Ok(_) => {/* ok */},
+            Err(e) => return Err(format!("Couldn't add SIGCHLD to sigset: {}", e))
+        }
+        match sigset_add(&mut set, SIGINT) {
+            Ok(_) => {/* ok */},
+            Err(e) => return Err(format!("Couldn't add SIGINT to sigset: {}", e))
+        }
+        match sigset_add(&mut set, SIGTSTP) {
+            Ok(_) => {/* ok */},
+            Err(e) => return Err(format!("Couldn't add SIGTSTP to sigset: {}", e))
+        }
+        // set a process mask
+        let old_set = match signal_proc_mask(SIG_BLOCK, &set) {
+            Ok(set) => set,
+            Err(e) => return Err(format!("{}", e))
+        };
+        let out = self.wait_job_signal(id, &set);
+        // unset the mask
+        match signal_proc_mask(SIG_SETMASK, &old_set) {
+            Ok(_) => return out,
+            Err(e) => return Err(format!("{}", e))
         }
     }
 
@@ -409,8 +444,10 @@ impl TermState {
         };
         // wait for job to finish
         let out = self.wait_job(&id);
-        // remove job
-        self.jobs.remove(&id);
+        if self.jobs.get(&id).unwrap().check_exit() {
+            // job is done
+            self.jobs.remove(&id);
+        }
         // restore settings for Wash
         self.update_terminal();
         return out;

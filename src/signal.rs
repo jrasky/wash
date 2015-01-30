@@ -300,7 +300,7 @@ pub fn signal_wait_set(set:&SigSet, timeout:Option<usize>) -> IoResult<SigInfo> 
     match timeout {
         None => match unsafe {sigwaitinfo(set, &mut info)} {
             v if v > 0 => Ok(info),
-            _ => return Err(IoError::last_error())
+            _ => Err(IoError::last_error())
         },
         Some(t) => {
             let time = timespec {
