@@ -132,7 +132,8 @@ pub struct TermState {
     tios: Termios,
     old_tios: Termios,
     pub jobs: VecMap<Job>,
-    files: VecMap<File>
+    files: VecMap<File>,
+    jobstack: Vec<usize>
 }
 
 impl Drop for TermState {
@@ -167,6 +168,7 @@ impl TermState {
             old_tios: old_tios,
             jobs: VecMap::new(),
             files: VecMap::new(),
+            jobstack: vec![]
         }
     }
 
@@ -217,6 +219,18 @@ impl TermState {
         }
     }
 
+    pub fn remove_if_done(&mut self, id:&usize) -> Result<bool, String> {
+        if !self.jobs.contains_key(id) {
+            return Err(format!("Job not found"));
+        }
+        if self.jobs.get(id).unwrap().check_exit() {
+            self.jobs.remove(id);
+            return Ok(true);
+        } else {
+            return Ok(false);
+        }
+    }
+
     fn find_jobs_hole(&self) -> usize {
         // find a hole in the job map
         let mut last = 0;
@@ -253,6 +267,21 @@ impl TermState {
         match self.jobs.get(id) {
             None => Err("Job not found".to_string()),
             Some(job) => Ok(job)
+        }
+    }
+
+    pub fn front_job(&mut self) -> Option<usize> {
+        self.jobstack.pop()
+    }
+
+    pub fn restart_job(&mut self, id:&usize) -> Result<(), String> {
+        let mut job = match self.jobs.get_mut(id) {
+            None => return Err(format!("Job not found")),
+            Some(job) => job
+        };
+        match job.process.signal(SIGCONT as isize) {
+            Err(e) => return Err(format!("{}", e)),
+            Ok(_) => return Ok(())
         }
     }
 
@@ -346,7 +375,11 @@ impl TermState {
                             _ => ProcessExit::ExitSignal(fields.status as isize)
                         };
                         self.jobs.get_mut(id).unwrap().exit = Some(exit.clone());
-                        return Ok(exit);
+                        if info.code != CLD_EXITED && fields.status == SIGCONT {
+                            continue;
+                        } else {
+                            return Ok(exit);
+                        }
                     } else {
                         // some other job finished
                         // find the child by pid
@@ -447,6 +480,9 @@ impl TermState {
         if self.jobs.get(&id).unwrap().check_exit() {
             // job is done
             self.jobs.remove(&id);
+        } else {
+            // job is stopped
+            self.jobstack.push(id);
         }
         // restore settings for Wash
         self.update_terminal();

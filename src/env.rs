@@ -119,6 +119,17 @@ impl WashEnv {
     pub fn flush(&mut self) {
         self.term.controls.flush();
     }
+
+    pub fn restart_job(&mut self, id:&usize) -> Result<(), String> {
+        self.term.restart_job(id)
+    }
+
+    pub fn front_job(&mut self) -> Result<usize, String> {
+        match self.term.front_job() {
+            None => return Err(format!("No front job")),
+            Some(u) => Ok(u)
+        }
+    }
     
     pub fn run_job_fd(&mut self, stdin:Option<Fd>, stdout:Option<Fd>, stderr:Option<Fd>,
                       name:&String, args:&Vec<String>) -> Result<usize, String> {
@@ -133,6 +144,10 @@ impl WashEnv {
         self.term.get_job(id)
     }
 
+    pub fn has_job(&self, id:&usize) -> bool {
+        self.term.jobs.contains_key(id)
+    }
+
     pub fn job_output(&mut self, id:&usize) -> Result<ProcessOutput, String> {
         self.term.job_output(id)
     }
@@ -144,6 +159,14 @@ impl WashEnv {
 
     pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
         self.term.run_command(name, args)
+    }
+
+    pub fn wait_job(&mut self, id:&usize) -> Result<ProcessExit, String> {
+        self.term.wait_job(id)
+    }
+
+    pub fn remove_if_done(&mut self, id:&usize) -> Result<bool, String> {
+        self.term.remove_if_done(id)
     }
 
     pub fn hasv(&self, name:&String) -> bool {

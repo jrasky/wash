@@ -166,6 +166,24 @@ pub fn jobs_func(_:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     }
 }
 
+pub fn fg_func(_:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+    let mut id = try!(env.front_job());
+    while !env.has_job(&id) {
+        id = try!(env.front_job());
+    }
+    let name = try!(env.get_job(&id)).command.clone();
+    env.outf(format_args!("Returning to: {}\n", name));
+    try!(env.restart_job(&id));
+    let out = try!(env.wait_job(&id));
+    try!(env.remove_if_done(&id));
+    return describe_process_output(&match out {
+        ExitSignal(sig) => Long(vec![Flat("signal".to_string()),
+                                     Flat(format!("{}", sig))]),
+        ExitStatus(status) => Long(vec![Flat("status".to_string()),
+                                        Flat(format!("{}", status))])
+    }, env)
+}
+
 pub fn get_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     if args.len() < 1 {
         return Err("No variable name given".to_string());
@@ -239,6 +257,7 @@ fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
         Flat("$".to_string()),
         Flat("builtins".to_string()),
         Flat("cd".to_string()),
+        Flat("fg".to_string()),
         Flat("get".to_string()),
         Flat("jobs".to_string()),
         Flat("run".to_string()),
@@ -258,6 +277,7 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insf("setp", setp_func));
     try!(env.insf("jobs", jobs_func));
     try!(env.insf("job", job_func));
+    try!(env.insf("fg", fg_func));
 
     // commands that aren't really meant to be called by users
     try!(env.insf("describe_process_output", describe_process_output));
