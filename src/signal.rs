@@ -1,5 +1,6 @@
 use libc::*;
 
+use std::os::unix::prelude::*;
 use std::old_io::*;
 
 use std::mem;
@@ -20,6 +21,7 @@ pub struct SigVal {
 // SigHandler is by definition unsafe, note it as so
 pub type SigHandler = unsafe extern fn(c_int, *const SigInfo, *const c_void);
 pub type SigSet = [c_ulong; SIGSET_NWORDS];
+type FdSet = [c_long; FD_SET_SIZE];
 
 // "What is all this?"
 // This is an implementation of C unions in Rust
@@ -178,18 +180,125 @@ extern {
     fn sigaddset(set:*mut SigSet, signal:c_int) -> c_int;
     fn sigwaitinfo(set:*const SigSet, info:*mut SigInfo) -> c_int;
     fn sigtimedwait(set:*const SigSet, info:*mut SigInfo, timeout:*const timespec) -> c_int;
+    fn signalfd(fd:Fd, mask:*const SigSet, flags:c_int) -> c_int;
+    fn pselect(nfds:c_int, readfds:*mut FdSet, writefds:*mut FdSet,
+               exceptfds:*mut FdSet, timeout:*const timespec, sigmask:*const SigSet) -> c_int;
+    fn sigprocmask(how:c_int, set:*const SigSet, old_set:*mut SigSet) -> c_int;
+}
+
+pub fn signal_proc_mask(how:c_int, set:&SigSet) -> IoResult<SigSet> {
+    let mut old_set = try!(empty_sigset());
+    match unsafe {sigprocmask(how, set, &mut old_set)} {
+        -1 => return Err(IoError::last_error()),
+        0 => return Ok(old_set),
+        _ => panic!("sigprocmask returned unknown value")
+    }
 }
 
 pub fn signal_wait(signal:c_int, timeout:Option<usize>) -> IoResult<SigInfo> {
     let mut set = try!(empty_sigset());
     try!(sigset_add(&mut set, signal));
-    return signal_wait_set(set, timeout);
+    return signal_wait_set(&set, timeout);
 }
 
-pub fn signal_wait_set(set:SigSet, timeout:Option<usize>) -> IoResult<SigInfo> {
+fn fd_set_empty() -> FdSet {
+    return [0; FD_SET_SIZE];
+}
+
+fn fd_set_add(fd:Fd, set:&mut FdSet) {
+    let index = fd as usize / NFD_BITS;
+    let mask = 1 << (fd % NFD_BITS as i32);
+    set[index] |= mask;
+}
+
+// this function needs to be here for completeness sake
+#[allow(dead_code)]
+fn fd_set_rm(fd:Fd, set:&mut FdSet) {
+    let index = fd as usize / NFD_BITS;
+    let mask = 1 << (fd % NFD_BITS as i32);
+    set[index] &= !mask;
+}
+
+fn fd_is_set(fd:Fd, set:&FdSet) -> bool {
+    let index = fd as usize / NFD_BITS;
+    let mask = 1 << (fd % NFD_BITS as i32);
+    return set[index] & mask != 0;
+}
+
+pub fn select(read:&Vec<Fd>, write:&Vec<Fd>, except:&Vec<Fd>,
+              timeout:Option<usize>, sigmask:&SigSet) -> IoResult<Vec<Fd>> {
+    let mut readfds = fd_set_empty();
+    let mut writefds = fd_set_empty();
+    let mut exceptfds = fd_set_empty();
+    let mut max = 0;
+    for fd in read.iter() {
+        if *fd > max {
+            max = *fd;
+        }
+        fd_set_add(*fd, &mut readfds);
+    }
+    for fd in write.iter() {
+        if *fd > max {
+            max = *fd;
+        }
+        fd_set_add(*fd, &mut writefds);
+    }
+    for fd in except.iter() {
+        if *fd > max {
+            max = *fd;
+        }
+        fd_set_add(*fd, &mut exceptfds);
+    }
+    match match timeout {
+        None => unsafe {pselect(max + 1, &mut readfds, &mut writefds,
+                                &mut exceptfds, 0 as *const timespec,
+                                sigmask)},
+        Some(t) => {
+            let time = timespec {
+                tv_sec: (t / 1000) as c_longlong,
+                tv_nsec: ((t % 1000) * 1000) as c_long
+            };
+            unsafe {pselect(max + 1, &mut readfds, &mut writefds,
+                            &mut exceptfds, &time, sigmask)}
+        }
+    } {
+        -1 => return Err(IoError::last_error()),
+        v => {
+            let mut out = vec![];
+            for fd in read.iter() {
+                if fd_is_set(*fd, &mut readfds) {
+                    out.push(*fd);
+                }
+            }
+            for fd in write.iter() {
+                if fd_is_set(*fd, &mut writefds) {
+                    out.push(*fd);
+                }
+            }
+            for fd in except.iter() {
+                if fd_is_set(*fd, &mut exceptfds) {
+                    out.push(*fd);
+                }
+            }
+            if out.len() != v as usize {
+                panic!("Too many file descriptors set after select call");
+            }
+            return Ok(out);
+        }
+    }
+}
+
+pub fn signal_fd(set:&SigSet) -> IoResult<Fd> {
+    match unsafe {signalfd(-1, set, 0)} {
+        -1 => Err(IoError::last_error()),
+        fd => Ok(fd)
+    }
+}
+
+pub fn signal_wait_set(set:&SigSet, timeout:Option<usize>) -> IoResult<SigInfo> {
     let mut info = SigInfo::new();
     match timeout {
-        None => match unsafe {sigwaitinfo(&set, &mut info)} {
+        None => match unsafe {sigwaitinfo(set, &mut info)} {
             v if v > 0 => Ok(info),
             _ => return Err(IoError::last_error())
         },
@@ -198,7 +307,7 @@ pub fn signal_wait_set(set:SigSet, timeout:Option<usize>) -> IoResult<SigInfo> {
                 tv_sec: (t / 1000) as c_longlong,
                 tv_nsec: ((t % 1000) * 1000) as c_long
             };
-            match unsafe {sigtimedwait(&set, &mut info, &time)} {
+            match unsafe {sigtimedwait(set, &mut info, &time)} {
                 v if v > 0 => Ok(info),
                 _ => Err(IoError::last_error())
             }

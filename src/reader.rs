@@ -10,28 +10,6 @@ use util::*;
 use signal::*;
 use types::*;
 
-// start off as null pointer
-static mut uglobal_reader:*mut LineReader = 0 as *mut LineReader;
-
-unsafe extern fn reader_sigint(_:c_int, _:*const SigInfo,
-                               _:*const c_void) {
-    // Hopefully no segfault, this *should* be safe code
-    let reader:&mut LineReader = match uglobal_reader.as_mut() {
-        Some(v) => v,
-        None => {
-            // this handler should never be called when the reader
-            // isn't active
-            panic!("Reader signal interrupt called when reader not active");
-        }
-    };
-    reader.controls.outs("\nInterrupt\n");
-    // reset line
-    reader.clear();
-    // re-print PS1
-    let cwd = os::getcwd().unwrap();
-    reader.controls.outf(format_args!("{}$ ", condense_path(cwd).display()));
-}
-
 pub struct LineReader {
     pub line: InputLine,
     pub controls: Controls,
@@ -57,48 +35,6 @@ impl LineReader {
         }
     }
 
-    fn set_pointer(&mut self) {
-        unsafe {
-            if !uglobal_reader.is_null() {
-                panic!("Tried to set reader location twice");
-            }
-            uglobal_reader = self as *mut LineReader;
-        }
-    }
-
-    fn unset_pointer(&self) {
-        unsafe {
-            if uglobal_reader.is_null() {
-                panic!("Tried to unset reader location twice");
-            }
-            uglobal_reader = 0 as *mut LineReader;
-        }
-    }
-
-    fn handle_sigint(&mut self) {
-        self.set_pointer();
-        let mut sa = SigAction {
-            handler: reader_sigint,
-            mask: [0; SIGSET_NWORDS],
-            flags: SA_RESTART | SA_SIGINFO,
-            restorer: 0 // null pointer
-        };
-        let mask = full_sigset().unwrap();
-        sa.mask = mask;
-        match signal_handle(SIGINT, &sa) {
-            Err(e) => self.controls.errf(format_args!("Failed to set SIGINT handler: {}", e)),
-            _ => {/* ok */}
-        }
-    }
-
-    fn unhandle_sigint(&mut self) {
-        self.unset_pointer();
-        match signal_ignore(SIGINT) {
-            Err(e) => self.controls.errf(format_args!("Failed to unset SIGINT handler: {}\n", e)),
-            _ => {}
-        }
-    }
-
     pub fn clear(&mut self) {
         self.line.clear();
         self.bpart.clear();
@@ -120,33 +56,65 @@ impl LineReader {
         self.controls.outf(format_args!("{}$ ", condense_path(cwd).display()));
     }
 
+    fn handle_signal(&mut self, set:&SigSet) {
+        let sig = match signal_wait_set(set, None) {
+            Err(e) => panic!("Didn't get signal: {}", e),
+            Ok(s) => s
+        };
+        if sig.signo != SIGINT {
+            panic!("Caught bad signal: {}", sig.signo);
+        }
+        self.controls.outs("\nInterrupt\n");
+        self.clear();
+        self.draw_ps1();
+    }
+
+    fn read_character(&mut self) {
+        match self.controls.read() {
+            Err(e) => panic!("\nError: {}\n", e),
+            Ok(ch) => match
+                if self.escape {
+                    self.handle_escape(ch)
+                } else if ch.is_control() {
+                    self.handle_control(ch)
+                } else {
+                    self.handle_ch(ch)
+                } {
+                    false => self.controls.outc(BEL),
+                    _ => {}
+                }
+        }
+    }
+
     pub fn read_line(&mut self) -> Option<InputValue> {
-        // handle sigint
-        self.handle_sigint();
+        // these panic because if we can't do this we can't run wash at all
+        let mut set = tryp!(empty_sigset());
+        tryp!(sigset_add(&mut set, SIGINT));
+        let sigfd = tryp!(signal_fd(&set));
+        // the file descriptors we want to watch
+        let read = vec![sigfd, STDIN];
+        let emvc = vec![];
+        let mut sread;
+        let old_set = tryp!(signal_proc_mask(SIG_BLOCK, &set));
         while !self.finished && !self.eof {
-            match self.controls.read() {
-                Ok(ch) => {
-                    match
-                        if self.escape {
-                            self.handle_escape(ch)
-                        } else if ch.is_control() {
-                            self.handle_control(ch)
-                        } else {
-                            self.handle_ch(ch)
-                        } {
-                            false => self.controls.outc(BEL),
-                            _ => {}
-                        }
-                },
-                Err(e) => {
-                    self.controls.errf(format_args!("\nError: {}\n", e));
-                    break;
+            sread = tryp!(select(&read, &emvc, &emvc,
+                                 None, &set));
+            if sread.len() == 2 {
+                // prefer SIGINT
+                self.handle_signal(&set);
+            } else {
+                match sread.pop() {
+                    None => self.handle_signal(&set),
+                    Some(ref fd) if *fd == sigfd =>
+                        self.handle_signal(&set),
+                    Some(ref fd) if *fd == STDIN =>
+                        self.read_character(),
+                    _ => panic!("select returned unknown file descriptor")
                 }
             }
             self.controls.flush();
         }
-        // unhandle sigint
-        self.unhandle_sigint();
+        tryp!(signal_proc_mask(SIG_SETMASK, &old_set));
         if self.eof {
             return None;
         } else {

@@ -298,7 +298,7 @@ impl TermState {
                 Err(e) => return Err(format!("Couldn't add SIGINT to sigset: {}", e))
             }
             loop {
-                info = match signal_wait_set(set, None) {
+                info = match signal_wait_set(&set, None) {
                     Ok(i) => i,
                     Err(IoError{kind:OtherIoError, desc:_, ref detail})
                         if *detail == Some("interrupted system call".to_string()) => {

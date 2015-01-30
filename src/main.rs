@@ -17,6 +17,7 @@ use handlers::*;
 use types::*;
 
 mod constants;
+#[macro_use]
 mod util;
 mod termios;
 mod signal;

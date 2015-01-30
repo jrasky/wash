@@ -9,6 +9,9 @@ pub const STDIN:c_int  = 0;
 pub const STDOUT:c_int = 1;
 pub const STDERR:c_int = 2;
 
+pub const NFD_BITS:usize = 8 * 8; // 8 * sizeof(long int)
+pub const FD_SET_SIZE:usize = 1024 / NFD_BITS;
+
 // constants for control sequences is useful
 pub const CEOF:char = '\u{4}';
 pub const DEL:char = '\u{7f}';
@@ -76,6 +79,10 @@ pub const SI_PREAMBLE:usize = 4;
 pub const SI_PAD_SIZE:usize = (SI_MAX_SIZE / 4) - SI_PREAMBLE;
 pub const SIGSET_NWORDS:usize = 16;
 pub const SI_VAL_SIZE:usize = 2;
+
+pub const SIG_BLOCK:c_int = 0;
+pub const SIG_UNBLOCK:c_int = 1;
+pub const SIG_SETMASK:c_int = 2;
 
 pub const SA_NOCLDSTOP:c_int = 1;
 pub const SA_NOCLDWAIT:c_int = 2;
