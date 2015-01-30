@@ -50,6 +50,9 @@ unsafe extern fn term_signal(signo:c_int, u_info:*const SigInfo,
             // child was not found
             term.controls.errf(format_args!("\nSent SIGCHLD for process not found in job table: {}\n", fields.pid));
         },
+        SIGTSTP => {
+            // don't forward SIGTSTP to background jobs
+        },
         _ => term.controls.errf(format_args!("\nTerm caught unexpected signal: {}\n", signo))
     }
 }
@@ -190,11 +193,19 @@ impl TermState {
             Err(e) => self.controls.errf(format_args!("Could not set handler for SIGCHLD: {}\n", e)),
             _ => {}
         }
+        match signal_handle(SIGTSTP, &sa) {
+            Err(e) => self.controls.errf(format_args!("Could not set handler for SIGTSTP: {}\n", e)),
+            _ => {}
+        }
     }
     
     pub fn unhandle_signals(&mut self) {
         match signal_default(SIGCHLD) {
             Err(e) => self.controls.errf(format_args!("Could not unset handler for SIGCHLD: {}\n", e)),
+            _ => {}
+        }
+        match signal_default(SIGTSTP) {
+            Err(e) => self.controls.errf(format_args!("Could not unset handler for SIGTSTP: {}\n", e)),
             _ => {}
         }
     }
