@@ -93,7 +93,7 @@ impl WashEnv {
         // these two steps happen here so the pointer is correctly set
         // TODO: change signal handling to not depend on global pointers
         self.term.set_pointer();
-        self.term.handle_sigchld();
+        self.term.handle_signals();
     }
 
     pub fn restore_terminal(&mut self) {

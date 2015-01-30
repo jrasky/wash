@@ -17,8 +17,8 @@ use signal::*;
 // start off as null pointer
 static mut uglobal_term:*mut TermState = 0 as *mut TermState;
 
-unsafe extern fn term_sigchld(_:c_int, u_info:*const SigInfo,
-                              _:*const c_void) {
+unsafe extern fn term_signal(signo:c_int, u_info:*const SigInfo,
+                             _:*const c_void) {
     let term:&mut TermState = match uglobal_term.as_mut() {
         Some(v) => v,
         None => {
@@ -30,23 +30,28 @@ unsafe extern fn term_sigchld(_:c_int, u_info:*const SigInfo,
         Some(v) => v,
         None => panic!("Given a null pointer for signal info")
     };
-    let fields = match info.determine_sigfields() {
-        SigFields::SigChld(f) => f,
-        _ => panic!("Signal wasn't a SIGCHLD")
-    };
-    // find the child by pid
-    for (_, ref mut job) in term.jobs.iter_mut() {
-        if job.process.id() == fields.pid {
-            let exit = match info.code {
-                CLD_EXITED => ProcessExit::ExitStatus(fields.status as isize),
-                _ => ProcessExit::ExitSignal(fields.status as isize)
+    match signo {
+        SIGCHLD => {
+            let fields = match info.determine_sigfields() {
+                SigFields::SigChld(f) => f,
+                _ => panic!("Signal wasn't a SIGCHLD")
             };
-            job.exit = Some(exit);
-            return;
-        }
+            // find the child by pid
+            for (_, ref mut job) in term.jobs.iter_mut() {
+                if job.process.id() == fields.pid {
+                    let exit = match info.code {
+                        CLD_EXITED => ProcessExit::ExitStatus(fields.status as isize),
+                        _ => ProcessExit::ExitSignal(fields.status as isize)
+                    };
+                    job.exit = Some(exit);
+                    return;
+                }
+            }
+            // child was not found
+            term.controls.errf(format_args!("\nSent SIGCHLD for process not found in job table: {}\n", fields.pid));
+        },
+        _ => term.controls.errf(format_args!("\nTerm caught unexpected signal: {}\n", signo))
     }
-    // child was not found
-    term.controls.errf(format_args!("\nSent SIGCHLD for process not found in job table: {}\n", fields.pid));
 }
 
 pub struct Job {
@@ -128,7 +133,7 @@ impl Drop for TermState {
             self.jobs.remove(id);
         }
         // then unhandle sigchld and remove the pointer
-        self.unhandle_sigchld();
+        self.unhandle_signals();
         self.unset_pointer();
     }
 }
@@ -179,15 +184,15 @@ impl TermState {
         }
     }
 
-    pub fn handle_sigchld(&mut self) {
-        let sa = SigAction::handler(term_sigchld);
+    pub fn handle_signals(&mut self) {
+        let sa = SigAction::handler(term_signal);
         match signal_handle(SIGCHLD, &sa) {
             Err(e) => self.controls.errf(format_args!("Could not set handler for SIGCHLD: {}\n", e)),
             _ => {}
         }
     }
     
-    pub fn unhandle_sigchld(&mut self) {
+    pub fn unhandle_signals(&mut self) {
         match signal_default(SIGCHLD) {
             Err(e) => self.controls.errf(format_args!("Could not unset handler for SIGCHLD: {}\n", e)),
             _ => {}
