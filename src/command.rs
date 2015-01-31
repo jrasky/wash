@@ -283,10 +283,9 @@ impl TermState {
             None => return Err(format!("Job not found")),
             Some(job) => job
         };
-        match job.process.signal(SIGCONT as isize) {
-            Err(e) => return Err(format!("{}", e)),
-            Ok(_) => return Ok(())
-        }
+        tryf!(job.process.signal(SIGCONT as isize),
+              "Couldn't restart process: {err}");
+        return Ok(());
     }
 
     pub fn start_job(&mut self, stdin:StdioContainer, stdout:StdioContainer, stderr:StdioContainer,
@@ -305,11 +304,9 @@ impl TermState {
         }
         // for some reason a sigprocmask doesn't work here
         self.spawning = true;
-        let child = match process.spawn() {
-            Err(e) => return Err(format!("Couldn't spawn {}: {}", name, e)),
-            Ok(v) => v
-        };
+        let out = process.spawn();
         self.spawning = false;
+        let child = tryf!(out, "Couldn't spawn {name}: {err}", name=name);
         let id = self.find_jobs_hole();
         let mut job =  Job {
             command: name.clone(),
@@ -419,33 +416,22 @@ impl TermState {
             // child has already exited
             return Ok(self.jobs.get(id).unwrap().exit.clone().unwrap());
         }
-        let mut set = match empty_sigset() {
-            Ok(s) => s,
-            Err(e) => return Err(format!("Couldn't get empty sigset: {}", e))
-        };
-        match sigset_add(&mut set, SIGCHLD) {
-            Ok(_) => {/* ok */},
-            Err(e) => return Err(format!("Couldn't add SIGCHLD to sigset: {}", e))
-        }
-        match sigset_add(&mut set, SIGINT) {
-            Ok(_) => {/* ok */},
-            Err(e) => return Err(format!("Couldn't add SIGINT to sigset: {}", e))
-        }
-        match sigset_add(&mut set, SIGTSTP) {
-            Ok(_) => {/* ok */},
-            Err(e) => return Err(format!("Couldn't add SIGTSTP to sigset: {}", e))
-        }
+        let mut set = tryf!(empty_sigset(),
+                            "Couldn't get empty sigset: {err}");
+        tryf!(sigset_add(&mut set, SIGCHLD),
+              "Couldn't add SIGCHLD to sigset: {err}");
+        tryf!(sigset_add(&mut set, SIGINT),
+              "Couldn't add SIGINT to sigset: {err}");
+        tryf!(sigset_add(&mut set, SIGTSTP),
+              "Couldn't add SIGTSTP to sigset: {err}");
         // set a process mask
-        let old_set = match signal_proc_mask(SIG_BLOCK, &set) {
-            Ok(set) => set,
-            Err(e) => return Err(format!("Couldn't set process mask: {}", e))
-        };
+        let old_set = tryf!(signal_proc_mask(SIG_BLOCK, &set),
+                            "Couldn't set process mask: {err}");
         let out = self.wait_job_signal(id, &set);
         // unset the mask
-        match signal_proc_mask(SIG_SETMASK, &old_set) {
-            Ok(_) => return out,
-            Err(e) => return Err(format!("Couldn't unset process mask: {}", e))
-        }
+        tryf!(signal_proc_mask(SIG_SETMASK, &old_set),
+              "Couldn't unset process mask: {err}");
+        return out;
     }
 
     pub fn job_output(&mut self, id:&usize) -> Result<ProcessOutput, String> {
@@ -454,17 +440,13 @@ impl TermState {
         let mut child = self.jobs.remove(id).unwrap();
         let stdout = match child.process.stdout.as_mut() {
             None => return Err("Child had no stdout".to_string()),
-            Some(st) => match st.read_to_end() {
-                Err(e) => return Err(format!("Could not read stdout: {}", e)),
-                Ok(v) => v
-            }
+            Some(st) => tryf!(st.read_to_end(),
+                              "Could not read stdout: {err}")
         };
         let stderr = match child.process.stderr.as_mut() {
             None => return Err("Child had no stderr".to_string()),
-            Some(st) => match st.read_to_end() {
-                Err(e) => return Err(format!("Could not read stderr: {}", e)),
-                Ok(v) => v
-            }
+            Some(st) => tryf!(st.read_to_end(),
+                              "Could not read stderr: {err}")
         };
         return Ok(ProcessOutput {
             status: status,

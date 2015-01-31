@@ -472,17 +472,13 @@ impl WashEnv {
     }
 
     pub fn output_file(&mut self, path:&Path) -> Result<Fd, String> {
-        match self.term.output_file(path) {
-            Err(e) => return Err(format!("Couldn't open file: {}", e)),
-            Ok(p) => return Ok(p)
-        }
+        Ok(tryf!(self.term.output_file(path),
+                 "Couldn't open file: {err}"))
     }
 
     pub fn input_file(&mut self, path:&Path) -> Result<Fd, String> {
-        match self.term.input_file(path) {
-            Err(e) => return Err(format!("Couldn't open file: {}", e)),
-            Ok(p) => return Ok(p)
-        }
+        Ok(tryf!(self.term.input_file(path),
+                 "Couldn't open file: {err}"))
     }
 
     pub fn get_jobs(&mut self) -> WashArgs {

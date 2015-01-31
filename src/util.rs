@@ -13,6 +13,16 @@ macro_rules! tryp {
     })
 }
 
+#[macro_export]
+macro_rules! tryf {
+    ($e:expr, $($arg:tt)*) => ({
+        match $e {
+            Ok(e) => e,
+            Err(e) => return Err(format!($($arg)*, err=e))
+        }
+    })
+}
+
 pub fn get_index<T>(mut vec:&mut Vec<T>, index:usize) -> Option<&mut T> {
     if index >= vec.len() {
         return None;
