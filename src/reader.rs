@@ -1,5 +1,7 @@
 use libc::*;
 
+use std::collections::RingBuf;
+
 use std::os;
 
 use input::*;
@@ -17,7 +19,9 @@ pub struct LineReader {
     pub escape_chars: String,
     pub finished: bool,
     pub eof: bool,
-    pub restarted: bool
+    pub restarted: bool,
+    history: RingBuf<InputValue>,
+    bhistory: Vec<InputValue>
 }
 
 impl LineReader {
@@ -30,7 +34,9 @@ impl LineReader {
             escape_chars: String::new(),
             finished: false,
             eof: false,
-            restarted: false
+            restarted: false,
+            history: RingBuf::new(),
+            bhistory: vec![]
         }
     }
 
@@ -120,7 +126,18 @@ impl LineReader {
         if self.eof {
             return None;
         } else {
-            return self.line.process();
+            // push back history onto history
+            while !self.bhistory.is_empty() {
+                self.history.push_front(self.bhistory.pop().unwrap());
+            }
+            let out = self.line.process();
+            if out.is_some() {
+                self.history.push_front(out.clone().unwrap());
+                while self.history.len() > HISTORY_SIZE {
+                    self.history.pop_back();
+                }
+            }
+            return out;
         }        
     }
     
@@ -202,6 +219,7 @@ impl LineReader {
                 }
             },
             'D' => {
+                // left
                 if self.line.left() {
                     self.bpart.clear();
                     self.controls.cursor_left();
@@ -209,11 +227,87 @@ impl LineReader {
                 self.escape = false;
             },
             'C' => {
+                // right
                 if self.line.right() {
                     self.bpart.clear();
                     self.controls.cursor_right();
                 }
                 self.escape = false;
+            },
+            'B' => {
+                // down
+                self.escape = false;
+                match self.bhistory.pop() {
+                    None if !self.line.is_empty() => {
+                        match self.line.process() {
+                            None => {}
+                            Some(v) => self.history.push_front(v)
+                        }
+                        while self.line.left() {
+                            self.controls.cursor_left();
+                            self.controls.outc(SPC);
+                            self.controls.cursor_left();
+                        }
+                        self.bpart.clear();
+                        self.line.clear();
+                    },
+                    None => return false,
+                    Some(line) => {
+                        match self.line.process() {
+                            None => {}
+                            Some(v) => self.history.push_front(v)
+                        }
+                        while self.line.left() {
+                            self.controls.cursor_left();
+                            self.controls.outc(SPC);
+                            self.controls.cursor_left();
+                        }
+                        self.line = InputLine {
+                            back: match line {
+                                InputValue::Long(v) => v,
+                                v => vec![v]
+                            },
+                            front: InputValue::Short(String::new()),
+                            part: String::new()
+                        };
+                        let cline = self.line.clone();
+                        while self.line.left() {}
+                        self.bpart.clear();
+                        self.draw_part();
+                        self.line = cline;
+                    }
+                }
+            },
+            'A' => {
+                // up
+                self.escape = false;
+                match self.history.pop_front() {
+                    None => return false,
+                    Some(line) => {
+                        match self.line.process() {
+                            None => {}
+                            Some(v) => self.bhistory.push(v)
+                        }
+                        while self.line.left() {
+                            self.controls.cursor_left();
+                            self.controls.outc(SPC);
+                            self.controls.cursor_left();
+                        }
+                        self.line = InputLine {
+                            back: match line {
+                                InputValue::Long(v) => v,
+                                v => vec![v]
+                            },
+                            front: InputValue::Short(String::new()),
+                            part: String::new()
+                        };
+                        let cline = self.line.clone();
+                        while self.line.left() {}
+                        self.bpart.clear();
+                        self.draw_part();
+                        self.line = cline;
+                    }
+                }
             },
             _ => {
                 self.escape = false;

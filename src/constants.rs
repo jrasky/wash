@@ -4,6 +4,10 @@
 use libc::*;
 use regex::Regex;
 
+// Settings which will eventually make their way into some type of
+// configuration interface
+pub const HISTORY_SIZE:usize = 500;
+
 // standard file descriptiors
 pub const STDIN:c_int  = 0;
 pub const STDOUT:c_int = 1;
