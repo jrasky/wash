@@ -29,6 +29,9 @@ pub const QUT:char = '\"';
 pub const OPR:char = '\u{28}'; // (
 pub const CPR:char = '\u{29}'; // )
 pub const BEL:char = '\u{7}';
+pub const CTA:char = '\u{1}';
+pub const CTE:char = '\u{5}';
+pub const CTK:char = '\u{b}';
 // we specifically need a constant for "cursor right"
 pub const CRSR_RIGHT:&'static str = "\u{1b}\u{5b}C";
 

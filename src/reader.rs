@@ -201,6 +201,24 @@ impl LineReader {
                     }
                 }
             },
+            CTA => {
+                // C-a
+                while self.line.left() {
+                    self.controls.cursor_left();
+                }
+            },
+            CTE => {
+                // C-e
+                while self.line.right() {
+                    self.controls.cursor_right();
+                }
+            },
+            CTK => {
+                self.controls.outs(build_string(SPC, self.line.part.len()).as_slice());
+                self.controls.cursors_left(self.line.part.len());
+                self.line.part.clear();
+                self.bpart.clear();
+            }
             _ => return false
         }
         return true;
