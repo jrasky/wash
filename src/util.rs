@@ -148,3 +148,7 @@ fn condense_path_test() {
     assert!(condense_path(Path::new("/etc/wash/")) == Path::new("/etc/wash/"));
 }
 
+#[test]
+fn str_to_usize_test() {
+    assert_eq!(str_to_usize("123"), Some(123));
+}

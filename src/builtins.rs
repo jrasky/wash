@@ -143,9 +143,21 @@ pub fn job_output_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, Str
     };
     let out = try!(env.job_output(&id));
     if !out.status.success() {
-        return Err(String::from_utf8_lossy(out.error.as_slice()).into_owned());
+        let mut s = String::from_utf8_lossy(out.error.as_slice()).into_owned();
+        // remove trailing newlines
+        match s.pop() {
+            Some(v) if v != NL => s.push(v),
+            _ => {}
+        };
+        return Err(s);
     } else {
-        return Ok(Flat(String::from_utf8_lossy(out.output.as_slice()).into_owned()));
+        let mut s = String::from_utf8_lossy(out.output.as_slice()).into_owned();
+                // remove trailing newlines
+        match s.pop() {
+            Some(v) if v != NL => s.push(v),
+            _ => {}
+        };
+        return Ok(Flat(s));
     }
 }
 

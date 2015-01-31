@@ -106,7 +106,12 @@ pub static VAR_PATH_REGEX:Regex = regex!("^\\$([^ \t\r\n\"():]*):([^ \t\r\n\"():
 pub static EQ_VAR_REGEX:Regex = regex!("^[^ \t\r\n\"()]+$");
 pub static EQ_PATH_REGEX:Regex = regex!("^([^ \t\r\n\"():]*):([^ \t\r\n\"():]+)$");
 pub static EQ_TEMP_REGEX:Regex = regex!("^([^ \t\r\n\"():]*):?([^ \t\r\n\"():]+):$");
-pub static FD_REGEX:Regex = regex!("^@([^ \t\r\n\"():]*):?(\\d+)$");
+pub static FD_REGEX:Regex = regex!("^@([^ \t\r\n\"():01234567890]*):?([\\d]+)$");
 
 // stop error
 pub const STOP:&'static str = "stop";
+
+#[test]
+fn fd_regex_test() {
+    assert_eq!(FD_REGEX.captures("@10").unwrap().at(2).unwrap(), "10");
+}
