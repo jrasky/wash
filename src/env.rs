@@ -507,8 +507,7 @@ impl WashEnv {
         let result = self.term.clean_jobs();
         for &(ref id, ref job) in result.iter() {
             match job.exit {
-                None => panic!("Removed running job"),
-                Some(v) => {
+                Some(v) if job.check_exit() => {
                     if v.success() {
                         out.push(Flat(format!("Job {} ({}) finished", id, job.command)));
                     } else {
@@ -521,7 +520,8 @@ impl WashEnv {
                             }
                         }
                     }
-                }
+                },
+                _ => panic!("Removed running job"),
             }
         }
         return Long(out);
