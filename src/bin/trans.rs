@@ -1,4 +1,8 @@
-#![allow(unstable)]
+#![feature(core)]
+#![feature(collections)]
+#![feature(io)]
+#![feature(os)]
+#![feature(path)]
 #![feature(plugin)]
 #[plugin] #[no_link]
 extern crate regex_macros;

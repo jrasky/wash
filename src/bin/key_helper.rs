@@ -1,4 +1,4 @@
-#![allow(unstable)]
+#![feature(io)]
 use std::old_io;
 
 fn empty_escape(esc:&mut Iterator<Item=char>) -> String {
