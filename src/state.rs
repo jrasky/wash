@@ -264,6 +264,7 @@ impl ShellState {
         // avoid O(n^2) situation
         let mut iter = reverse(input);
         let mut scope = vec![];
+        let mut last_empty = false;
         loop {
             match iter.pop() {
                 None => break,
@@ -306,8 +307,12 @@ impl ShellState {
                 },
                 Some(v) => {
                     match try!(self.input_to_args(v.clone())) {
-                        Empty => {},
-                        new => out.push(new)
+                        Empty if !last_empty => last_empty = true,
+                        Empty => out.push(Empty),
+                        new => {
+                            out.push(new);
+                            last_empty = false;
+                        }
                     }
                 }
             };
@@ -344,6 +349,7 @@ impl ShellState {
                 let name = caps.at(1).unwrap().to_string();
                 return self.env.getv(&name);
             },
+            InputValue::Short(ref s) if s.is_empty() => return Ok(Empty),
             InputValue::Short(s) | InputValue::Literal(s) => return Ok(Flat(s)),
             InputValue::Split(_) => return Ok(Empty)
         }

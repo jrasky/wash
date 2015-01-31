@@ -132,8 +132,9 @@ impl WashEnv {
     }
     
     pub fn run_job_fd(&mut self, stdin:Option<Fd>, stdout:Option<Fd>, stderr:Option<Fd>,
-                      name:&String, args:&Vec<String>) -> Result<usize, String> {
-        self.term.run_job_fd(stdin, stdout, stderr, name, args)
+                      name:&String, args:&Vec<String>,
+                      envs:&Vec<(String, Option<String>)>) -> Result<usize, String> {
+        self.term.run_job_fd(stdin, stdout, stderr, name, args, envs)
     }
 
     pub fn run_job(&mut self, name:&String, args:&Vec<String>) -> Result<usize, String> {
@@ -153,8 +154,9 @@ impl WashEnv {
     }
     
     pub fn run_command_fd(&mut self, stdin:Option<Fd>, stdout:Option<Fd>, stderr:Option<Fd>,
-                          name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
-        self.term.run_command_fd(stdin, stdout, stderr, name, args)
+                          name:&String, args:&Vec<String>,
+                          envs:&Vec<(String, Option<String>)>) -> Result<ProcessExit, String> {
+        self.term.run_command_fd(stdin, stdout, stderr, name, args, envs)
     }
 
     pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {

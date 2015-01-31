@@ -47,26 +47,31 @@ fn outs_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
 }
 
 fn job_args(args:&WashArgs, env:&mut WashEnv) -> Result<(Option<Fd>, Option<Fd>, Option<Fd>,
-                                                         String, Vec<String>), String> {
+                                                         String, Vec<String>, Vec<(String, Option<String>)>), String> {
     // turns arguments into file descriptor options, command name and args
     // utility function because job_func and run_func use this same code
     let (mut stdin, mut stdout, mut stderr) = (None, None, None);
-    let mut argc = args.flatten_vec();
-    let mut name;
+    let mut argc = match args {
+        &Long(ref v) => v.clone(),
+        _ => return Err(format!("Not given Long"))
+    };
+    let mut envs = vec![];
+    let mut name; let mut fname;
     loop {
         // check for stop
         try!(env.func_stop());
         // fail if only file descriptors given
         if argc.is_empty() {
-            return Err("Don't know what to do with file descriptors".to_string());
+            return Err("No command given".to_string());
         }
         // pop out arguments from the front until no more file descriptors remain
         name = argc.remove(0);
-        if !FD_REGEX.is_match(name.as_slice()) {
-            // we've reached the end of file descriptors
-            break;
-        } else {
-            let caps = FD_REGEX.captures(name.as_slice()).unwrap();
+        fname = name.flatten();
+        if name.is_empty() {
+            // skip empties
+            continue;
+        } else if FD_REGEX.is_match(fname.as_slice()) {
+            let caps = FD_REGEX.captures(fname.as_slice()).unwrap();
             match str_to_usize(caps.at(2).unwrap()) {
                 None => return Err(format!("{} could not be turned into usize", caps.at(2).unwrap())),
                 Some(fd) => match caps.at(1).unwrap() {
@@ -80,9 +85,29 @@ fn job_args(args:&WashArgs, env:&mut WashEnv) -> Result<(Option<Fd>, Option<Fd>,
                     _ => return Err(format!("{} is not a valid standard output", caps.at(1).unwrap()))
                 }
             }
+        } else if EQ_TEMP_REGEX.is_match(fname.as_slice()) {
+            // given environment variables for this job
+            let caps = EQ_TEMP_REGEX.captures(fname.as_slice()).unwrap();
+            let path = caps.at(1).unwrap();
+            if path != "env" {
+                return Err(format!("Can only set environment variables on commands"));
+            }
+            let name = caps.at(2).unwrap();
+            if argc.is_empty() {
+                return Err(format!("Incomplete temporary variable decleration"));
+            }
+            let val = match argc.remove(0) {
+                Empty => None,
+                Flat(s) => Some(s),
+                _ => return Err(format!("Environment variables can only be flat"))
+            };
+            envs.push((name.to_string(), val));
+        } else {
+            // end of special arguments
+            break;
         }
     }
-    return Ok((stdin, stdout, stderr, name, argc));
+    return Ok((stdin, stdout, stderr, fname, Long(argc).flatten_vec(), envs));
 }
 
 pub fn job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
@@ -94,14 +119,15 @@ pub fn job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
         id = try!(env.run_job(&args.flatten(), &vec![]));
     } else if !args.get(0).is_flat() {
         return Err("Can only run flat names".to_string());
-    } else if !FD_REGEX.is_match(args.get(0).flatten().as_slice()) {
-        // easy case, no file descriptors given
+    } else if !FD_REGEX.is_match(args.get(0).flatten().as_slice()) &&
+        !EQ_TEMP_REGEX.is_match(args.get(0).flatten().as_slice()) {
+        // easy case, just a command
         let args_slice = args.slice(1, -1);
         id = try!(env.run_job(&args.get(0).flatten(), &args_slice.flatten_vec()));
     } else {
-        // hard case, file descriptors given
-        let (stdin, stdout, stderr, name, argc) = try!(job_args(args, env));
-        id = try!(env.run_job_fd(stdin, stdout, stderr, &name, &argc));
+        // hard case, full argument set
+        let (stdin, stdout, stderr, name, argc, envs) = try!(job_args(args, env));
+        id = try!(env.run_job_fd(stdin, stdout, stderr, &name, &argc, &envs));
     }
     return Ok(Flat(format!("{}", id)));
 }
@@ -136,14 +162,15 @@ pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
         out = try!(env.run_command(&args.flatten(), &vec![]));
     } else if !args.get(0).is_flat() {
         return Err("Can only run flat names".to_string());
-    } else if !FD_REGEX.is_match(args.get(0).flatten().as_slice()) {
-        // easy case, no file descriptors given
-        let args_slice = args.slice(1, -1);
-        out = try!(env.run_command(&args.get(0).flatten(), &args_slice.flatten_vec()));
+    } else if !FD_REGEX.is_match(args.get(0).flatten().as_slice()) &&
+        !EQ_TEMP_REGEX.is_match(args.get(0).flatten().as_slice()) {
+            // easy case, just a command
+            let args_slice = args.slice(1, -1);
+            out = try!(env.run_command(&args.get(0).flatten(), &args_slice.flatten_vec()));
     } else {
-        // hard case, file descriptors given
-        let (stdin, stdout, stderr, name, argc) = try!(job_args(args, env));
-        out = try!(env.run_command_fd(stdin, stdout, stderr, &name, &argc));
+        // hard case, full argument set
+        let (stdin, stdout, stderr, name, argc, envs) = try!(job_args(args, env));
+        out = try!(env.run_command_fd(stdin, stdout, stderr, &name, &argc, &envs));
     }
     return match out {
         ExitSignal(sig) => {

@@ -10,6 +10,18 @@ use state::*;
 use builtins::*;
 
 fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+    // set variable and stop
+    let (path, name, _, val) = try!(equal_inner(pre, next, state));
+    if path.is_none() {
+        try!(state.env.insv(name, val));
+    } else {
+        try!(state.env.insvp(name, path.unwrap(), val));
+    }
+    return Ok(Stop);
+}
+
+fn equal_inner(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>,
+               state:&mut ShellState) -> Result<(Option<String>, String, WashArgs, WashArgs), String> {
     // other l-values might eventually be supported,
     // for now you can only set variables
     // consume only the first variable before the equals
@@ -40,18 +52,19 @@ fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut S
             // use default path
             // this can be used to set a variable
             // with a name containing a colon
-            try!(state.env.insv(name, val.clone()));
-            return Err(STOP.to_string());
+            let old = state.env.getv(&name).ok().unwrap_or(Empty);
+            return Ok((None, name, old, val));
         } else {
-            try!(state.env.insvp(name, path, val.clone()));
-            return Err(STOP.to_string());
+            let old = state.env.getvp(&name, &path).ok().unwrap_or(Empty);
+            return Ok((Some(path), name, old, val));
         }
     } else {
-        try!(state.env.insv(name, val.clone()));
-        return Err(STOP.to_string());
+        let old = state.env.getv(&name).ok().unwrap_or(Empty);
+        return Ok((None, name, old, val));
     }
     // right now equals can only produce Stop.
     // In the future this may not be the case
+
 }
 
 fn equalequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {

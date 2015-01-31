@@ -101,10 +101,11 @@ pub const WO_PATH:&'static str = "/tmp/wash/";
 pub const NCCS:usize = 32;
 
 // regex
-pub static VAR_REGEX:Regex = regex!("^\\$([^ \t\r\n\"():]*)");
+pub static VAR_REGEX:Regex = regex!("^\\$([^ \t\r\n\"():]+)");
 pub static VAR_PATH_REGEX:Regex = regex!("^\\$([^ \t\r\n\"():]*):([^ \t\r\n\"():]*)");
 pub static EQ_VAR_REGEX:Regex = regex!("^[^ \t\r\n\"()]+$");
 pub static EQ_PATH_REGEX:Regex = regex!("^([^ \t\r\n\"():]*):([^ \t\r\n\"():]+)$");
+pub static EQ_TEMP_REGEX:Regex = regex!("^([^ \t\r\n\"():]*):?([^ \t\r\n\"():]+):$");
 pub static FD_REGEX:Regex = regex!("^@([^ \t\r\n\"():]*):?(\\d+)$");
 
 // stop error

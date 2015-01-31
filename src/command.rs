@@ -286,12 +286,19 @@ impl TermState {
     }
 
     pub fn start_job(&mut self, stdin:StdioContainer, stdout:StdioContainer, stderr:StdioContainer,
-                     name:&String, args:&Vec<String>) -> Result<usize, String> {
+                     name:&String, args:&Vec<String>,
+                     envs:&Vec<(String, Option<String>)>) -> Result<usize, String> {
         let mut process = Command::new(name);
         process.args(args.as_slice());
         process.stdin(stdin);
         process.stdout(stdout);
         process.stderr(stderr);
+        for &(ref env, ref val) in envs.iter() {
+            match val {
+                &None => process.env_remove(env),
+                &Some(ref val) => process.env(env, val)
+            };
+        }
         let child = match process.spawn() {
             Err(e) => {
                 return Err(format!("Couldn't spawn {}: {}", name, e));
@@ -462,12 +469,13 @@ impl TermState {
     }
 
     pub fn start_command(&mut self, stdin:StdioContainer, stdout:StdioContainer, stderr:StdioContainer,
-                         name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
+                         name:&String, args:&Vec<String>,
+                         envs:&Vec<(String, Option<String>)>) -> Result<ProcessExit, String> {
         // set terminal settings for process
         // do this before we spawn the process
         self.restore_terminal();
         // start job
-        let id = match self.start_job(stdin, stdout, stderr, name, args) {
+        let id = match self.start_job(stdin, stdout, stderr, name, args, envs) {
             Err(e) => {
                 // reset terminal to original state if spawning failed
                 self.update_terminal();
@@ -490,7 +498,8 @@ impl TermState {
     }
 
     pub fn run_job_fd(&mut self, stdin:Option<Fd>, stdout:Option<Fd>, stderr:Option<Fd>,
-                      name:&String, args:&Vec<String>) -> Result<usize, String> {
+                      name:&String, args:&Vec<String>,
+                      envs:&Vec<(String, Option<String>)>) -> Result<usize, String> {
         let stdin_o = match stdin {
             Some(fd) => InheritFd(fd),
             None => CreatePipe(true, false)
@@ -503,16 +512,17 @@ impl TermState {
             Some(fd) => InheritFd(fd),
             None => CreatePipe(false, true)
         };
-        self.start_job(stdin_o, stdout_o, stderr_o, name, args)
+        self.start_job(stdin_o, stdout_o, stderr_o, name, args, envs)
     }
     
     pub fn run_job(&mut self, name:&String, args:&Vec<String>) -> Result<usize, String> {
         // run the job directed
-        self.run_job_fd(None, None, None, name, args)
+        self.run_job_fd(None, None, None, name, args, &vec![])
     }
 
     pub fn run_command_fd(&mut self, stdin:Option<Fd>, stdout:Option<Fd>, stderr:Option<Fd>,
-                          name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
+                          name:&String, args:&Vec<String>,
+                          envs:&Vec<(String, Option<String>)>) -> Result<ProcessExit, String> {
         // commands can only run on existing pipes
         // to run a command on a new one, use a job
         let stdin_o = match stdin {
@@ -527,12 +537,12 @@ impl TermState {
             Some(fd) => InheritFd(fd),
             None => InheritFd(STDERR)
         };
-        self.start_command(stdin_o, stdout_o, stderr_o, name, args)
+        self.start_command(stdin_o, stdout_o, stderr_o, name, args, envs)
     }
     
     pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
         // run the command on stdin/out/err
-        self.run_command_fd(None, None, None, name, args)
+        self.run_command_fd(None, None, None, name, args, &vec![])
     }
 
     pub fn clean_jobs(&mut self) -> Vec<(usize, Job)> {
