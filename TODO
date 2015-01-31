@@ -1,4 +1,3 @@
-- Implement in-line file selector expansion
 - Iron out bugs with input method and piping
 - more keyboard shortcuts
 - settings
@@ -16,6 +15,8 @@
 - Re-write functions and handlers in scripts where possible
 - completion
  - hook into bash completion
+ - Parameter expansion, based around regex
+  - automatically fix bash-style patterns
 - bash integration
 
 future:
