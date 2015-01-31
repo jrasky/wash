@@ -47,7 +47,10 @@ unsafe extern fn term_signal(signo:c_int, u_info:*const SigInfo,
                     return;
                 }
             }
-            // child was not found, most likely a failed process spawn.
+            if !term.spawning {
+                // child was not found
+                term.controls.errf(format_args!("\nSent SIGCHLD for process not found in job table: {}\n", fields.pid));
+            } // failed process spawns cause SIGCHLD before we can put the process into the job table
         },
         SIGTSTP => {
             // ignore background SIGCHLDS
@@ -132,7 +135,8 @@ pub struct TermState {
     old_tios: Termios,
     pub jobs: VecMap<Job>,
     files: VecMap<File>,
-    jobstack: Vec<usize>
+    jobstack: Vec<usize>,
+    spawning: bool
 }
 
 impl Drop for TermState {
@@ -167,7 +171,8 @@ impl TermState {
             old_tios: old_tios,
             jobs: VecMap::new(),
             files: VecMap::new(),
-            jobstack: vec![]
+            jobstack: vec![],
+            spawning: false
         }
     }
 
@@ -298,10 +303,13 @@ impl TermState {
                 &Some(ref val) => process.env(env, val)
             };
         }
+        // for some reason a sigprocmask doesn't work here
+        self.spawning = true;
         let child = match process.spawn() {
             Err(e) => return Err(format!("Couldn't spawn {}: {}", name, e)),
             Ok(v) => v
         };
+        self.spawning = false;
         let id = self.find_jobs_hole();
         let mut job =  Job {
             command: name.clone(),
