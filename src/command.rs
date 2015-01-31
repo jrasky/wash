@@ -47,8 +47,7 @@ unsafe extern fn term_signal(signo:c_int, u_info:*const SigInfo,
                     return;
                 }
             }
-            // child was not found
-            term.controls.errf(format_args!("\nSent SIGCHLD for process not found in job table: {}\n", fields.pid));
+            // child was not found, most likely a failed process spawn.
         },
         SIGTSTP => {
             // ignore background SIGCHLDS
@@ -300,9 +299,7 @@ impl TermState {
             };
         }
         let child = match process.spawn() {
-            Err(e) => {
-                return Err(format!("Couldn't spawn {}: {}", name, e));
-            },
+            Err(e) => return Err(format!("Couldn't spawn {}: {}", name, e)),
             Ok(v) => v
         };
         let id = self.find_jobs_hole();
@@ -433,13 +430,13 @@ impl TermState {
         // set a process mask
         let old_set = match signal_proc_mask(SIG_BLOCK, &set) {
             Ok(set) => set,
-            Err(e) => return Err(format!("{}", e))
+            Err(e) => return Err(format!("Couldn't set process mask: {}", e))
         };
         let out = self.wait_job_signal(id, &set);
         // unset the mask
         match signal_proc_mask(SIG_SETMASK, &old_set) {
             Ok(_) => return out,
-            Err(e) => return Err(format!("{}", e))
+            Err(e) => return Err(format!("Couldn't unset process mask: {}", e))
         }
     }
 
@@ -537,7 +534,10 @@ impl TermState {
             Some(fd) => InheritFd(fd),
             None => InheritFd(STDERR)
         };
-        self.start_command(stdin_o, stdout_o, stderr_o, name, args, envs)
+        let out = self.start_command(stdin_o, stdout_o, stderr_o, name, args, envs);
+        // clean jobs so we don't get a bunch of "job finished" messages
+        self.clean_jobs();
+        return out;
     }
     
     pub fn run_command(&mut self, name:&String, args:&Vec<String>) -> Result<ProcessExit, String> {
