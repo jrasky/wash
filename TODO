@@ -1,10 +1,10 @@
-- better job control
- - setting variables for one job
 - more keyboard shortcuts
 - settings
  - maybe vars on a special path?
 - better PS1
  - figure out PS2 interaction
+- Setting normal variables for one function call?
+ - setting the default variable path for one function call?
 - finish scripting
  - rewrite to not link directly to dl
  - interactive/compiled mode
