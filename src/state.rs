@@ -87,7 +87,7 @@ impl ShellState {
         return Ok(out);
     }
 
-    pub fn process_lines<'a, T:Iterator<Item=&'a InputValue>>(&mut self, mut lines:T) -> Result<WashArgs, String> {
+    pub fn process_lines<'a, T:Iterator<Item=&'a InputValue>>(&mut self, lines:T) -> Result<WashArgs, String> {
         let mut out = Flat(String::new());
         let reset_sigint;
         if self.env.catch_sigint {
