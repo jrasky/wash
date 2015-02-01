@@ -8,7 +8,8 @@ use types::InputValue::*;
 pub struct InputLine {
     pub back: Vec<InputValue>,
     pub front: InputValue,
-    pub part: String
+    pub part: String,
+    pub fpart: String
 }
 
 impl InputLine {
@@ -16,22 +17,24 @@ impl InputLine {
         InputLine {
             back: vec![],
             front: Short(String::new()),
-            part: String::new()
+            part: String::new(),
+            fpart: String::new()
         }
     }
     
     pub fn is_empty(&self) -> bool {
-        self.back.is_empty() && self.front.is_empty() && self.part.is_empty()
+        self.back.is_empty() && self.front.is_empty() && self.part.is_empty() && self.fpart.is_empty()
     }
 
     pub fn clear(&mut self) {
         self.back.clear();
         self.front.clear();
         self.part.clear();
+        self.fpart.clear();
     }
     
-    pub fn push(&mut self, ch:char) -> bool {
-        let new = match ch {
+    fn push_inner(&mut self, ch:char) -> Option<InputValue> {
+        match ch {
             SPC | CMA => match self.front.clone() {
                 Split(ref s) if ch == CMA && !s.is_empty() => {
                     let len = self.back.len();
@@ -49,15 +52,15 @@ impl InputLine {
                     }
                     let mut t = String::new();
                     t.push(CMA);
-                    Split(t)
+                    Some(Split(t))
                 },
                 Split(ref mut s) => {
                     s.push(ch);
-                    Split(s.clone())
+                    Some(Split(s.clone()))
                 },
                 Literal(ref mut s) => {
                     s.push(ch);
-                    Literal(s.clone())
+                    Some(Literal(s.clone()))
                 },
                 Short(ref s) if *s == "".to_string()  => {
                     if ch == CMA {
@@ -76,9 +79,9 @@ impl InputLine {
                         }
                         let mut t = String::new();
                         t.push(ch);
-                        Split(t)
+                        Some(Split(t))
                     } else {
-                        return false;
+                        None
                     }
                 },
                 ref s if match s {
@@ -98,22 +101,22 @@ impl InputLine {
                     }
                     let mut t = String::new();
                     t.push(ch);
-                    Split(t)
+                    Some(Split(t))
                 },
                 _ => {
                     // invalid input
-                    return false;
+                    None
                 }
             },
             OPR => match self.front.clone() {
                 Short(ref s) if s.is_empty() => {
                     // arg list
                     self.back.push(Long(vec![]));
-                    Short(String::new())
+                    Some(Short(String::new()))
                 },
                 Split(ref s) if s.is_empty() => {
                     // invalid input
-                    return false;
+                    None
                 },
                 Split(ref s) => {
                     // arg list
@@ -129,20 +132,20 @@ impl InputLine {
                         self.back.push(Split(s.clone()));
                     }
                     self.back.push(Long(vec![]));
-                    Short(String::new())
+                    Some(Short(String::new()))
                 },
                 Short(ref s) => {
                     // function
                     self.back.push(Function(s.clone(), vec![]));
-                    Short(String::new())
+                    Some(Short(String::new()))
                 },
                 Literal(ref mut v) => {
                     v.push(ch);
-                    Literal(v.clone())
+                    Some(Literal(v.clone()))
                 },
                 Long(_) | Function(_, _) => {
                     // invalid input
-                    return false;
+                    None
                 },
             },
             CPR => match self.front.clone() {
@@ -160,7 +163,7 @@ impl InputLine {
                         },
                         _ => {
                             // invalid input
-                            return false;
+                            return None;
                         }
                     }
                     if pop_push_back {
@@ -179,12 +182,11 @@ impl InputLine {
                             self.back.push(func);
                         }
                     }
-                    // we've covered the None case above
-                    self.back.pop().unwrap()
+                    self.back.pop()
                 },
                 Literal(ref mut v) => {
                     v.push(ch);
-                    Literal(v.clone())
+                    Some(Literal(v.clone()))
                 },
                 Split(_) => {
                     let len = self.back.len();
@@ -195,9 +197,9 @@ impl InputLine {
                             match get_index(v, len - 1) {
                                 Some(&mut Literal(_)) => {
                                     end_args = true;
-                                }, _ => return false
+                                }, _ => return None
                             }
-                        }, _ => return false
+                        }, _ => return None
                     }
                     if end_args {
                         // special case, it's ok to type a CPR here
@@ -214,14 +216,14 @@ impl InputLine {
                         if after_borrow {
                             self.back.push(func);
                         }
-                        self.back.pop().unwrap()
+                        self.back.pop()
                     } else {
-                        return false;
+                        None
                     }
                 },
                 _ => {
                     // invalid input
-                    return false;
+                    None
                 }
             },
             QUT => match self.front.clone() {
@@ -237,12 +239,12 @@ impl InputLine {
                     if after_borrow {
                         self.back.push(Split(s.clone()));
                     }
-                    Literal(String::new())
+                    Some(Literal(String::new()))
                 },
                 Short(ref mut s) => {
                     let mut t = String::new();
                     t.push_str(s.as_slice());
-                    Literal(t)
+                    Some(Literal(t))
                 },
                 Literal(ref mut s) => {
                     // end of literal
@@ -257,17 +259,17 @@ impl InputLine {
                     if after_borrow {
                         self.back.push(Literal(s.clone()));
                     }
-                    Split(String::new())
+                    Some(Split(String::new()))
                 },
                 Long(_) | Function(_, _) => {
                     // invalid input
-                    return false;
+                    None
                 }
             },
             ch => match self.front.clone() {
                 Split(ref mut s) if s.is_empty() => {
                     // invalid input
-                    return false;
+                    None
                 },
                 Split(ref mut s) => {
                     let len = self.back.len();
@@ -283,25 +285,34 @@ impl InputLine {
                     }
                     let mut t = String::new();
                     t.push(ch);
-                    Short(t)
+                    Some(Short(t))
                 },
                 Short(ref mut s) => {
                     s.push(ch);
-                    Short(s.clone())
+                    Some(Short(s.clone()))
                 },
                 Literal(ref mut s) => {
                     s.push(ch);
-                    Literal(s.clone())
+                    Some(Literal(s.clone()))
                 },
                 _ => {
                     // invalid input
-                    return false;
+                    None
                 }
             }
-        };
-        self.front = new;
-        // default
-        return true;
+        }
+    }
+
+    pub fn push(&mut self, ch:char) -> bool {
+        match self.push_inner(ch) {
+            None => return false,
+            Some(new) => {
+                self.front = new;
+                self.fpart.push(ch);
+                // default
+                return true;
+            }
+        }
     }
 
     pub fn pop(&mut self) -> Option<char> {

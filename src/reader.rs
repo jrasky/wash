@@ -283,10 +283,11 @@ impl LineReader {
                         self.line = InputLine {
                             back: match line {
                                 InputValue::Long(v) => v,
-                                v => vec![v]
+                                v => vec![v],
                             },
                             front: InputValue::Short(String::new()),
-                            part: String::new()
+                            part: String::new(),
+                            fpart: String::new()
                         };
                         let cline = self.line.clone();
                         while self.line.left() {}
@@ -317,7 +318,8 @@ impl LineReader {
                                 v => vec![v]
                             },
                             front: InputValue::Short(String::new()),
-                            part: String::new()
+                            part: String::new(),
+                            fpart: String::new()
                         };
                         let cline = self.line.clone();
                         while self.line.left() {}
