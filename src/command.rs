@@ -72,9 +72,20 @@ impl Job {
             // we're already dead
             return Ok(self.exit.clone().unwrap());
         }
+        let mut set = try!(empty_sigset());
+        try!(sigset_add(&mut set, SIGCHLD));
+        // set a process mask
+        let old_set = try!(signal_proc_mask(SIG_BLOCK, &set));
+        let out = self.wait_signal(timeout, &set);
+        // unset the mask
+        try!(signal_proc_mask(SIG_SETMASK, &old_set));
+        return out;
+    }
+
+    fn wait_signal(&mut self, timeout:Option<usize>, set:&SigSet) -> IoResult<ProcessExit> {
         let mut info; let mut fields;
         loop {
-            info = try!(signal_wait(SIGCHLD, timeout));
+            info = try!(signal_wait_set(set, timeout));
             fields = match info.determine_sigfields() {
                 SigFields::SigChld(f) => f,
                 _ => return Err(IoError {kind: IoErrorKind::OtherIoError,
@@ -147,6 +158,7 @@ impl Drop for TermState {
         // then drop all of our jobs
         let ids:Vec<usize> = self.jobs.keys().collect();
         for id in ids.iter() {
+            self.controls.errf(format_args!("Dropping job {}...\n", &id));
             self.jobs.remove(id);
         }
     }

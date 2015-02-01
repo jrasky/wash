@@ -195,12 +195,6 @@ pub fn signal_proc_mask(how:c_int, set:&SigSet) -> IoResult<SigSet> {
     }
 }
 
-pub fn signal_wait(signal:c_int, timeout:Option<usize>) -> IoResult<SigInfo> {
-    let mut set = try!(empty_sigset());
-    try!(sigset_add(&mut set, signal));
-    return signal_wait_set(&set, timeout);
-}
-
 fn fd_set_empty() -> FdSet {
     return [0; FD_SET_SIZE];
 }
