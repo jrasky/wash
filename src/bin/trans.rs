@@ -1,5 +1,4 @@
 #![feature(core)]
-#![feature(collections)]
 #![feature(io)]
 #![feature(os)]
 #![feature(path)]
