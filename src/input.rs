@@ -71,8 +71,15 @@ impl InputLine {
                 }
                 self.front = Split(SPC.to_string());
                 return true;
+            },
+            Long(_) | Function(_, _) => {
+                if !self.push_back() {
+                    return false; // invalid input
+                } else {
+                    self.front = Split(SPC.to_string());
+                    return true;
+                }
             }
-            _ => return false // invalid input
         }
     }
 
@@ -106,8 +113,15 @@ impl InputLine {
                 }
                 self.front = Split(CMA.to_string());
                 return true;
+            },
+            Long(_) | Function(_, _) => {
+                if !self.push_back() {
+                    return false; // invalid input
+                } else {
+                    self.front = Split(CMA.to_string());
+                    return true;
+                }
             }
-            _ => return false // invalid input
         }
     }
 
@@ -236,7 +250,10 @@ impl InputLine {
             Function(_, ref mut v) | Long(ref mut v) => {
                 v.push(self.front.clone())
             },
-            _ => return false // invalid input
+            _ => {
+                self.back.push(last);
+                return false;
+            }
         }
         self.back.push(last);
         return true;
@@ -811,18 +828,13 @@ impl InputLine {
                 None => break
             }
         }
-        if !cself.front.is_empty() {
-            /*match cself.front.clone() {
-                Short(_) | Function(_, _) | Long(_) => {cself.push(SPC);},
-                Literal(_) => {cself.push(QUT);},
-                Split(_) => {}
-            }*/
-            cself.push_back();
+        while cself.push_back() && !cself.back.is_empty() {
+            cself.front = cself.back.pop().unwrap();
         }
-        if cself.back.len() < 2 {
-            return cself.back.pop();
+        if !cself.back.is_empty() {
+            return None;
         } else {
-            return Some(Long(cself.back.clone()));
+            return Some(cself.front);
         }
     }
 }
