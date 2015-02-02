@@ -15,7 +15,7 @@ pub struct InputLine {
 impl InputLine {
     pub fn new() -> InputLine {
         InputLine {
-            back: vec![],
+            back: vec![Long(vec![])],
             front: Short(String::new()),
             part: String::new(),
             fpart: String::new()
@@ -23,14 +23,223 @@ impl InputLine {
     }
     
     pub fn is_empty(&self) -> bool {
-        self.back.is_empty() && self.front.is_empty() && self.part.is_empty() && self.fpart.is_empty()
+        self.back == vec![Long(vec![])] && self.front.is_empty() && self.part.is_empty() && self.fpart.is_empty()
     }
 
     pub fn clear(&mut self) {
         self.back.clear();
+        self.back.push(Long(vec![]));
         self.front.clear();
         self.part.clear();
         self.fpart.clear();
+    }
+
+    pub fn push(&mut self, ch:char) -> bool {
+        let pushed = match ch.clone() {
+            SPC => self.push_spc(),
+            CMA => self.push_cma(),
+            OPR => self.push_opr(),
+            CPR => self.push_cpr(),
+            QUT => self.push_qut(),
+            c => self.push_simple(c)
+        };
+        if pushed {
+            self.fpart.push(ch);
+        }
+        return pushed;
+    }
+
+    fn push_spc(&mut self) -> bool {
+        match self.front {
+            Split(ref mut s) => {
+                s.push(SPC);
+                return true;
+            },
+            Literal(ref mut s) => {
+                s.push(SPC);
+                return true;
+            },
+            Short(_) => {
+                let inner_empty = match self.front {
+                    Short(ref s) => s.is_empty(),
+                    _ => panic!("") // should never happen
+                };
+                if !inner_empty {
+                    if !self.push_back() {
+                        return false; // invalid input
+                    }
+                }
+                self.front = Split(SPC.to_string());
+                return true;
+            }
+            _ => return false // invalid input
+        }
+    }
+
+    fn push_cma(&mut self) -> bool {
+        match self.front {
+            Split(ref mut s) if s.is_empty() => {
+                s.push(CMA);
+                return true;
+            },
+            Split(_) => {
+                if !self.push_back() {
+                    return false; // invalid input
+                } else {
+                    self.front = Split(CMA.to_string());
+                    return true;
+                }
+            }
+            Literal(ref mut s) => {
+                s.push(CMA);
+                return true;
+            },
+            Short(_) => {
+                let inner_empty = match self.front {
+                    Short(ref s) => s.is_empty(),
+                    _ => panic!("") // should never happen
+                };
+                if inner_empty {
+                    if !self.push_back() {
+                        return false; // invalid input
+                    }
+                }
+                self.front = Split(CMA.to_string());
+                return true;
+            }
+            _ => return false // invalid input
+        }
+    }
+
+    fn push_opr(&mut self) -> bool {
+        match self.front {
+            Split(_) => {
+                // arg list
+                if !self.push_back() {
+                    return false; // invalid input
+                } else {
+                    self.back.push(Long(vec![]));
+                    self.front = Short(String::new());
+                    return true;
+                }
+            },
+            Short(_) => {
+                let name = match self.front {
+                    Short(ref s) => s.clone(),
+                    _ => panic!("") // should never happen
+                };
+                if name.is_empty() {
+                    // arg list
+                    self.back.push(Long(vec![]));
+                } else {
+                    // function
+                    self.back.push(Function(name, vec![]));
+                }
+                self.front = Short(String::new());
+                return true;
+            },
+            Literal(ref mut s) => {
+                s.push(OPR);
+                return true;
+            },
+            _ => return false // invalid input
+        }
+    }
+
+    fn push_cpr(&mut self) -> bool {
+        match self.front {
+            Split(_) | Short(_) | Long(_) | Function(_, _) => {
+                // end argument list
+                if !self.push_back() {
+                    return false; // invalid input
+                } else {
+                    // back should have something in it now
+                    self.front = self.back.pop().unwrap();
+                    return true;
+                }
+            },
+            Literal(ref mut s) => {
+                s.push(CPR);
+                return true;
+            }
+        }
+    }
+
+    fn push_qut(&mut self) -> bool {
+        match self.front {
+            Split(_) => {
+                if !self.push_back() {
+                    return false; // invalid input
+                } else {
+                    self.front = Literal(String::new());
+                    return true;
+                }
+            },
+            Short(_) => {
+                let contents = match self.front {
+                    Short(ref s) => s.clone(),
+                    _ => panic!("")
+                };
+                self.front = Literal(contents);
+                return true;
+            },
+            Literal(_) => {
+                if !self.push_back() {
+                    return false; // invalid input
+                } else {
+                    self.front = Split(String::new());
+                    return true;
+                }
+            },
+            _ => return false // invalid input
+        }
+    }
+
+    fn push_simple(&mut self, ch:char) -> bool {
+        match self.front {
+            Split(_) => {
+                if !self.push_back() {
+                    return false; // invalid input
+                } else {
+                    let mut contents = String::new();
+                    contents.push(ch);
+                    self.front = Short(contents);
+                    return true;
+                }
+            },
+            Short(ref mut s) | Literal(ref mut s) => {
+                s.push(ch);
+                return true;
+            },
+            _ => return false // invalid input
+        }
+    }
+
+    fn push_back(&mut self) -> bool {
+        // The way the back vector works is that the front
+        // is always the inner-most level of the currently
+        // typed structure
+        // This means that the back vector will contain a
+        // series of objects corresponding to progressively
+        // more outer levels of the line
+        // This means that to move up one level, we take
+        // the current front and push it into the contents
+        // of the first thing on the back vector
+        if self.front.is_empty() {
+            return false; // can't push back empty values
+        }
+        if self.back.is_empty() {
+            return false; // trying to push back too far
+        }
+        let mut last = self.back.pop().unwrap();
+        match last {
+            Function(_, ref mut v) | Long(ref mut v) => {
+                v.push(self.front.clone())
+            },
+            _ => return false // invalid input
+        }
+        self.back.push(last);
+        return true;
     }
     
     fn push_inner(&mut self, ch:char) -> Option<InputValue> {
@@ -303,7 +512,7 @@ impl InputLine {
         }
     }
 
-    pub fn push(&mut self, ch:char) -> bool {
+    pub fn push_old(&mut self, ch:char) -> bool {
         match self.push_inner(ch) {
             None => return false,
             Some(new) => {
@@ -603,11 +812,12 @@ impl InputLine {
             }
         }
         if !cself.front.is_empty() {
-            match cself.front.clone() {
+            /*match cself.front.clone() {
                 Short(_) | Function(_, _) | Long(_) => {cself.push(SPC);},
                 Literal(_) => {cself.push(QUT);},
                 Split(_) => {}
-            }
+            }*/
+            cself.push_back();
         }
         if cself.back.len() < 2 {
             return cself.back.pop();

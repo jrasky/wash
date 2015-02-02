@@ -42,7 +42,6 @@ impl InputValue {
         *self = InputValue::Short(String::new());
     }
 
-    #[cfg(test)]
     pub fn print(&self) {
         use self::InputValue::*;
         match self {
