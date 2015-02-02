@@ -67,6 +67,8 @@ impl InputLine {
                 if !inner_empty {
                     if !self.push_back() {
                         return false; // invalid input
+                    } else {
+                        self.back.push(self.front.clone());
                     }
                 }
                 self.front = Split(SPC.to_string());
@@ -76,6 +78,7 @@ impl InputLine {
                 if !self.push_back() {
                     return false; // invalid input
                 } else {
+                    self.back.push(self.front.clone());
                     self.front = Split(SPC.to_string());
                     return true;
                 }
@@ -93,6 +96,7 @@ impl InputLine {
                 if !self.push_back() {
                     return false; // invalid input
                 } else {
+                    self.back.push(self.front.clone());
                     self.front = Split(CMA.to_string());
                     return true;
                 }
@@ -106,9 +110,11 @@ impl InputLine {
                     Short(ref s) => s.is_empty(),
                     _ => panic!("") // should never happen
                 };
-                if inner_empty {
+                if !inner_empty {
                     if !self.push_back() {
                         return false; // invalid input
+                    } else {
+                        self.back.push(self.front.clone());
                     }
                 }
                 self.front = Split(CMA.to_string());
@@ -118,6 +124,7 @@ impl InputLine {
                 if !self.push_back() {
                     return false; // invalid input
                 } else {
+                    self.back.push(self.front.clone());
                     self.front = Split(CMA.to_string());
                     return true;
                 }
@@ -132,6 +139,7 @@ impl InputLine {
                 if !self.push_back() {
                     return false; // invalid input
                 } else {
+                    self.back.push(self.front.clone());
                     self.back.push(Long(vec![]));
                     self.front = Short(String::new());
                     return true;
@@ -167,8 +175,7 @@ impl InputLine {
                 if !self.push_back() {
                     return false; // invalid input
                 } else {
-                    // back should have something in it now
-                    self.front = self.back.pop().unwrap();
+                    // front should now be correct
                     return true;
                 }
             },
@@ -185,6 +192,7 @@ impl InputLine {
                 if !self.push_back() {
                     return false; // invalid input
                 } else {
+                    self.back.push(self.front.clone());
                     self.front = Literal(String::new());
                     return true;
                 }
@@ -201,6 +209,7 @@ impl InputLine {
                 if !self.push_back() {
                     return false; // invalid input
                 } else {
+                    self.back.push(self.front.clone());
                     self.front = Split(String::new());
                     return true;
                 }
@@ -215,6 +224,7 @@ impl InputLine {
                 if !self.push_back() {
                     return false; // invalid input
                 } else {
+                    self.back.push(self.front.clone());
                     let mut contents = String::new();
                     contents.push(ch);
                     self.front = Short(contents);
@@ -239,24 +249,46 @@ impl InputLine {
         // This means that to move up one level, we take
         // the current front and push it into the contents
         // of the first thing on the back vector
-        if self.front.is_empty() {
-            return false; // can't push back empty values
-        }
-        if self.back.is_empty() {
-            return false; // trying to push back too far
-        }
-        let mut last = self.back.pop().unwrap();
+        let mut last = match self.back.pop() {
+            None => return false, // Trying to push back too far
+            Some(v) => v
+        };
         match last {
-            Function(_, ref mut v) | Long(ref mut v) => {
-                v.push(self.front.clone())
-            },
+            Function(_, ref mut v) | Long(ref mut v) =>
+                match self.front {
+                    Long(_) =>
+                        v.push(self.front.clone()),
+                    _ if !self.front.is_empty() =>
+                        v.push(self.front.clone()),
+                    _ => {}
+                },
             _ => {
                 self.back.push(last);
                 return false;
             }
         }
-        self.back.push(last);
+        self.front = last;
         return true;
+    }
+
+    fn pop_back(&mut self) -> bool {
+        // inverse of push_back
+        match self.front {
+            Long(_) | Function(_, _) => {
+                let next = match self.front {
+                    Long(ref mut v) | Function(_, ref mut v)
+                        => match v.pop() {
+                            None => return false, // can't pop back here
+                            Some(v) => v
+                        },
+                    _ => panic!("") // should never happen
+                };
+                self.back.push(self.front.clone());
+                self.front = next;
+                return true;
+            },
+            _ => return false // can't pop back here
+        }
     }
     
     fn push_inner(&mut self, ch:char) -> Option<InputValue> {
@@ -542,6 +574,19 @@ impl InputLine {
     }
 
     pub fn pop(&mut self) -> Option<char> {
+        // easy part: get the character
+        let out = match self.fpart.pop() {
+            None => return None, // nothing else to pop
+            Some(v) => v
+        };
+        // hard part: unwind the data structure
+        // to match
+        match out {
+            _ => return None
+        }
+    }
+
+    pub fn pop_old(&mut self) -> Option<char> {
         let mut cfront = self.front.clone();
         let out = match cfront {
             Split(ref mut s) if s.len() == 1 => {
@@ -828,9 +873,7 @@ impl InputLine {
                 None => break
             }
         }
-        while cself.push_back() && !cself.back.is_empty() {
-            cself.front = cself.back.pop().unwrap();
-        }
+        while cself.push_back() && !cself.back.is_empty() {}
         if !cself.back.is_empty() {
             return None;
         } else {
