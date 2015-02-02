@@ -1,6 +1,4 @@
 - Improve InputLine
- - implement fpart, record of exact character entry
- - rebuild pop to work with fpart
  - simplify code elsewhere
 - settings
  - maybe vars on a special path?

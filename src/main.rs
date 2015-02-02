@@ -82,8 +82,6 @@ pub fn main() {
             },
             Some(line) => {
                 state.env.outc(NL);
-                line.print();
-                /*
                 match state.process_line(line) {
                     Err(e) => {
                         if e == STOP.to_string() {
@@ -99,7 +97,7 @@ pub fn main() {
                             state.env.outc(NL);
                         }
                     }
-                }*/
+                }
                 reader.clear();
             }
         }

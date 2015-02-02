@@ -1,5 +1,4 @@
 // "thousand_lines_of_madness.rs"
-use util::*;
 use constants::*;
 use types::*;
 use types::InputValue::*;
@@ -86,6 +85,79 @@ impl InputLine {
         }
     }
 
+    fn pop_spc(&mut self) -> bool {
+        match self.front {
+            Literal(ref mut s) => {
+                let popped = s.pop();
+                if !(popped == Some(SPC)) {
+                    if popped.is_some() {
+                        s.push(popped.unwrap());
+                    }
+                    return false;
+                } else {
+                    return true;
+                }
+            },
+            Split(_) => {
+                let empty;
+                match self.front {
+                    Split(ref mut s) => {
+                        let popped = s.pop();
+                        if popped != Some(SPC) {
+                            if popped.is_some() {
+                                s.push(popped.unwrap());
+                            }
+                            return false;
+                        }
+                        empty = s.is_empty();
+                    },
+                    _ => panic!("") // should never happen
+                }
+                if empty {
+                    let popped = self.back.pop();
+                    match popped {
+                        Some(Long(_)) | Some(Function(_, _)) => {
+                            self.front = popped.clone().unwrap();
+                            if !self.pop_back() {
+                            self.back.push(popped.unwrap());
+                                self.front = Split(SPC.to_string());
+                                return false;
+                            } else {
+                                match self.front {
+                                    Literal(_) => {
+                                        // the pop_back was incorrect, in this case
+                                        // front was an empty split
+                                        if !self.push_back() {
+                                            panic!("Pop/push back aren't inverse");
+                                        }
+                                        self.back.push(self.front.clone());
+                                        self.front = Split(String::new());
+                                    },
+                                    _ => {}
+                                }
+                                return true;
+                            }
+                        },
+                        Some(v) => {
+                            // in this case front was an empty short
+                            self.back.push(v);
+                            self.front = Short(String::new());
+                            return true;
+                        },
+                        _ => {
+                            self.front = Short(String::new());
+                            return true;
+                        }
+                    }
+                } else {
+                    // front isn't empty yet
+                    return true;
+                }
+            },
+            _ => return false // invalid pop
+        }
+    }
+
     fn push_cma(&mut self) -> bool {
         match self.front {
             Split(ref mut s) if s.is_empty() => {
@@ -132,6 +204,79 @@ impl InputLine {
         }
     }
 
+    fn pop_cma(&mut self) -> bool {
+        match self.front {
+            Literal(ref mut s) => {
+                let popped = s.pop();
+                if !(popped == Some(CMA)) {
+                    if popped.is_some() {
+                        s.push(popped.unwrap());
+                    }
+                    return false;
+                } else {
+                    return true;
+                }
+            },
+            Split(_) => {
+                let empty;
+                match self.front {
+                    Split(ref mut s) => {
+                        let popped = s.pop();
+                        if popped != Some(CMA) {
+                            if popped.is_some() {
+                                s.push(popped.unwrap());
+                            }
+                            return false;
+                        }
+                        empty = s.is_empty();
+                    },
+                    _ => panic!("") // should never happen
+                }
+                if empty {
+                    let popped = self.back.pop();
+                    match popped {
+                        Some(Long(_)) | Some(Function(_, _)) => {
+                            self.front = popped.clone().unwrap();
+                            if !self.pop_back() {
+                                self.back.push(popped.unwrap());
+                                self.front = Split(CMA.to_string());
+                                return false;
+                            } else {
+                                match self.front {
+                                    Literal(_) => {
+                                        // the pop_back was incorrect, in this case
+                                        // front was an empty split
+                                        if !self.push_back() {
+                                            panic!("Pop/push back aren't inverse");
+                                        }
+                                        self.back.push(self.front.clone());
+                                        self.front = Split(String::new());
+                                    },
+                                    _ => {}
+                                }
+                                return true;
+                            }
+                        },
+                        Some(v) => {
+                            // in this case front was an empty short
+                            self.back.push(v);
+                            self.front = Short(String::new());
+                            return true;
+                        },
+                        _ => {
+                            self.front = Short(String::new());
+                            return true;
+                        }
+                    }
+                } else {
+                    // front isn't empty yet
+                    return true;
+                }
+            },
+            _ => return false // invalid pop
+        }
+    }
+
     fn push_opr(&mut self) -> bool {
         match self.front {
             Split(_) => {
@@ -168,6 +313,68 @@ impl InputLine {
         }
     }
 
+    fn pop_opr(&mut self) -> bool {
+        match self.front {
+            Literal(ref mut s) => {
+                let popped = s.pop();
+                if !(popped == Some(OPR)) {
+                    if popped.is_some() {
+                        s.push(popped.unwrap());
+                    }
+                    return false;
+                } else {
+                    return true;
+                }
+            },
+            Short(_) => {
+                match self.front {
+                    Short(ref s) if s.is_empty() => {},
+                    _ => return false // invalid pop
+                }
+                match self.back.pop() {
+                    Some(Long(v)) => {
+                        if !v.is_empty() {
+                            self.back.push(Long(v));
+                            return false; // invalid pop
+                        } else {
+                            let popped = self.back.pop();
+                            match popped {
+                                Some(Function(_, _)) | Some(Long(_)) => {
+                                    self.front = popped.clone().unwrap();
+                                    if !self.pop_back() {
+                                        self.back.push(popped.unwrap());
+                                        self.front = Short(String::new());
+                                        // popped back as far as we can
+                                        return true;
+                                    } else {
+                                        // front is in the correct place
+                                        return true;
+                                    }
+                                },
+                                _ => {
+                                    self.back.push(popped.unwrap());
+                                    // front before/after this pop was an empty Short
+                                    return true;
+                                }
+                            }
+                        }
+                    },
+                    Some(Function(name, v)) => {
+                        if !v.is_empty() {
+                            self.back.push(Function(name, v));
+                            return false;
+                        } else {
+                            self.front = Short(name);
+                            return true;
+                        }
+                    },
+                    _ => return false // invalid pop
+                }
+            },
+            _ => return false // invalid pop
+        }
+    }
+
     fn push_cpr(&mut self) -> bool {
         match self.front {
             Split(_) | Short(_) | Long(_) | Function(_, _) => {
@@ -183,6 +390,62 @@ impl InputLine {
                 s.push(CPR);
                 return true;
             }
+        }
+    }
+
+    fn pop_cpr(&mut self) -> bool {
+        match self.front {
+            Literal(ref mut s) => {
+                let popped = s.pop();
+                if !(popped == Some(CPR)) {
+                    if popped.is_some() {
+                        s.push(popped.unwrap());
+                    }
+                    return false;
+                } else {
+                    return true;
+                }
+            },
+            Function(_, _) | Long(_) => {
+                if !self.pop_back() {
+                    let popped = self.back.pop();
+                    match popped {
+                        Some(v) => {
+                            if v.is_empty() {
+                                // special case
+                                self.back.push(self.front.clone());
+                                self.back.push(v);
+                                self.front = Short(String::new());
+                                return true;
+                            } else {
+                                self.back.push(v);
+                                return false;
+                            }
+                        },
+                        None => {
+                            // special case
+                            self.back.push(self.front.clone());
+                            self.front = Short(String::new());
+                            return true;
+                        }
+                    }
+                } else {
+                    match self.front {
+                        Literal(_) => {
+                            // the pop_back was incorrect, in this case
+                            // front was an empty split
+                            if !self.push_back() {
+                                panic!("Pop/push back aren't inverse");
+                            }
+                            self.back.push(self.front.clone());
+                            self.front = Split(String::new());
+                        },
+                        _ => {}
+                    }
+                    return true;
+                }
+            },
+            _ => return false // invalid pop
         }
     }
 
@@ -218,6 +481,62 @@ impl InputLine {
         }
     }
 
+    fn pop_qut(&mut self) -> bool {
+        match self.front {
+            Literal(_) => {
+                let contents = match self.front {
+                    Literal(ref s) => s.clone(),
+                    _ => panic!("")
+                };
+                if !contents.is_empty() {
+                    self.front = Short(contents);
+                    return true;
+                } else {
+                    match self.back.pop() {
+                        Some(v) => {
+                            self.front = v.clone();
+                            if !self.pop_back() {
+                                self.back.push(v);
+                                self.front = Short(String::new());
+                                // popped back as far as we can go
+                                return true;
+                            } else {
+                                // front is now in the right place
+                                return true;
+                            }
+                        },
+                        _ => return false // invalid pop
+                    }
+                }
+            },
+            Split(_) => {
+                match self.front {
+                    Split(ref s) => {
+                        if !s.is_empty() {
+                            return false; // invalid pop
+                        }
+                    },
+                    _ => panic!("")
+                }
+                match self.back.pop() {
+                    Some(v) => {
+                        self.front = v.clone();
+                        if !self.pop_back() {
+                            self.back.push(v);
+                            self.front = Split(String::new());
+                            return false;
+                        } else {
+                            // front is now in the right place
+                            return true;
+                        }
+                    },
+                    _ => return false // invalid pop
+                }
+            },
+            _ => return false // invalid pop
+        }
+    }
+
     fn push_simple(&mut self, ch:char) -> bool {
         match self.front {
             Split(_) => {
@@ -236,6 +555,70 @@ impl InputLine {
                 return true;
             },
             _ => return false // invalid input
+        }
+    }
+
+    fn pop_simple(&mut self, ch:char) -> bool {
+        match self.front {
+            Literal(ref mut s) => {
+                let popped = s.pop();
+                if !(popped == Some(ch)) {
+                    if popped.is_some() {
+                        s.push(popped.unwrap());
+                    }
+                    return false;
+                } else {
+                    return true;
+                }
+            },
+            Short(_) => {
+                let empty;
+                match self.front {
+                    Short(ref mut s) => {
+                        let popped = s.pop();
+                        match popped {
+                            Some(c) if c == ch => {
+                                empty = s.is_empty();
+                            },
+                            Some(c) => {
+                                s.push(c);
+                                return false; // invalid pop
+                            },
+                            _ => {
+                                return false;
+                            }
+                        }
+                    },
+                    _ => panic!("")
+                }
+                if empty {
+                    let popped = self.back.pop();
+                    match popped {
+                        Some(Long(_)) | Some(Function(_, _)) => {
+                            let old = self.front.clone();
+                            self.front = popped.clone().unwrap();
+                            if !self.pop_back() {
+                                self.back.push(popped.unwrap());
+                                self.front = old;
+                                // pushed back as far as we can go
+                                return true;
+                            } else {
+                                // front is in the right place
+                                return true;
+                            }
+                        },
+                        _ => {
+                            self.back.push(popped.unwrap());
+                            // front is already in the right place
+                            return true;
+                        }
+                    }
+                } else {
+                    // front isn't empty yet
+                    return true;
+                }
+            },
+            _ => return false // invalid pop
         }
     }
 
@@ -290,288 +673,6 @@ impl InputLine {
             _ => return false // can't pop back here
         }
     }
-    
-    fn push_inner(&mut self, ch:char) -> Option<InputValue> {
-        match ch {
-            SPC | CMA => match self.front.clone() {
-                Split(ref s) if ch == CMA && !s.is_empty() => {
-                    let len = self.back.len();
-                    let mut after_borrow = false;
-                    match get_index(&mut self.back, len - 1) {
-                        Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
-                            v.push(Split(s.clone()));
-                            v.push(Short(String::new()));
-                        },
-                        _ => after_borrow = true
-                    };
-                    if after_borrow {
-                        self.back.push(Split(s.clone()));
-                        self.back.push(Short(String::new()));
-                    }
-                    let mut t = String::new();
-                    t.push(CMA);
-                    Some(Split(t))
-                },
-                Split(ref mut s) => {
-                    s.push(ch);
-                    Some(Split(s.clone()))
-                },
-                Literal(ref mut s) => {
-                    s.push(ch);
-                    Some(Literal(s.clone()))
-                },
-                Short(ref s) if *s == "".to_string()  => {
-                    if ch == CMA {
-                        let len = self.back.len();
-                        let mut after_borrow = false;
-                        match get_index(&mut self.back, len - 1) {
-                            Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
-                                v.push(Split(s.clone()));
-                                v.push(Short(String::new()));
-                            },
-                            _ => after_borrow = true
-                        };
-                        if after_borrow {
-                            self.back.push(Split(s.clone()));
-                            self.back.push(Short(String::new()));
-                        }
-                        let mut t = String::new();
-                        t.push(ch);
-                        Some(Split(t))
-                    } else {
-                        None
-                    }
-                },
-                ref s if match s {
-                    &Short(_) | &Long(_) | &Function(_, _) => true,
-                    &Split(_) | &Literal(_) => false
-                } => {
-                    let len = self.back.len();
-                    let mut after_borrow = false;
-                    match get_index(&mut self.back, len - 1) {
-                        Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
-                            v.push(s.clone());
-                        },
-                        _ => after_borrow = true
-                    }
-                    if after_borrow {
-                        self.back.push(s.clone());
-                    }
-                    let mut t = String::new();
-                    t.push(ch);
-                    Some(Split(t))
-                },
-                _ => {
-                    // invalid input
-                    None
-                }
-            },
-            OPR => match self.front.clone() {
-                Short(ref s) if s.is_empty() => {
-                    // arg list
-                    self.back.push(Long(vec![]));
-                    Some(Short(String::new()))
-                },
-                Split(ref s) if s.is_empty() => {
-                    // invalid input
-                    None
-                },
-                Split(ref s) => {
-                    // arg list
-                    let len = self.back.len();
-                    let mut after_borrow = false;
-                    match get_index(&mut self.back, len - 1) {
-                        Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
-                            v.push(Split(s.clone()));
-                        },
-                        _ => after_borrow = true
-                    }
-                    if after_borrow {
-                        self.back.push(Split(s.clone()));
-                    }
-                    self.back.push(Long(vec![]));
-                    Some(Short(String::new()))
-                },
-                Short(ref s) => {
-                    // function
-                    self.back.push(Function(s.clone(), vec![]));
-                    Some(Short(String::new()))
-                },
-                Literal(ref mut v) => {
-                    v.push(ch);
-                    Some(Literal(v.clone()))
-                },
-                Long(_) | Function(_, _) => {
-                    // invalid input
-                    None
-                },
-            },
-            CPR => match self.front.clone() {
-                ref s if match s {
-                    &Short(_) | &Long(_) | &Function(_, _) => true,
-                    &Split(_) | &Literal(_) => false
-                } => {
-                    // end of argument list
-                    let len = self.back.len();
-                    let mut pop_push_back;
-                    match get_index(&mut self.back, len - 1) {
-                        Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
-                            v.push(s.clone());
-                            pop_push_back = true;
-                        },
-                        _ => {
-                            // invalid input
-                            return None;
-                        }
-                    }
-                    if pop_push_back {
-                        // other cases have been handled already
-                        let func = self.back.pop().unwrap();
-                        let mut after_borrow = false;
-                        match get_index(&mut self.back, len - 1) {
-                            Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
-                                v.push(func.clone());
-                            }
-                            _ => {
-                                after_borrow = true;
-                            }
-                        }
-                        if after_borrow {
-                            self.back.push(func);
-                        }
-                    }
-                    self.back.pop()
-                },
-                Literal(ref mut v) => {
-                    v.push(ch);
-                    Some(Literal(v.clone()))
-                },
-                Split(_) => {
-                    let len = self.back.len();
-                    let mut end_args;
-                    match get_index(&mut self.back, len - 1) {
-                        Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
-                            let len = v.len();
-                            match get_index(v, len - 1) {
-                                Some(&mut Literal(_)) => {
-                                    end_args = true;
-                                }, _ => return None
-                            }
-                        }, _ => return None
-                    }
-                    if end_args {
-                        // special case, it's ok to type a CPR here
-                        let func = self.back.pop().unwrap();
-                        let mut after_borrow = false;
-                        match get_index(&mut self.back, len - 1) {
-                            Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
-                                v.push(func.clone());
-                            }
-                            _ => {
-                                after_borrow = true;
-                            }
-                        }
-                        if after_borrow {
-                            self.back.push(func);
-                        }
-                        self.back.pop()
-                    } else {
-                        None
-                    }
-                },
-                _ => {
-                    // invalid input
-                    None
-                }
-            },
-            QUT => match self.front.clone() {
-                Split(ref mut s) => {
-                    let len = self.back.len();
-                    let mut after_borrow = false;
-                    match get_index(&mut self.back, len - 1) {
-                        Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
-                            v.push(Split(s.clone()));
-                        },
-                        _ => after_borrow = true
-                    }
-                    if after_borrow {
-                        self.back.push(Split(s.clone()));
-                    }
-                    Some(Literal(String::new()))
-                },
-                Short(ref mut s) => {
-                    let mut t = String::new();
-                    t.push_str(s.as_slice());
-                    Some(Literal(t))
-                },
-                Literal(ref mut s) => {
-                    // end of literal
-                    let len = self.back.len();
-                    let mut after_borrow = false;
-                    match get_index(&mut self.back, len - 1) {
-                        Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
-                            v.push(Literal(s.clone()));
-                        },
-                        _ => after_borrow = true
-                    }
-                    if after_borrow {
-                        self.back.push(Literal(s.clone()));
-                    }
-                    Some(Split(String::new()))
-                },
-                Long(_) | Function(_, _) => {
-                    // invalid input
-                    None
-                }
-            },
-            ch => match self.front.clone() {
-                Split(ref mut s) if s.is_empty() => {
-                    // invalid input
-                    None
-                },
-                Split(ref mut s) => {
-                    let len = self.back.len();
-                    let mut after_borrow = false;
-                    match get_index(&mut self.back, len - 1) {
-                        Some(&mut Function(_, ref mut v)) | Some(&mut Long(ref mut v)) => {
-                            v.push(Split(s.clone()));
-                        },
-                        _ => after_borrow = true
-                    }
-                    if after_borrow {
-                        self.back.push(Split(s.clone()));
-                    }
-                    let mut t = String::new();
-                    t.push(ch);
-                    Some(Short(t))
-                },
-                Short(ref mut s) => {
-                    s.push(ch);
-                    Some(Short(s.clone()))
-                },
-                Literal(ref mut s) => {
-                    s.push(ch);
-                    Some(Literal(s.clone()))
-                },
-                _ => {
-                    // invalid input
-                    None
-                }
-            }
-        }
-    }
-
-    pub fn push_old(&mut self, ch:char) -> bool {
-        match self.push_inner(ch) {
-            None => return false,
-            Some(new) => {
-                self.front = new;
-                self.fpart.push(ch);
-                // default
-                return true;
-            }
-        }
-    }
 
     pub fn pop(&mut self) -> Option<char> {
         // easy part: get the character
@@ -581,266 +682,19 @@ impl InputLine {
         };
         // hard part: unwind the data structure
         // to match
-        match out {
-            _ => return None
-        }
-    }
-
-    pub fn pop_old(&mut self) -> Option<char> {
-        let mut cfront = self.front.clone();
-        let out = match cfront {
-            Split(ref mut s) if s.len() == 1 => {
-                let mut t = self.back.pop();
-                let out = s.pop().unwrap();
-                let mut push_back = false;
-                match t {
-                    Some(Short(ref v)) => {
-                        self.front = Short(v.clone());
-                    },
-                    Some(Literal(_)) => {
-                        self.front = Split(String::new());
-                        push_back = true;
-                    }
-                    Some(Function(_, ref mut v)) | Some(Long(ref mut v))
-                        if !v.is_empty() => {
-                            let mut inner_push = false;
-                            let t = v.pop().unwrap();
-                            self.front = match t {
-                                Literal(_) => {
-                                    inner_push = true;
-                                    Split(String::new())
-                                },
-                                ref v => v.clone()
-                            };
-                            if inner_push {
-                                v.push(t);
-                            }
-                            push_back = true;
-                        },
-                    None => {
-                        self.front = Short(String::new());
-                    },
-                    _ => {
-                        self.front = Short(String::new());
-                        push_back = true;
-                    }
-                }
-                if push_back {
-                    self.back.push(t.unwrap());
-                }
-                return Some(out);
-            },
-            Short(ref mut s) if s.len() == 1 => {
-                let mut t = self.back.pop();
-                let out = s.pop().unwrap();
-                let mut push_back = false;
-                match t {
-                    Some(Split(ref s)) => {
-                        self.front = Split(s.clone());
-                    },
-                    Some(Function(_, ref mut v)) | Some(Long(ref mut v))
-                        if !v.is_empty() => {
-                            self.front = v.pop().unwrap();
-                            push_back = true;
-                        },
-                    None => {
-                        self.front = Short(String::new());
-                    },
-                    _ => {
-                        self.front = Short(String::new());
-                        push_back = true;
-                    }
-                }
-                if push_back {
-                    self.back.push(t.unwrap());
-                }
-                return Some(out);
-            },
-            Short(ref mut s) | Split(ref mut s) => {
-                match s.pop() {
-                    Some(v) => Some(v),
-                    None => {
-                        let mut t = self.back.pop();
-                        match t {
-                            None => return None,
-                            Some(ref v) if match v {
-                                &Split(_) | &Short(_) => true,
-                                _ => false
-                            } => {
-                                self.front = v.clone();
-                                return self.pop();
-                            },
-                            Some(Literal(v)) => {
-                                self.front = Literal(v);
-                                return Some(QUT);
-                            },
-                            Some(Long(ref mut v)) if *v != vec![] => {
-                                self.front = v.pop().unwrap();
-                                self.back.push(Long((*v).clone()));
-                                match self.front {
-                                    Literal(_) => return Some(QUT),
-                                    _ => return self.pop()
-                                }
-                            },
-                            Some(Function(ref mut n, ref mut v)) if *v != vec![] => {
-                                self.front = v.pop().unwrap();
-                                self.back.push(Function((*n).clone(), (*v).clone()));
-                                match self.front {
-                                    Literal(_) => return Some(QUT),
-                                    _ => return self.pop()
-                                }
-                            },
-                            Some(Function(ref mut n, _)) => {
-                                // in this case the function's args are empty
-                                self.front = Short((*n).clone());
-                                return Some(OPR);
-                            },
-                            Some(v) => {
-                                self.front = v;
-                                return self.pop();
-                            }
-                        }
-                    }
-                }
-            },
-            Literal(ref mut s) => {
-                match s.pop() {
-                    Some(v) => Some(v),
-                    None => {
-                        let mut t = self.back.pop();
-                        match t {
-                            None => {
-                                self.front = Short(String::new());
-                                return Some(QUT);
-                            },
-                            Some(ref v) if match v {
-                                &Split(_) | &Short(_) | &Literal(_) => true,
-                                _ => false
-                            } => {
-                                self.front = v.clone();
-                                return Some(QUT);
-                            },
-                            Some(Long(ref mut v)) if *v != vec![] => {
-                                self.front = v.pop().unwrap();
-                                self.back.push(Long((*v).clone()));
-                                return Some(QUT);
-                            },
-                            Some(Function(ref mut n, ref mut v)) if *v != vec![] => {
-                                self.front = v.pop().unwrap();
-                                self.back.push(Function((*n).clone(), (*v).clone()));
-                                return Some(QUT);
-                            },
-                            Some(v) => {
-                                // Function with empty args and empty long
-                                self.back.push(v);
-                                self.front = Short(String::new());
-                                return Some(QUT);
-                            }
-                        }
-                    }
-                }
-            },
-            Long(ref mut v) => {
-                match v {
-                    ref v if **v == vec![] => {
-                        let mut t = self.back.pop();
-                        let mut push_back = false;
-                        match t {
-                            Some(Split(ref s)) => {
-                                self.front = Split(s.clone());
-                            },
-                            Some(Function(_, ref mut v)) | Some(Long(ref mut v))
-                                if !v.is_empty() => {
-                                    self.front = v.pop().unwrap();
-                                    push_back = true;
-                                },
-                            None => {
-                                self.front = Short(String::new());
-                            },
-                            _ => {
-                                self.front = Short(String::new());
-                                push_back = true;
-                            }
-                        }
-                        if push_back {
-                            self.back.push(t.unwrap());
-                        }
-                        return Some(OPR);
-                    },
-                    ref v => {
-                        let mut nv = (**v).clone();
-                        let s = nv.pop().unwrap();
-                        let out = match s {
-                            Split(_) => None,
-                            _ => Some(CPR)
-                        };
-                        self.front = match s {
-                            Literal(_) => {
-                                nv.push(s.clone());
-                                Split(String::new())
-                            },
-                            t => t
-                        };
-                        self.back.push(Long(nv));
-                        match out {
-                            Some(v) => return Some(v),
-                            None => return self.pop()
-                        }
-                    },
-                }
-            },
-            Function(ref mut n, ref mut v) => {
-                match v {
-                    ref v if **v == vec![] => {
-                        let mut t = self.back.pop();
-                        let mut push_back = false;
-                        match t {
-                            Some(Split(ref s)) => {
-                                self.front = Split(s.clone());
-                            },
-                            Some(Function(_, ref mut v)) | Some(Long(ref mut v))
-                                if !v.is_empty() => {
-                                    self.front = v.pop().unwrap();
-                                    push_back = true;
-                                },
-                            None => {
-                                self.front = Short((*n).clone());
-                            },
-                            _ => {
-                                self.front = Short((*n).clone());
-                                push_back = true;
-                            }
-                        }
-                        if push_back {
-                            self.back.push(t.unwrap());
-                        }
-                        return Some(OPR);
-                    },
-                    ref v => {
-                        let mut t = (**v).clone();
-                        let popped = t.pop().unwrap();
-                        let out = match popped {
-                            Split(_) => None,
-                            _ => Some(CPR)
-                        };
-                        self.front = match popped {
-                            Literal(_) => {
-                                t.push(popped.clone());
-                                Split(String::new())
-                            },
-                            t => t
-                        };
-                        self.back.push(Function(n.clone(), t));
-                        match out {
-                            Some(v) => return Some(v),
-                            None => return self.pop()
-                        }
-                    },
-                }
-            }
+        let ok = match out {
+            SPC => self.pop_spc(),
+            CMA => self.pop_cma(),
+            OPR => self.pop_opr(),
+            CPR => self.pop_cpr(),
+            QUT => self.pop_qut(),
+            c => self.pop_simple(c)
         };
-        self.front = cfront;
-        return out;
+        if !ok {
+            return None;
+        } else {
+            return Some(out);
+        }
     }
 
     pub fn right(&mut self) -> bool {
@@ -890,7 +744,6 @@ fn test_input_against(line:String, against:InputValue) -> bool {
     let mut bst = String::new();
     let mut out = String::new();
     let mut bout = String::new();
-
     loop {
         match st.pop() {
             Some(ch) => {bst.push(ch);},
@@ -913,7 +766,10 @@ fn test_input_against(line:String, against:InputValue) -> bool {
                 let oinput = input.clone();
                 let popped = input.pop();
                 if popped != Some(ch) {
-                    println!("\nDidn't pop out the same character: pushed \"{}\" got \"{}\"", ch, popped.unwrap());
+                    println!("\nDidn't pop out the same character: pushed \"{}\" got \"{}\"", ch, match popped {
+                        Some(v) => v.to_string(),
+                        None => format!("None")
+                    });
                     Long(ooinput.back).print();
                     println!("--------");
                     Long(input.back).print();
@@ -1003,10 +859,10 @@ fn test_input_against(line:String, against:InputValue) -> bool {
 #[test]
 fn test_input() {
     // test short
-    assert!(test_input_against("hello_world".to_string(), Short("hello_world".to_string())));
+    assert!(test_input_against("hello_world".to_string(), Long(vec![Short("hello_world".to_string())])));
 
     // test literal
-    assert!(test_input_against("\"hello world\"".to_string(), Literal("hello world".to_string())));
+    assert!(test_input_against("\"hello world\"".to_string(), Long(vec![Literal("hello world".to_string())])));
     
     // test arg list
     assert!(test_input_against("hello_world, \"hello world\", another arg".to_string(), Long(vec![
@@ -1021,19 +877,19 @@ fn test_input() {
     
     // test function
     assert!(test_input_against("test_func(hello_world, \"hello world\", \"another arg\")".to_string(),
-                               Function("test_func".to_string(), vec![
+                               Long(vec![Function("test_func".to_string(), vec![
                                    Short("hello_world".to_string()),
                                    Split(", ".to_string()),
                                    Literal("hello world".to_string()),
                                    Split(", ".to_string()),
                                    Literal("another arg".to_string()),
-                                   ])));
+                                   ])])));
 
     // test function
     assert!(test_input_against("test_func(\"hello world\")".to_string(),
-                               Function("test_func".to_string(), vec![
+                               Long(vec![Function("test_func".to_string(), vec![
                                    Literal("hello world".to_string()),
-                                   ])));
+                                   ])])));
     
     // test nested lists
     assert!(test_input_against("list (within (lists (within lists)))".to_string(), Long(vec![
@@ -1060,20 +916,22 @@ fn test_input() {
             Long(vec![
                 Long(vec![
                     Long(vec![
-                        Short(String::new()) // there is no way around an empty short in here
+                        Long(vec![])
                             ])
                         ])
                     ])
                 ])
             ])));
-
+    
     // more complex list testing
     assert!(test_input_against("(((((\"test arg\")))))".to_string(), Long(vec![
         Long(vec![
             Long(vec![
                 Long(vec![
                     Long(vec![
-                        Literal("test arg".to_string())
+                        Long(vec![
+                            Literal("test arg".to_string())
+                                ])
                             ])
                         ])
                     ])
@@ -1082,30 +940,32 @@ fn test_input() {
     
     // test nested functions
     assert!(test_input_against("functions(calling functions(calling functions(with args)))".to_string(),
-                               Function("functions".to_string(), vec![
-                                   Short("calling".to_string()),
-                                   Split(" ".to_string()),
+                               Long(vec![
                                    Function("functions".to_string(), vec![
                                        Short("calling".to_string()),
                                        Split(" ".to_string()),
                                        Function("functions".to_string(), vec![
-                                           Short("with".to_string()),
+                                           Short("calling".to_string()),
                                            Split(" ".to_string()),
-                                           Short("args".to_string())
+                                           Function("functions".to_string(), vec![
+                                               Short("with".to_string()),
+                                               Split(" ".to_string()),
+                                               Short("args".to_string())
+                                                   ])
                                                ])
-                                           ])
-                                       ])));
+                                           ])])));
 
     // harder test
     assert!(test_input_against("function(with, (more \"args\"))".to_string(),
-                               Function("function".to_string(), vec![
-                                   Short("with".to_string()),
-                                   Split(", ".to_string()),
-                                   Long(vec![
-                                       Short("more".to_string()),
-                                       Split(" ".to_string()),
-                                       Literal("args".to_string())
+                               Long(vec![
+                                   Function("function".to_string(), vec![
+                                       Short("with".to_string()),
+                                       Split(", ".to_string()),
+                                       Long(vec![
+                                           Short("more".to_string()),
+                                           Split(" ".to_string()),
+                                           Literal("args".to_string())
+                                               ])
                                            ])
-                                       ])
-                               ));
+                                       ])));
 }

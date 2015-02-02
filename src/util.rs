@@ -23,14 +23,6 @@ macro_rules! tryf {
     })
 }
 
-pub fn get_index<T>(mut vec:&mut Vec<T>, index:usize) -> Option<&mut T> {
-    if index >= vec.len() {
-        return None;
-    } else {
-        return Some(&mut vec[index]);
-    }
-}
-
 pub fn get_nm_index<T>(vec:&Vec<T>, index:usize) -> Option<&T> {
     if index >= vec.len() {
         return None;
