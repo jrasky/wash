@@ -38,10 +38,6 @@ impl Controls {
         self.stdout.write_fmt(args).unwrap();
     }
 
-    pub fn err(&mut self, s:&str) {
-        self.stderr.write_str(s).unwrap();
-    }
-
     pub fn errf(&mut self, args:fmt::Arguments) {
         self.stderr.write_fmt(args).unwrap();
     }

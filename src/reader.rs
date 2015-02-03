@@ -58,7 +58,7 @@ impl LineReader {
 
     pub fn draw_ps1(&mut self) {
         let cwd = os::getcwd().unwrap();
-        self.controls.outf(format_args!("{}$ ", condense_path(cwd).display()));
+        self.controls.outf(format_args!("{} => run(", condense_path(cwd).display()));
     }
 
     fn handle_signal(&mut self, set:&SigSet) {
