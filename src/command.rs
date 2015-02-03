@@ -168,9 +168,9 @@ impl TermState {
     pub fn new() -> TermState {
         let mut controls = Controls::new();
         let mut tios = match Termios::get() {
-            Some(t) => t,
-            None => {
-                controls.err("Warning: Could not get terminal mode\n");
+            Ok(t) => t,
+            Err(e) => {
+                controls.errf(format_args!("Warning: Could not get terminal mode: {}\n", e));
                 Termios::new()
             }
         };
@@ -189,14 +189,18 @@ impl TermState {
     }
 
     pub fn update_terminal(&mut self) {
-        if !Termios::set(&self.tios) {
-            self.controls.err("Warning: Could not set terminal mode\n");
+        match Termios::set(&self.tios) {
+            Err(e) =>
+                self.controls.errf(format_args!("Warning: Could not set terminal mode: {}\n", e)),
+            Ok(_) => {}
         }
     }
 
     pub fn restore_terminal(&mut self) {
-        if !Termios::set(&self.old_tios) {
-            self.controls.err("Warning: Could not set terminal mode\n");
+        match Termios::set(&self.old_tios) {
+            Err(e) =>
+                self.controls.errf(format_args!("Warning: Could not restore terminal mode: {}\n", e)),
+            Ok(_) => {}
         }
     }
 

@@ -1,5 +1,7 @@
 use libc::{c_uint, c_uchar, c_int};
 
+use std::old_io::*;
+
 use constants::*;
 
 type CCType = c_uchar;
@@ -33,19 +35,19 @@ impl Termios {
         }
     }
 
-    pub fn get() -> Option<Termios> {
+    pub fn get() -> IoResult<Termios> {
         let mut tios = Termios::new();
-        unsafe {
-            match tcgetattr(STDIN, &mut tios) {
-                0 => Some(tios),
-                _ => None
-            }
+        match unsafe {tcgetattr(STDIN, &mut tios)} {
+            0 => Ok(tios),
+            _ => Err(IoError::last_error())
         }
+
     }
 
-    pub fn set(tios:&Termios) -> bool {
-        unsafe {
-            tcsetattr(STDIN, TCSANOW, tios) == 0
+    pub fn set(tios:&Termios) -> IoResult<()> {
+        match unsafe {tcsetattr(STDIN, TCSANOW, tios)} {
+            0 => Ok(()),
+            _ => Err(IoError::last_error())
         }
     }
 

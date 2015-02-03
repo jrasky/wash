@@ -17,7 +17,7 @@ pub enum InputValue {
     Function(String, Vec<InputValue>),
     Short(String),
     Literal(String),
-    Split(String),
+    Split(String)
 }
 
 impl InputValue {
