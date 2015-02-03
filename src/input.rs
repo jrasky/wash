@@ -119,7 +119,7 @@ impl InputLine {
                         Some(Long(_)) | Some(Function(_, _)) => {
                             self.front = popped.clone().unwrap();
                             if !self.pop_back() {
-                            self.back.push(popped.unwrap());
+                                self.back.push(popped.unwrap());
                                 self.front = Split(SPC.to_string());
                                 return false;
                             } else {
@@ -718,20 +718,20 @@ impl InputLine {
     }
 
     pub fn process(&self) -> Option<InputValue> {
-        let mut cself = self.clone();
+        let mut output = self.clone();
         loop {
-            match cself.part.pop() {
+            match output.part.pop() {
                 Some(ch) => {
-                    cself.push(ch);
+                    output.push(ch);
                 },
                 None => break
             }
         }
-        while cself.push_back() && !cself.back.is_empty() {}
-        if !cself.back.is_empty() {
+        while output.push_back() && !output.back.is_empty() {}
+        if !output.back.is_empty() {
             return None;
         } else {
-            return Some(cself.front);
+            return Some(output.front);
         }
     }
 }

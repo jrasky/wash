@@ -20,8 +20,8 @@ pub struct LineReader {
     pub finished: bool,
     pub eof: bool,
     pub restarted: bool,
-    history: RingBuf<InputValue>,
-    bhistory: Vec<InputValue>
+    history: RingBuf<InputLine>,
+    bhistory: Vec<InputLine>
 }
 
 impl LineReader {
@@ -127,17 +127,21 @@ impl LineReader {
             return None;
         } else {
             // push back history onto history
-            while !self.bhistory.is_empty() {
-                self.history.push_front(self.bhistory.pop().unwrap());
+            if !self.bhistory.is_empty() {
+                self.history.push_front(self.line.clone());
             }
-            let out = self.line.process();
-            if out.is_some() {
-                self.history.push_front(out.clone().unwrap());
-                while self.history.len() > HISTORY_SIZE {
-                    self.history.pop_back();
+            let mut popped;
+            while !self.bhistory.is_empty() {
+                popped = self.bhistory.pop().unwrap();
+                if !popped.is_empty() {
+                    self.history.push_front(popped);
                 }
             }
-            return out;
+            self.history.push_front(self.line.clone());
+            while self.history.len() > HISTORY_SIZE {
+                self.history.pop_back();
+            }
+            return self.line.process();
         }        
     }
     
@@ -195,17 +199,25 @@ impl LineReader {
                     None => return false,
                     Some(_) => {
                         self.controls.cursor_left();
-                        self.draw_part();
-                        self.controls.outc(SPC);
-                        self.controls.cursors_left(self.line.part.len() + 1);
+                        self.controls.clear_line();
+                        self.idraw_part();
                     }
                 }
             },
             CTA => {
                 // C-a
-                while self.line.left() {
-                    self.controls.cursor_left();
+                self.controls.cursors_left(self.line.fpart.len());
+                loop {
+                    match self.line.fpart.pop() {
+                        Some(ch) => self.line.part.push(ch),
+                        None => break
+                    }
                 }
+                self.line.fpart.clear();
+                self.line.back.clear();
+                self.line.front.clear();
+                self.line.back.push(InputValue::Long(vec![]));
+                self.bpart.clear();
             },
             CTE => {
                 // C-e
@@ -214,8 +226,7 @@ impl LineReader {
                 }
             },
             CTK => {
-                self.controls.outs(build_string(SPC, self.line.part.len()).as_slice());
-                self.controls.cursors_left(self.line.part.len());
+                self.controls.clear_line();
                 self.line.part.clear();
                 self.bpart.clear();
             }
@@ -257,43 +268,24 @@ impl LineReader {
                 self.escape = false;
                 match self.bhistory.pop() {
                     None if !self.line.is_empty() => {
-                        match self.line.process() {
-                            None => {}
-                            Some(v) => self.history.push_front(v)
-                        }
-                        while self.line.left() {
-                            self.controls.cursor_left();
-                            self.controls.outc(SPC);
-                            self.controls.cursor_left();
-                        }
+                        self.history.push_front(self.line.clone());
+                        self.controls.cursors_left(self.line.fpart.len());
+                        self.controls.clear_line();
                         self.bpart.clear();
                         self.line.clear();
                     },
                     None => return false,
                     Some(line) => {
-                        match self.line.process() {
-                            None => {}
-                            Some(v) => self.history.push_front(v)
-                        }
-                        while self.line.left() {
-                            self.controls.cursor_left();
-                            self.controls.outc(SPC);
-                            self.controls.cursor_left();
-                        }
-                        self.line = InputLine {
-                            back: match line {
-                                InputValue::Long(v) => v,
-                                v => vec![v],
-                            },
-                            front: InputValue::Short(String::new()),
-                            part: String::new(),
-                            fpart: String::new()
-                        };
-                        let cline = self.line.clone();
-                        while self.line.left() {}
+                        self.history.push_front(self.line.clone());
+                        self.controls.cursors_left(self.line.fpart.len());
+                        self.controls.outs(build_string(SPC, self.line.fpart.len() +
+                                                        self.line.part.len()).as_slice());
+                        self.controls.cursors_left(self.line.fpart.len() +
+                                                   self.line.part.len());
+                        self.line = line;
+                        self.controls.outs(self.line.fpart.as_slice());
                         self.bpart.clear();
-                        self.draw_part();
-                        self.line = cline;
+                        self.idraw_part();
                     }
                 }
             },
@@ -303,29 +295,13 @@ impl LineReader {
                 match self.history.pop_front() {
                     None => return false,
                     Some(line) => {
-                        match self.line.process() {
-                            None => {}
-                            Some(v) => self.bhistory.push(v)
-                        }
-                        while self.line.left() {
-                            self.controls.cursor_left();
-                            self.controls.outc(SPC);
-                            self.controls.cursor_left();
-                        }
-                        self.line = InputLine {
-                            back: match line {
-                                InputValue::Long(v) => v,
-                                v => vec![v]
-                            },
-                            front: InputValue::Short(String::new()),
-                            part: String::new(),
-                            fpart: String::new()
-                        };
-                        let cline = self.line.clone();
-                        while self.line.left() {}
+                        self.bhistory.push(self.line.clone());
+                        self.controls.cursors_left(self.line.fpart.len());
+                        self.controls.clear_line();
+                        self.line = line;
+                        self.controls.outs(self.line.fpart.as_slice());
                         self.bpart.clear();
-                        self.draw_part();
-                        self.line = cline;
+                        self.idraw_part();
                     }
                 }
             },

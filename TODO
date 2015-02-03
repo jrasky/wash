@@ -1,5 +1,5 @@
-- Improve InputLine
- - simplify code elsewhere
+- handle long lines
+ - rewrite cursor movement using special codes
 - settings
  - maybe vars on a special path?
 - better PS1
