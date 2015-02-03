@@ -79,8 +79,17 @@ impl Controls {
     }
     
     pub fn cursors_left(&mut self, by:usize) {
-        // move back by a given number of characters
-        self.outs(build_string(DEL, by).as_slice());
+        if by <= 3 {
+            // move back by a given number of characters
+            self.outs(build_string(DEL, by).as_slice());
+        } else {
+            self.outs(format!("{}{}D", ANSI_BEGIN, by).as_slice());
+        }
+    }
+
+    pub fn clear_line(&mut self) {
+        self.outs(ANSI_BEGIN);
+        self.outc('K');
     }
 
     pub fn flush(&mut self) {

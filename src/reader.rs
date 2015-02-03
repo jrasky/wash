@@ -199,9 +199,8 @@ impl LineReader {
                     None => return false,
                     Some(_) => {
                         self.controls.cursor_left();
-                        self.draw_part();
-                        self.controls.outc(SPC);
-                        self.controls.cursors_left(self.line.part.len() + 1);
+                        self.controls.clear_line();
+                        self.idraw_part();
                     }
                 }
             },
@@ -227,8 +226,7 @@ impl LineReader {
                 }
             },
             CTK => {
-                self.controls.outs(build_string(SPC, self.line.part.len()).as_slice());
-                self.controls.cursors_left(self.line.part.len());
+                self.controls.clear_line();
                 self.line.part.clear();
                 self.bpart.clear();
             }
@@ -272,10 +270,7 @@ impl LineReader {
                     None if !self.line.is_empty() => {
                         self.history.push_front(self.line.clone());
                         self.controls.cursors_left(self.line.fpart.len());
-                        self.controls.outs(build_string(SPC, self.line.fpart.len() +
-                                                        self.line.part.len()).as_slice());
-                        self.controls.cursors_left(self.line.fpart.len() +
-                                                   self.line.part.len());
+                        self.controls.clear_line();
                         self.bpart.clear();
                         self.line.clear();
                     },
@@ -302,10 +297,7 @@ impl LineReader {
                     Some(line) => {
                         self.bhistory.push(self.line.clone());
                         self.controls.cursors_left(self.line.fpart.len());
-                        self.controls.outs(build_string(SPC, self.line.fpart.len() +
-                                                        self.line.part.len()).as_slice());
-                        self.controls.cursors_left(self.line.fpart.len() +
-                                                   self.line.part.len());
+                        self.controls.clear_line();
                         self.line = line;
                         self.controls.outs(self.line.fpart.as_slice());
                         self.bpart.clear();

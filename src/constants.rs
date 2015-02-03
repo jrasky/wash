@@ -34,6 +34,7 @@ pub const CTE:char = '\u{5}';
 pub const CTK:char = '\u{b}';
 // we specifically need a constant for "cursor right"
 pub const CRSR_RIGHT:&'static str = "\u{1b}\u{5b}C";
+pub const ANSI_BEGIN:&'static str = "\u{1b}\u{5b}";
 
 // select termios constants that we use
 pub const ICANON:c_uint   = 2;
