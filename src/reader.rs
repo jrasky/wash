@@ -2,6 +2,7 @@ use libc::*;
 
 use std::collections::RingBuf;
 
+use std::num::*;
 use std::os;
 
 use input::*;
@@ -10,6 +11,7 @@ use constants::*;
 use util::*;
 use signal::*;
 use types::*;
+use ioctl::*;
 
 pub struct LineReader {
     pub line: InputLine,
@@ -58,7 +60,7 @@ impl LineReader {
 
     pub fn draw_ps1(&mut self) {
         let cwd = os::getcwd().unwrap();
-        self.controls.outf(format_args!("{} => run(", condense_path(cwd).display()));
+        self.controls.outf(format_args!("{path} => run(", path=condense_path(cwd).display()));
     }
 
     fn handle_signal(&mut self, set:&SigSet) {
@@ -66,17 +68,27 @@ impl LineReader {
             Err(e) => panic!("Didn't get signal: {}", e),
             Ok(s) => s
         };
-        if sig.signo != SIGINT {
-            panic!("Caught bad signal: {}", sig.signo);
+        match sig.signo {
+            SIGINT => {
+                self.controls.outs("\nInterrupt\n");
+                self.clear();
+                self.draw_ps1();
+                self.controls.query_cursor();
+            },
+            SIGWINCH => {
+                match term_winsize() {
+                    Err(e) => self.controls.errf(format_args!("\nCouldn't get terminal size: {}\n", e)),
+                    Ok(size) => self.controls.update_size(size)
+                }
+                self.controls.query_cursor();
+            },
+            s => panic!("Caught bad signal: {}", s)
         }
-        self.controls.outs("\nInterrupt\n");
-        self.clear();
-        self.draw_ps1();
     }
 
     fn read_character(&mut self) {
         match self.controls.read() {
-            Err(e) => panic!("\nError: {}\n", e),
+            Err(e) => panic!("Error: {}", e),
             Ok(ch) => match
                 if self.escape {
                     self.handle_escape(ch)
@@ -85,7 +97,7 @@ impl LineReader {
                 } else {
                     self.handle_ch(ch)
                 } {
-                    false => self.controls.outc(BEL),
+                    false => self.controls.bell(),
                     _ => {}
                 }
         }
@@ -95,12 +107,19 @@ impl LineReader {
         // these panic because if we can't do this we can't run wash at all
         let mut set = tryp!(empty_sigset());
         tryp!(sigset_add(&mut set, SIGINT));
+        tryp!(sigset_add(&mut set, SIGWINCH));
         let sigfd = tryp!(signal_fd(&set));
         // the file descriptors we want to watch
         let read = vec![sigfd, STDIN];
         let emvc = vec![];
         let mut sread;
         let old_set = tryp!(signal_proc_mask(SIG_BLOCK, &set));
+        match term_winsize() {
+            Err(e) => self.controls.errf(format_args!("\nCouldn't get terminal size: {}\n", e)),
+            Ok(size) => self.controls.update_size(size)
+        }
+        // update cursor position before anything
+        self.controls.query_cursor();
         while !self.finished && !self.eof {
             sread = match select(&read, &emvc, &emvc,
                                  None, &set) {
@@ -166,7 +185,7 @@ impl LineReader {
     pub fn idraw_part(&mut self) {
         // in-place draw of the line part
         self.draw_part();
-        self.controls.cursors_left(self.line.part.len());
+        self.controls.cursors_left(self.bpart.len());
     }
 
     pub fn handle_ch(&mut self, ch:char) -> bool {
@@ -200,6 +219,17 @@ impl LineReader {
                     Some(_) => {
                         self.controls.cursor_left();
                         self.controls.clear_line();
+                        let cursor = self.controls.get_cursor();
+                        let size = self.controls.get_size();
+                        if cursor.row < size.row as usize {
+                            for i in range(cursor.row + 1, size.row as usize + 1) {
+                                self.controls.move_to(Position {
+                                    row: i, col: 1
+                                });
+                                self.controls.clear_line();
+                            }
+                            self.controls.move_to(cursor);
+                        }
                         self.idraw_part();
                     }
                 }
@@ -249,19 +279,23 @@ impl LineReader {
             },
             'D' => {
                 // left
+                self.escape = false;
                 if self.line.left() {
                     self.bpart.clear();
                     self.controls.cursor_left();
+                } else {
+                    return false;
                 }
-                self.escape = false;
             },
             'C' => {
                 // right
+                self.escape = false;
                 if self.line.right() {
                     self.bpart.clear();
                     self.controls.cursor_right();
+                } else {
+                    return false;
                 }
-                self.escape = false;
             },
             'B' => {
                 // down
@@ -305,9 +339,34 @@ impl LineReader {
                     }
                 }
             },
-            _ => {
+            'R' => {
+                // cursor position
                 self.escape = false;
-                return false;
+                if !PPOS_REGEX.is_match(self.escape_chars.as_slice()) {
+                    return false;
+                } else {
+                    let caps = PPOS_REGEX.captures(self.escape_chars.as_slice()).unwrap();
+                    let row = caps.at(1).unwrap();
+                    let col = caps.at(2).unwrap();
+                    let pointer = Position {
+                        row: match from_str_radix(row, 10) {
+                            Err(_) => return false,
+                            Ok(v) => v
+                        },
+                        col: match from_str_radix(col, 10) {
+                            Err(_) => return false,
+                            Ok(v) => v
+                        }
+                    };
+                    self.controls.update_cursor(pointer);
+                }
+            },
+            ch => {
+                self.escape_chars.push(ch);
+                if self.escape_chars.len() > MAX_ESCAPE {
+                    self.escape = false;
+                    return false;
+                }
             }
         }
         return true;

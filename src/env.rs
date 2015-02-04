@@ -5,6 +5,7 @@ use std::old_io::process::ProcessExit::*;
 use std::collections::HashMap;
 use std::os::unix::prelude::*;
 
+use std::num::*;
 use std::mem;
 use std::os;
 use std::fmt;
@@ -13,7 +14,6 @@ use types::WashArgs::*;
 
 use command::*;
 use types::*;
-use util::*;
 use script::*;
 use signal::*;
 use constants::*;
@@ -317,9 +317,9 @@ impl WashEnv {
             };
         } else if *path == "pipe".to_string() {
             // pipe Fd's
-            let from = try!(self.get_job(&match str_to_usize(name.as_slice()) {
-                None => return Err("Did not give job number".to_string()),
-                Some(v) => v
+            let from = try!(self.get_job(&match from_str_radix(name.as_slice(), 10) {
+                Err(e) => return Err(format!("Did not give job number: {}", e)),
+                Ok(v) => v
             }));
             match from.process.stdout {
                 None => return Err("Job has no output handles".to_string()),

@@ -20,6 +20,21 @@ pub enum InputValue {
     Split(String)
 }
 
+#[derive(Copy)]
+pub struct Position {
+    pub row: usize,
+    pub col: usize
+}
+
+impl Position {
+    pub fn new() -> Position {
+        Position {
+            row: 0,
+            col: 0
+        }
+    }
+}
+
 impl InputValue {
     pub fn is_empty(&self) -> bool {
         use self::InputValue::*;

@@ -7,6 +7,8 @@ use std::fmt;
 
 use constants::*;
 use util::*;
+use types::*;
+use ioctl::*;
 
 type Stdr = old_io::stdio::StdReader;
 type Stdw = old_io::stdio::StdWriter;
@@ -15,6 +17,8 @@ pub struct Controls {
     stdin: Stdr,
     stdout: Stdw,
     stderr: Stdw,
+    cursor: Position,
+    tsize: WinSize
 }
 
 impl Controls {
@@ -22,24 +26,76 @@ impl Controls {
         Controls {
             stdin: old_io::stdio::stdin_raw(),
             stdout: old_io::stdio::stdout_raw(),
-            stderr: old_io::stdio::stderr_raw()
+            stderr: old_io::stdio::stderr_raw(),
+            cursor: Position::new(),
+            tsize: WinSize::new()
+        }
+    }
+
+    pub fn update_cursor(&mut self, pos:Position) {
+        self.cursor = pos;
+    }
+
+    pub fn get_cursor(&mut self) -> Position {
+        self.cursor
+    }
+
+    pub fn get_size(&mut self) -> WinSize {
+        self.tsize
+    }
+
+    pub fn update_size(&mut self, size:WinSize) {
+        self.tsize = size;
+    }
+
+    fn move_right(&mut self, by:usize) {
+        self.cursor.col += by;
+        if self.cursor.col > self.tsize.col as usize {
+            self.cursor.row += self.cursor.col / self.tsize.col as usize;
+            self.cursor.col = self.cursor.col % self.tsize.col as usize;
+            if self.cursor.row > self.tsize.row as usize {
+                self.cursor.row = self.tsize.row as usize;
+            }
+        }
+    }
+
+    fn move_left(&mut self, by:usize) {
+        if by >= self.cursor.col {
+            let diff = by - self.cursor.col;
+            self.cursor.col = self.tsize.col as usize -
+                (diff % self.tsize.col as usize);
+            let rdiff = (diff / self.tsize.col as usize) + 1;
+            if rdiff > self.cursor.row {
+                self.cursor.row = 0;
+            } else {
+                self.cursor.row -= rdiff;
+            }
+        } else {
+            self.cursor.col -= by;
         }
     }
 
     pub fn outc(&mut self, ch:char) {
         self.stdout.write_char(ch).unwrap();
+        self.move_right(1);
     }
 
     pub fn outs(&mut self, s:&str) {
         self.stdout.write_str(s).unwrap();
+        self.move_right(s.len());
     }
 
     pub fn outf(&mut self, args:fmt::Arguments) {
-        self.stdout.write_fmt(args).unwrap();
+        self.outs(fmt::format(args).as_slice());
+    }
+
+    pub fn err(&mut self, s:&str) {
+        self.stderr.write_str(s).unwrap();
+        self.move_right(s.len());
     }
 
     pub fn errf(&mut self, args:fmt::Arguments) {
-        self.stderr.write_fmt(args).unwrap();
+        self.err(fmt::format(args).as_slice());
     }
 
     pub fn read(&mut self) -> old_io::IoResult<char> {
@@ -67,30 +123,66 @@ impl Controls {
     }
     
     pub fn cursor_left(&mut self) {
-        self.outc(DEL);
+        if self.cursor.col > 1 {
+            self.stdout.write_char(DEL).unwrap();
+            self.move_left(1);
+        } else {
+            self.move_left(1);
+            self.move_to_pointer();
+        }
     }
 
     pub fn cursor_right(&mut self) {
-        self.outs(CRSR_RIGHT);
+        if self.cursor.col < self.tsize.col as usize {
+            self.stdout.write_str(CRSR_RIGHT).unwrap();
+            self.move_right(1);
+        } else {
+            self.move_right(1);
+            self.move_to_pointer();
+        }
     }
     
     pub fn cursors_left(&mut self, by:usize) {
-        if by <= 3 {
-            // move back by a given number of characters
-            self.outs(build_string(DEL, by).as_slice());
+        if by == 0 {
+            return;
+        } else if by <= 3 && by < self.cursor.col {
+            self.stdout.write_str(build_string(DEL, by).as_slice()).unwrap();
+            self.move_left(by);
+        } else if by < self.cursor.col {
+            self.stdout.write_fmt(format_args!("{}{}D", ANSI_BEGIN, by)).unwrap();
+            self.move_left(by);
         } else {
-            self.outs(format!("{}{}D", ANSI_BEGIN, by).as_slice());
+            self.move_left(by);
+            self.move_to_pointer();
         }
     }
 
     pub fn clear_line(&mut self) {
-        self.outs(ANSI_BEGIN);
-        self.outc('K');
+        self.stdout.write_str(ANSI_BEGIN).unwrap();
+        self.stdout.write_char('K').unwrap();
     }
 
     pub fn flush(&mut self) {
         self.stdout.flush().unwrap();
         self.stderr.flush().unwrap();
+    }
+
+    pub fn query_cursor(&mut self) {
+        self.stdout.write_str(CRSR_POS).unwrap();
+    }
+
+    fn move_to_pointer(&mut self) {
+        let (row, col) = (self.cursor.row, self.cursor.col);
+        self.stdout.write_fmt(format_args!("{}{};{}f", ANSI_BEGIN, row, col)).unwrap();
+    }
+
+    pub fn move_to(&mut self, pos:Position) {
+        self.cursor = pos;
+        self.move_to_pointer();
+    }
+
+    pub fn bell(&mut self) {
+        self.stdout.write_char(BEL).unwrap();
     }
 }
 

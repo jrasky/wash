@@ -3,6 +3,7 @@ use std::os::unix::prelude::*;
 
 use std::os;
 use std::cmp::*;
+use std::num::*;
 
 use types::WashArgs::*;
 
@@ -72,9 +73,9 @@ fn job_args(args:&WashArgs, env:&mut WashEnv) -> Result<(Option<Fd>, Option<Fd>,
             continue;
         } else if FD_REGEX.is_match(fname.as_slice()) {
             let caps = FD_REGEX.captures(fname.as_slice()).unwrap();
-            match str_to_usize(caps.at(2).unwrap()) {
-                None => return Err(format!("{} could not be turned into usize", caps.at(2).unwrap())),
-                Some(fd) => match caps.at(1).unwrap() {
+            match from_str_radix::<Fd>(caps.at(2).unwrap(), 10) {
+                Err(e) => return Err(format!("{} could not be turned into usize: {}", caps.at(2).unwrap(), e)),
+                Ok(fd) => match caps.at(1).unwrap() {
                     path if path.is_empty() || path == "in" =>
                         // default to stdin
                         stdin = Some(fd as Fd),
@@ -137,9 +138,9 @@ pub fn job_output_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, Str
     if !arg.is_flat() {
         return Err("Give a job number".to_string());
     }
-    let id = match str_to_usize(arg.flatten().as_slice()) {
-        None => return Err(format!("Couldn't turn {} into a job number", arg.flatten())),
-        Some(num) => num
+    let id = match from_str_radix(arg.flatten().as_slice(), 10) {
+        Err(e) => return Err(format!("Couldn't turn {} into a job number: {}", arg.flatten(), e)),
+        Ok(num) => num
     };
     let out = try!(env.job_output(&id));
     if !out.status.success() {
@@ -213,9 +214,9 @@ pub fn fg_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
             id = try!(env.front_job());
         }
     } else {
-        id = match str_to_usize(args.get(0).flatten().as_slice()) {
-            None => return Err(format!("Not given a job number")),
-            Some(v) => v
+        id = match from_str_radix(args.get(0).flatten().as_slice(), 10) {
+            Err(e) => return Err(format!("Not given a job number: {}", e)),
+            Ok(v) => v
         };
         if !env.has_job(&id) {
             return Err(format!("Job not found"));

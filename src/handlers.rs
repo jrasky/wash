@@ -1,5 +1,7 @@
 use regex::Regex;
 
+use std::num::*;
+
 use types::WashArgs::*;
 use state::HandlerResult::*;
 
@@ -142,10 +144,10 @@ fn bar_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, state:&mut ShellS
     if pre.len() < 1 {
         return Err("Cannot pipe nothing".to_string());
     }
-    let id = match try!(job_func(&Long(pre.clone()), &mut state.env)) {
-        Flat(v) => match str_to_usize(v.as_slice()) {
-            None => return Err("djob did not return a job number".to_string()),
-            Some(v) => v
+    let id:usize = match try!(job_func(&Long(pre.clone()), &mut state.env)) {
+        Flat(v) => match from_str_radix(v.as_slice(), 10) {
+            Err(e) => return Err(format!("djob did not return a job number: {}", e)),
+            Ok(v) => v
         },
         _ => return Err("djob did not return a job number".to_string())
     };

@@ -39,6 +39,7 @@ mod types;
 mod env;
 mod state;
 mod handlers;
+mod ioctl;
 
 // public so no warnings when we run tests
 pub fn main() {

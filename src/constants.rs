@@ -35,6 +35,7 @@ pub const CTK:char = '\u{b}';
 // we specifically need a constant for "cursor right"
 pub const CRSR_RIGHT:&'static str = "\u{1b}\u{5b}C";
 pub const ANSI_BEGIN:&'static str = "\u{1b}\u{5b}";
+pub const CRSR_POS:&'static str = "\u{1b}\u{5b}6n";
 
 // select termios constants that we use
 pub const ICANON:c_uint   = 2;
@@ -108,6 +109,9 @@ pub const WO_PATH:&'static str = "/tmp/wash/";
 
 pub const NCCS:usize = 32;
 
+// ioctls
+pub const TIOCGWINSZ:c_ulong = 0x00005413;
+
 // regex
 pub static VAR_REGEX:Regex = regex!("^\\$([^ \t\r\n\"():]+)");
 pub static VAR_PATH_REGEX:Regex = regex!("^\\$([^ \t\r\n\"():]*):([^ \t\r\n\"():]*)");
@@ -115,9 +119,12 @@ pub static EQ_VAR_REGEX:Regex = regex!("^[^ \t\r\n\"()]+$");
 pub static EQ_PATH_REGEX:Regex = regex!("^([^ \t\r\n\"():]*):([^ \t\r\n\"():]+)$");
 pub static EQ_TEMP_REGEX:Regex = regex!("^([^ \t\r\n\"():]*):?([^ \t\r\n\"():]+):$");
 pub static FD_REGEX:Regex = regex!("^@([^ \t\r\n\"():01234567890]*):?([\\d]+)$");
+pub static PPOS_REGEX:Regex = regex!("^\\[(\\d+);(\\d+)$");
 
 // stop error
 pub const STOP:&'static str = "stop";
+
+pub const MAX_ESCAPE:usize = 15;
 
 #[test]
 fn fd_regex_test() {

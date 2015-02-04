@@ -2,38 +2,36 @@
 name = "wash"
 version = "0.0.1"
 dependencies = [
- "regex 0.1.11 (git+https://github.com/rust-lang/regex)",
- "regex_macros 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "regex 0.1.13 (git+https://github.com/rust-lang/regex)",
+ "regex_macros 0.1.7",
  "sodiumoxide 0.0.1 (git+https://github.com/dnaq/sodiumoxide.git)",
 ]
 
 [[package]]
 name = "libsodium-sys"
 version = "0.0.1"
-source = "git+https://github.com/dnaq/sodiumoxide.git#93046df7c37ed8eadb41b074d3bf32e2d20ac2a8"
+source = "git+https://github.com/dnaq/sodiumoxide.git#4da94210f53720dedb0c1e9505be6a0bbce9bfc8"
 
 [[package]]
 name = "regex"
-version = "0.1.11"
-source = "git+https://github.com/rust-lang/regex#6c0f8aa82582441e9cb3813048ef9b098c026db0"
+version = "0.1.12"
 
 [[package]]
 name = "regex"
-version = "0.1.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+version = "0.1.13"
+source = "git+https://github.com/rust-lang/regex#e12e57ed188dd4ed655bb7f3690e666317a7d198"
 
 [[package]]
 name = "regex_macros"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+version = "0.1.7"
 dependencies = [
- "regex 0.1.11 (registry+https://github.com/rust-lang/crates.io-index)",
+ "regex 0.1.12",
 ]
 
 [[package]]
 name = "sodiumoxide"
 version = "0.0.1"
-source = "git+https://github.com/dnaq/sodiumoxide.git#93046df7c37ed8eadb41b074d3bf32e2d20ac2a8"
+source = "git+https://github.com/dnaq/sodiumoxide.git#4da94210f53720dedb0c1e9505be6a0bbce9bfc8"
 dependencies = [
  "libsodium-sys 0.0.1 (git+https://github.com/dnaq/sodiumoxide.git)",
 ]

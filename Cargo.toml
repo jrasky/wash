@@ -10,4 +10,5 @@ git = "https://github.com/dnaq/sodiumoxide.git"
 git = "https://github.com/rust-lang/regex"
 
 [dependencies.regex_macros]
+path = "../regex/regex_macros"
 get = "https://github.com/rust-lang/regex"
