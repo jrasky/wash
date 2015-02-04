@@ -218,19 +218,9 @@ impl LineReader {
                     None => return false,
                     Some(_) => {
                         self.controls.cursor_left();
-                        self.controls.clear_line();
-                        let cursor = self.controls.get_cursor();
-                        let size = self.controls.get_size();
-                        if cursor.row < size.row as usize {
-                            for i in range(cursor.row + 1, size.row as usize + 1) {
-                                self.controls.move_to(Position {
-                                    row: i, col: 1
-                                });
-                                self.controls.clear_line();
-                            }
-                            self.controls.move_to(cursor);
-                        }
-                        self.idraw_part();
+                        self.draw_part();
+                        self.controls.outc(SPC);
+                        self.controls.cursors_left(self.line.part.len() + 1);
                     }
                 }
             },
@@ -251,12 +241,24 @@ impl LineReader {
             },
             CTE => {
                 // C-e
-                while self.line.right() {
-                    self.controls.cursor_right();
-                }
+                self.controls.cursors_right(self.line.part.len());
+                while self.line.right() {}
             },
             CTK => {
                 self.controls.clear_line();
+                let cursor = self.controls.get_cursor();
+                let size = self.controls.get_size();
+                let total = self.line.part.len() + cursor.col;
+                if total > size.col as usize {
+                    for row in range(cursor.row + 1, cursor.row + total/size.col as usize + 1) {
+                        self.controls.move_to(Position {
+                            col: 1,
+                            row: row
+                        });
+                        self.controls.clear_line();
+                    }
+                    self.controls.move_to(cursor);
+                }
                 self.line.part.clear();
                 self.bpart.clear();
             }

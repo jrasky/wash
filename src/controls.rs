@@ -145,7 +145,7 @@ impl Controls {
     pub fn cursors_left(&mut self, by:usize) {
         if by == 0 {
             return;
-        } else if by <= 3 && by < self.cursor.col {
+        } else if by <= 3 && by + self.cursor.col < self.tsize.col as usize {
             self.stdout.write_str(build_string(DEL, by).as_slice()).unwrap();
             self.move_left(by);
         } else if by < self.cursor.col {
@@ -153,6 +153,18 @@ impl Controls {
             self.move_left(by);
         } else {
             self.move_left(by);
+            self.move_to_pointer();
+        }
+    }
+
+    pub fn cursors_right(&mut self, by:usize) {
+        if by == 0 {
+            return;
+        } else if by + self.cursor.col < self.tsize.col as usize {
+            self.stdout.write_fmt(format_args!("{}{}C", ANSI_BEGIN, by)).unwrap();
+            self.move_right(by);
+        } else {
+            self.move_right(by);
             self.move_to_pointer();
         }
     }
