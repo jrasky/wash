@@ -307,6 +307,19 @@ impl LineReader {
                         self.history.push_front(self.line.clone());
                         self.controls.cursors_left(self.line.fpart.len());
                         self.controls.clear_line();
+                        let cursor = self.controls.get_cursor();
+                        let size = self.controls.get_size();
+                        let total = self.line.fpart.len() + self.line.part.len() + cursor.col;
+                        if total > size.col as usize {
+                            for row in range(cursor.row + 1, cursor.row + total/size.col as usize + 1) {
+                                self.controls.move_to(Position {
+                                    col: 1,
+                                    row: row
+                                });
+                                self.controls.clear_line();
+                            }
+                            self.controls.move_to(cursor);
+                        }
                         self.bpart.clear();
                         self.line.clear();
                     },
@@ -314,10 +327,20 @@ impl LineReader {
                     Some(line) => {
                         self.history.push_front(self.line.clone());
                         self.controls.cursors_left(self.line.fpart.len());
-                        self.controls.outs(build_string(SPC, self.line.fpart.len() +
-                                                        self.line.part.len()).as_slice());
-                        self.controls.cursors_left(self.line.fpart.len() +
-                                                   self.line.part.len());
+                        self.controls.clear_line();
+                        let cursor = self.controls.get_cursor();
+                        let size = self.controls.get_size();
+                        let total = self.line.fpart.len() + self.line.part.len() + cursor.col;
+                        if total > size.col as usize {
+                            for row in range(cursor.row + 1, cursor.row + total/size.col as usize + 1) {
+                                self.controls.move_to(Position {
+                                    col: 1,
+                                    row: row
+                                });
+                                self.controls.clear_line();
+                            }
+                            self.controls.move_to(cursor);
+                        }
                         self.line = line;
                         self.controls.outs(self.line.fpart.as_slice());
                         self.bpart.clear();
@@ -334,6 +357,19 @@ impl LineReader {
                         self.bhistory.push(self.line.clone());
                         self.controls.cursors_left(self.line.fpart.len());
                         self.controls.clear_line();
+                        let cursor = self.controls.get_cursor();
+                        let size = self.controls.get_size();
+                        let total = self.line.fpart.len() + self.line.part.len() + cursor.col;
+                        if total > size.col as usize {
+                            for row in range(cursor.row + 1, cursor.row + total/size.col as usize + 1) {
+                                self.controls.move_to(Position {
+                                    col: 1,
+                                    row: row
+                                });
+                                self.controls.clear_line();
+                            }
+                            self.controls.move_to(cursor);
+                        }
                         self.line = line;
                         self.controls.outs(self.line.fpart.as_slice());
                         self.bpart.clear();
