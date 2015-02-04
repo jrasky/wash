@@ -244,27 +244,49 @@ impl LineReader {
                 self.controls.cursors_right(self.line.part.len());
                 while self.line.right() {}
             },
-            CTK => {
-                self.controls.clear_line();
-                let cursor = self.controls.get_cursor();
-                let size = self.controls.get_size();
-                let total = self.line.part.len() + cursor.col;
-                if total > size.col as usize {
-                    for row in range(cursor.row + 1, cursor.row + total/size.col as usize + 1) {
-                        self.controls.move_to(Position {
-                            col: 1,
-                            row: row
-                        });
-                        self.controls.clear_line();
-                    }
-                    self.controls.move_to(cursor);
-                }
-                self.line.part.clear();
-                self.bpart.clear();
-            }
+            CTK => self.clear_line(),
             _ => return false
         }
         return true;
+    }
+
+    fn clear_line(&mut self) {
+        self.controls.clear_line();
+        let cursor = self.controls.get_cursor();
+        let size = self.controls.get_size();
+        let total = self.line.part.len() + cursor.col;
+        if total > size.col as usize {
+            for row in range(cursor.row + 1, cursor.row + total/size.col as usize + 1) {
+                self.controls.move_to(Position {
+                    col: 1,
+                    row: row
+                });
+                self.controls.clear_line();
+            }
+            self.controls.move_to(cursor);
+        }
+        self.line.part.clear();
+        self.bpart.clear();
+    }
+
+    fn clear_entire_line(&mut self) {
+        self.controls.cursors_left(self.line.fpart.len());
+        self.controls.clear_line();
+        let cursor = self.controls.get_cursor();
+        let size = self.controls.get_size();
+        let total = self.line.fpart.len() + self.line.part.len() + cursor.col;
+        if total > size.col as usize {
+            for row in range(cursor.row + 1, cursor.row + total/size.col as usize + 1) {
+                self.controls.move_to(Position {
+                    col: 1,
+                    row: row
+                });
+                self.controls.clear_line();
+            }
+            self.controls.move_to(cursor);
+        }
+        self.bpart.clear();
+        self.line.clear();
     }
 
     pub fn handle_escape(&mut self, ch:char) -> bool {
@@ -305,42 +327,12 @@ impl LineReader {
                 match self.bhistory.pop() {
                     None if !self.line.is_empty() => {
                         self.history.push_front(self.line.clone());
-                        self.controls.cursors_left(self.line.fpart.len());
-                        self.controls.clear_line();
-                        let cursor = self.controls.get_cursor();
-                        let size = self.controls.get_size();
-                        let total = self.line.fpart.len() + self.line.part.len() + cursor.col;
-                        if total > size.col as usize {
-                            for row in range(cursor.row + 1, cursor.row + total/size.col as usize + 1) {
-                                self.controls.move_to(Position {
-                                    col: 1,
-                                    row: row
-                                });
-                                self.controls.clear_line();
-                            }
-                            self.controls.move_to(cursor);
-                        }
-                        self.bpart.clear();
-                        self.line.clear();
+                        self.clear_entire_line();
                     },
                     None => return false,
                     Some(line) => {
                         self.history.push_front(self.line.clone());
-                        self.controls.cursors_left(self.line.fpart.len());
-                        self.controls.clear_line();
-                        let cursor = self.controls.get_cursor();
-                        let size = self.controls.get_size();
-                        let total = self.line.fpart.len() + self.line.part.len() + cursor.col;
-                        if total > size.col as usize {
-                            for row in range(cursor.row + 1, cursor.row + total/size.col as usize + 1) {
-                                self.controls.move_to(Position {
-                                    col: 1,
-                                    row: row
-                                });
-                                self.controls.clear_line();
-                            }
-                            self.controls.move_to(cursor);
-                        }
+                        self.clear_entire_line();
                         self.line = line;
                         self.controls.outs(self.line.fpart.as_slice());
                         self.bpart.clear();
@@ -355,21 +347,7 @@ impl LineReader {
                     None => return false,
                     Some(line) => {
                         self.bhistory.push(self.line.clone());
-                        self.controls.cursors_left(self.line.fpart.len());
-                        self.controls.clear_line();
-                        let cursor = self.controls.get_cursor();
-                        let size = self.controls.get_size();
-                        let total = self.line.fpart.len() + self.line.part.len() + cursor.col;
-                        if total > size.col as usize {
-                            for row in range(cursor.row + 1, cursor.row + total/size.col as usize + 1) {
-                                self.controls.move_to(Position {
-                                    col: 1,
-                                    row: row
-                                });
-                                self.controls.clear_line();
-                            }
-                            self.controls.move_to(cursor);
-                        }
+                        self.clear_entire_line();
                         self.line = line;
                         self.controls.outs(self.line.fpart.as_slice());
                         self.bpart.clear();
