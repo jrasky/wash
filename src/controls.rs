@@ -174,6 +174,23 @@ impl Controls {
         self.stdout.write_char('K').unwrap();
     }
 
+    pub fn clear_line_to(&mut self, len:usize) {
+        self.clear_line();
+        let total = len + self.cursor.col;
+        if total > self.tsize.col as usize {
+            let old = self.cursor;
+            for row in range(self.cursor.row + 1,
+                             self.cursor.row + total/self.tsize.col as usize + 1) {
+                self.move_to(Position {
+                    col: 1,
+                    row: row
+                });
+                self.clear_line();
+            }
+            self.move_to(old)
+        }
+    }
+
     pub fn flush(&mut self) {
         self.stdout.flush().unwrap();
         self.stderr.flush().unwrap();

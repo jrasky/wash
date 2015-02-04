@@ -251,40 +251,14 @@ impl LineReader {
     }
 
     fn clear_line(&mut self) {
-        self.controls.clear_line();
-        let cursor = self.controls.get_cursor();
-        let size = self.controls.get_size();
-        let total = self.line.part.len() + cursor.col;
-        if total > size.col as usize {
-            for row in range(cursor.row + 1, cursor.row + total/size.col as usize + 1) {
-                self.controls.move_to(Position {
-                    col: 1,
-                    row: row
-                });
-                self.controls.clear_line();
-            }
-            self.controls.move_to(cursor);
-        }
+        self.controls.clear_line_to(self.line.part.len());
         self.line.part.clear();
         self.bpart.clear();
     }
 
     fn clear_entire_line(&mut self) {
         self.controls.cursors_left(self.line.fpart.len());
-        self.controls.clear_line();
-        let cursor = self.controls.get_cursor();
-        let size = self.controls.get_size();
-        let total = self.line.fpart.len() + self.line.part.len() + cursor.col;
-        if total > size.col as usize {
-            for row in range(cursor.row + 1, cursor.row + total/size.col as usize + 1) {
-                self.controls.move_to(Position {
-                    col: 1,
-                    row: row
-                });
-                self.controls.clear_line();
-            }
-            self.controls.move_to(cursor);
-        }
+        self.controls.clear_line_to(self.line.fpart.len() + self.line.part.len());
         self.bpart.clear();
         self.line.clear();
     }
