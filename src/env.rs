@@ -7,7 +7,7 @@ use std::os::unix::prelude::*;
 
 use std::num::*;
 use std::mem;
-use std::os;
+use std::env;
 use std::fmt;
 
 use types::WashArgs::*;
@@ -204,7 +204,7 @@ impl WashEnv {
             if path == "pipe" {
                 return Err("Pipes are read-only variables".to_string())
             } else if path == "env" {
-                os::unsetenv(name.as_slice());
+                env::remove_var(name.as_slice());
                 return Ok(Empty);
             } else {
                 if !self.hasp(&path) {
@@ -220,7 +220,7 @@ impl WashEnv {
                 if !val.is_flat() {
                     return Err("Environment variables can only be flat".to_string());
                 }
-                os::setenv(name.as_slice(), val.flatten().as_slice());
+                env::set_var(name.as_slice(), val.flatten().as_slice());
                 return Ok(val);
             } else {
                 if !self.hasp(&path) {
@@ -271,9 +271,10 @@ impl WashEnv {
     pub fn getallp(&self, path:&String) -> Result<WashArgs, String> {
         if *path == "env".to_string() {
             let mut out = vec![];
-            let envs = os::env();
-            for &(ref name, ref value) in envs.iter() {
-                out.push(Long(vec![Flat(name.clone()), Flat(value.clone())]));
+            let envs = env::vars();
+            for (name, value) in envs {
+                out.push(Long(vec![Flat(name.into_string().ok().unwrap()),
+                                   Flat(value.into_string().ok().unwrap())]));
             }
             return Ok(Long(out));
         } else if *path == "pipe".to_string() {
@@ -311,10 +312,10 @@ impl WashEnv {
     pub fn getvp(&self, name:&String, path:&String) -> Result<WashArgs, String> {
         if *path == "env".to_string() {
             // environment variables
-            return match os::getenv(name.as_slice()) {
-                None => Err("Environment variable not found".to_string()),
-                Some(v) => Ok(Flat(v))
-            };
+            return match env::var_string(name.as_slice()) {
+                Err(e) => Err(format!("{}", e)),
+                Ok(s) => Ok(Flat(s))
+            }
         } else if *path == "pipe".to_string() {
             // pipe Fd's
             let from = try!(self.get_job(&match from_str_radix(name.as_slice(), 10) {

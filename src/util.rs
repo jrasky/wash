@@ -1,5 +1,5 @@
 use std::cmp::*;
-use std::os;
+use std::env;
 
 use types::*;
 
@@ -58,7 +58,7 @@ pub fn reverse<T:Clone>(vec:Vec<T>) -> Vec<T> {
 
 pub fn expand_path(path:Path) -> Path {
     if Path::new("~").is_ancestor_of(&path) {
-        return match os::homedir() {
+        return match env::home_dir() {
             None => Path::new("/"),
             Some(val) => Path::new(val)
         }.join(Path::new(&path.as_vec()[min(path.as_vec().len(), 2)..]));
@@ -68,7 +68,7 @@ pub fn expand_path(path:Path) -> Path {
 }
 
 pub fn condense_path(path:Path) -> Path {
-    let homep = Path::new(match os::homedir() {
+    let homep = Path::new(match env::home_dir() {
             None => return path,
             Some(val) => val
     });

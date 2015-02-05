@@ -1,6 +1,7 @@
 #![feature(collections)]
 #![feature(core)]
 #![feature(path)]
+#![feature(env)]
 #![feature(os)]
 #![feature(io)]
 #![feature(libc)]

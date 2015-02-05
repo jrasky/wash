@@ -2,6 +2,7 @@
 #![feature(io)]
 #![feature(os)]
 #![feature(path)]
+#![feature(env)]
 #![feature(plugin)]
 #[plugin] #[no_link]
 extern crate regex_macros;
@@ -9,7 +10,7 @@ extern crate regex;
 
 use std::old_io::fs::PathExtensions;
 use std::old_io;
-use std::os;
+use std::env;
 
 const TOP:&'static str = "
 #![crate_type = \"dylib\"]
@@ -162,11 +163,11 @@ fn process_rvalue(val:String) -> String {
 }
 
 pub fn main() {
-    let args = os::args();
-    if args.len() == 1 {
-        panic!("No arguments given");
-    }
-    let inp = Path::new(args[1].to_string());
+    let name = match env::args().next() {
+        None => panic!("No arguments given"),
+        Some(v) => v
+    };
+    let inp = Path::new(name.into_string().ok().unwrap());
     if !inp.exists() {
         panic!("File does not exist");
     }

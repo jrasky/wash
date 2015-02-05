@@ -1,7 +1,7 @@
 use std::old_io::process::ProcessExit::*;
 use std::os::unix::prelude::*;
 
-use std::os;
+use std::env;
 use std::cmp::*;
 use std::num::*;
 
@@ -32,7 +32,7 @@ fn cd_func(args:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
             expand_path(Path::new(&args.get_flat(0)))
         }
     };
-    match os::change_dir(&newp) {
+    match env::set_current_dir(&newp) {
         Err(e) => return Err(e.desc.to_string()),
         Ok(_) => return Ok(Empty)
     }

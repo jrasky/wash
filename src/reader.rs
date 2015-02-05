@@ -3,7 +3,7 @@ use libc::*;
 use std::collections::RingBuf;
 
 use std::num::*;
-use std::os;
+use std::env;
 
 use input::*;
 use controls::*;
@@ -59,7 +59,7 @@ impl LineReader {
     }
 
     pub fn draw_ps1(&mut self) {
-        let cwd = os::getcwd().unwrap();
+        let cwd = env::current_dir().unwrap();
         self.controls.outf(format_args!("{path} => run(", path=condense_path(cwd).display()));
     }
 

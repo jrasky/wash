@@ -36,14 +36,6 @@ impl Controls {
         self.cursor = pos;
     }
 
-    pub fn get_cursor(&mut self) -> Position {
-        self.cursor
-    }
-
-    pub fn get_size(&mut self) -> WinSize {
-        self.tsize
-    }
-
     pub fn update_size(&mut self, size:WinSize) {
         self.tsize = size;
     }
