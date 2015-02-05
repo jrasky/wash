@@ -1,4 +1,3 @@
-- Improve run to display output instead of running it in certain situations
 - Implement better PS1
  - use regex
 - settings

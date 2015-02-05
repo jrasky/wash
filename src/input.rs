@@ -731,7 +731,16 @@ impl InputLine {
         if !output.back.is_empty() {
             return None;
         } else {
-            return Some(output.front);
+            return match output.front {
+                Long(mut v) => {
+                    if v.len() == 1 {
+                        return Some(v.pop().unwrap());
+                    } else {
+                        return Some(Long(v));
+                    }
+                },
+                v => Some(v)
+            }
         }
     }
 }
