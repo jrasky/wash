@@ -94,10 +94,14 @@ pub fn create_content(next:&mut Vec<InputValue>) -> Result<Vec<InputValue>, Stri
                 one_line = true;
             },
             Some(InputValue::Split(_)) if !one_line => continue,
-            Some(ref v) if one_line => {
-                line.insert(0, v.clone())
-            }
-            _ => return Err("Malformed block".to_string())
+            Some(v) => {
+                if one_line {
+                    line.insert(0, v);
+                } else {
+                    return Err("Malformed block".to_string())
+                }
+            },
+            _ => return Err(format!("Malformed block"))
         }
     }
     if line.is_empty() {

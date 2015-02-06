@@ -190,11 +190,18 @@ fn geq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut She
 }
 
 fn block_handler(name:String, pre:&mut Vec<WashArgs>,
-               next:&mut Vec<InputValue>, _:&mut ShellState) -> Result<HandlerResult, String> {
+                 next:&mut Vec<InputValue>, _:&mut ShellState) -> Result<HandlerResult, String> {
     if !pre.is_empty() {
         return Err("Malformed block".to_string());
     }
     let content = try!(create_content(next));
+    // shave off final splits in next
+    while match get_nm_index(next, next.len() - 1) {
+        Some(&InputValue::Split(_)) => true,
+        _ => false
+    } {
+        next.pop();
+    }
     let close;
     if content.is_empty() {
         close = vec![InputValue::Short("}".to_string())];

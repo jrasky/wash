@@ -125,7 +125,7 @@ impl ShellState {
         if self.blocks.is_empty() {
             return Err("No block defined".to_string());
         }
-        let block = self.blocks.pop().unwrap();
+        let mut block = self.blocks.pop().unwrap();
         if block.start == "act" {
             return self.process_lines(block.content.iter());
         } else if block.start == "if" || block.start == "else" {
@@ -136,7 +136,10 @@ impl ShellState {
                 return Err(STOP.to_string());
             }
             if !next_empty {
-                cond = self.process_line(InputValue::Long(block.next));
+                cond = self.process_line(match block.next.len() {
+                    1 => block.next.pop().unwrap(),
+                    _ => InputValue::Long(block.next)
+                });
             }
             if cond.is_ok() || (block.start == "else" && next_empty) {
                 return self.process_lines(block.content.iter());
@@ -278,13 +281,17 @@ impl ShellState {
                     }
                     // produce a correct scope for the handler
                     scope.clear();
-                    while match get_nm_index(&iter, iter.len() - 1) {
-                        None => false,
-                        Some(&InputValue::Split(ref ns)) if self.has_handler(ns) => false,
-                        Some(_) => true
+                    loop {
+                        match iter.pop() {
+                            None => break,
+                            Some(v) => scope.push(v)
+                        }
+                    }
+                    while match get_nm_index(&scope, scope.len() - 1) {
+                        Some(&InputValue::Split(_)) => true,
+                        _ => false
                     } {
-                        // doing this means scope will be in the same order as input
-                        scope.push(iter.pop().unwrap());
+                        scope.pop();
                     }
                     // this can change out and scope, be careful
                     match self.run_handler(name, &mut out, &mut scope) {
