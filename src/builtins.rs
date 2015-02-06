@@ -12,16 +12,23 @@ use constants::*;
 use types::*;
 use env::*;
 
-fn source_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+macro_rules! builtin {
+    ($name:ident, $args:pat, $env:pat, $func:block) => {
+        pub fn $name($args:&WashArgs, $env:&mut WashEnv) -> Result<WashArgs, String>
+            $func
+    }
+}
+
+builtin!(source_func, args, env, {
     let name = match args {
         &Empty => return Err("No arguments given".to_string()),
         &Long(_) => return Err("Can only source flat names".to_string()),
         &Flat(ref v) => v.clone()
     };
     env.load_script(Path::new(name), &args.slice(1, -1))
-}
+});
 
-fn cd_func(args:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
+builtin!(cd_func, args, _, {
     let newp = {
         if args.len() == 0 {
             expand_path(Path::new("~"))
@@ -36,16 +43,16 @@ fn cd_func(args:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
         Err(e) => return Err(e.desc.to_string()),
         Ok(_) => return Ok(Empty)
     }
-}
+});
 
-fn outs_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+builtin!(outs_func, args, env, {
     let mut argf = args.flatten();
     env.outs(argf.as_slice());
     if argf.pop() != Some(NL) {
         env.outc(NL);
     }
     return Ok(Empty);
-}
+});
 
 fn job_args(args:&WashArgs, env:&mut WashEnv) -> Result<(Option<Fd>, Option<Fd>, Option<Fd>,
                                                          String, Vec<String>, Vec<(String, Option<String>)>), String> {
@@ -111,7 +118,7 @@ fn job_args(args:&WashArgs, env:&mut WashEnv) -> Result<(Option<Fd>, Option<Fd>,
     return Ok((stdin, stdout, stderr, fname, Long(argc).flatten_vec(), envs));
 }
 
-pub fn job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+builtin!(job_func, args, env, {
     let id;
     if args.is_empty() || args.len() < 1 {
         return Err("No arguments given".to_string());
@@ -131,9 +138,9 @@ pub fn job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
         id = try!(env.run_job_fd(stdin, stdout, stderr, &name, &argc, &envs));
     }
     return Ok(Flat(format!("{}", id)));
-}
+});
 
-pub fn job_output_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+builtin!(job_output_func, args, env, {
     let arg = args.get(0);
     if !arg.is_flat() {
         return Err("Give a job number".to_string());
@@ -160,13 +167,13 @@ pub fn job_output_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, Str
         };
         return Ok(Flat(s));
     }
-}
+});
 
-pub fn directed_job_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+builtin!(directed_job_func, args, env, {
     return job_output_func(&try!(job_func(args, env)), env);
-}
+});
 
-pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+builtin!(run_func, args, env, {
     let out;
     if args.is_empty() || args.len() < 1 {
         return Err("No arguments given".to_string());
@@ -195,18 +202,18 @@ pub fn run_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
                                 Flat(format!("{}", status))]));
         }
     }
-}
+});
 
-pub fn jobs_func(_:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+builtin!(jobs_func, _, env, {
     let jobs = env.get_jobs();
     if jobs.len() == 0 {
         return Err("No jobs".to_string());
     } else {
         return Ok(env.get_jobs());
     }
-}
+});
 
-pub fn fg_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+builtin!(fg_func, args, env, {
     let mut id;
     if args.len() < 1 {
         id = try!(env.front_job());
@@ -233,9 +240,9 @@ pub fn fg_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
         ExitStatus(status) => Long(vec![Flat("status".to_string()),
                                         Flat(format!("{}", status))])
     }, env)
-}
+});
 
-pub fn get_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+builtin!(get_func, args, env, {
     if args.len() < 1 {
         return Err("No variable name given".to_string());
     }
@@ -263,9 +270,9 @@ pub fn get_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
     } else {
         return env.getv(&name);
     }
-}
+});
 
-pub fn setp_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+builtin!(setp_func, args, env, {
     if args.len() < 1 {
         env.variables = String::new();
         return Ok(Flat(String::new()));
@@ -285,9 +292,9 @@ pub fn setp_func(args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
             return Ok(Flat(path));
         }
     }
-}
+});
 
-pub fn describe_process_output(args:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
+builtin!(describe_process_output, args, _, {
     let argv = args.flatten_vec();
     if args.is_empty() {
         return Err("Command Failed".to_string());
@@ -301,7 +308,7 @@ pub fn describe_process_output(args:&WashArgs, _:&mut WashEnv) -> Result<WashArg
     } else {
         return Ok(Empty);
     }
-}
+});
 
 fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
     return Ok(Long(vec![

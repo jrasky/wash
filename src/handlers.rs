@@ -11,7 +11,15 @@ use types::*;
 use state::*;
 use builtins::*;
 
-fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+macro_rules! handler {
+    ($name:ident, $pre:pat, $next:pat, $state:pat, $func:block) => {
+        fn $name($pre:&mut Vec<WashArgs>, $next:&mut Vec<InputValue>,
+                 $state:&mut ShellState) -> Result<HandlerResult, String>
+            $func
+    }
+}
+
+handler!(equal_handler, pre, next, state, {
     // set variable and stop
     let (path, name, _, val) = try!(equal_inner(pre, next, state));
     if path.is_none() {
@@ -20,7 +28,7 @@ fn equal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut S
         try!(state.env.insvp(name, path.unwrap(), val));
     }
     return Ok(Stop);
-}
+});
 
 fn equal_inner(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>,
                state:&mut ShellState) -> Result<(Option<String>, String, WashArgs, WashArgs), String> {
@@ -69,7 +77,7 @@ fn equal_inner(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>,
 
 }
 
-fn equalequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+handler!(equalequal_handler, pre, next, state, {
     let comp = try!(state.input_to_args(InputValue::Long(next.clone())));
     if Long(pre.clone()).flatten_vec() == comp.flatten_vec() {
         pre.clear();
@@ -78,9 +86,9 @@ fn equalequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&
     } else {
         return Ok(Stop);
     }
-}
+});
 
-fn tildaequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+handler!(tildaequal_handler, pre, next, state, {
     let re = match Regex::new(try!(state.input_to_args(InputValue::Long(next.clone()))).flatten().as_slice()) {
         Err(e) => return Err(format!("{}", e)),
         Ok(v) => v
@@ -95,9 +103,9 @@ fn tildaequal_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&
     } else {
         return Ok(Stop);
     }
-}
+});
 
-fn semiamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+handler!(semiamper_handler, pre, _, state, {
     // effectively the "continue" handler
     // run the part before the line and then continue
     // onto the next one no matter what
@@ -114,10 +122,9 @@ fn semiamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, state:&mut 
     // ;& does not pass on the value of the previous command
     pre.clear();
     return Ok(Continue);
-}
+});
 
-
-fn amperamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+handler!(amperamper_handler, pre, _, state, {
     // "and then:" run this command and continue only if it succeded
     // onto the next one no matter what
     let out = try!(run_func(&Long(pre.clone()), &mut state.env));
@@ -126,9 +133,9 @@ fn amperamper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, state:&mut
     // && does not pass on the value of the previous command
     pre.clear();
     return Ok(Continue);
-}
+});
 
-fn amper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+handler!(amper_handler, pre, _, state, {
     // almost directly calls job
     // ignore errors
     match job_func(&Long(pre.clone()), &mut state.env) {
@@ -138,9 +145,9 @@ fn amper_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, state:&mut Shel
     // & does not pass on the value of the previous command
     pre.clear();
     return Ok(Continue);
-}
+});
 
-fn bar_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+handler!(bar_handler, pre, _, state, {
     if pre.len() < 1 {
         return Err("Cannot pipe nothing".to_string());
     }
@@ -154,9 +161,9 @@ fn bar_handler(pre:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, state:&mut ShellS
     pre.clear();
     pre.push(try!(state.env.getvp(&format!("{}", id), &"pipe".to_string())));
     return Ok(Continue);
-}
+});
 
-fn leq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+handler!(leq_handler, pre, next, state, {
     // file input
     if next.is_empty() {
         return Err("File name must be provided".to_string());
@@ -169,9 +176,9 @@ fn leq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut She
     let fid = try!(state.env.input_file(&fpath));
     pre.insert(0, Flat(format!("@{}", fid)));
     return Ok(Continue);
-}
+});
 
-fn geq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+handler!(geq_handler, pre, next, state, {
     // file output
     if next.is_empty() {
         return Err("File name must be provided".to_string());
@@ -187,7 +194,7 @@ fn geq_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut She
     try!(describe_process_output(&out, &mut state.env));
     // stop no matter what
     return Ok(Stop);
-}
+});
 
 fn block_handler(name:String, pre:&mut Vec<WashArgs>,
                  next:&mut Vec<InputValue>, _:&mut ShellState) -> Result<HandlerResult, String> {
@@ -218,26 +225,26 @@ fn block_handler(name:String, pre:&mut Vec<WashArgs>,
     return Ok(More(block));
 }
 
-fn end_block_handler(_:&mut Vec<WashArgs>, _:&mut Vec<InputValue>, _:&mut ShellState) -> Result<HandlerResult, String> {
+handler!(end_block_handler, _, _, _, {
     // helper to tell users not to use this in a line
     return Err("Malformed block".to_string());
-}
+});
 
-fn act_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+handler!(act_handler, pre, next, state, {
     block_handler("act".to_string(), pre, next, state)
-}
+});
 
-fn if_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+handler!(if_handler, pre, next, state, {
     block_handler("if".to_string(), pre, next, state)
-}
+});
 
-fn else_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+handler!(else_handler, pre, next, state, {
     block_handler("else".to_string(), pre, next, state)
-}
+});
 
-fn loop_handler(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>, state:&mut ShellState) -> Result<HandlerResult, String> {
+handler!(loop_handler, pre, next, state, {
     block_handler("loop".to_string(), pre, next, state)
-}
+});
 
 pub fn load_handlers(state:&mut ShellState) -> Result<WashArgs, String> {
     // handlers
