@@ -310,7 +310,7 @@ builtin!(describe_process_output, args, _, {
     }
 });
 
-fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
+builtin!(builtins_func, _, _, {
     return Ok(Long(vec![
         Flat("$".to_string()),
         Flat("builtins".to_string()),
@@ -321,7 +321,7 @@ fn builtins_func(_:&WashArgs, _:&mut WashEnv) -> Result<WashArgs, String> {
         Flat("run".to_string()),
         Flat("setp".to_string()),
         Flat("source".to_string())]));
-}
+});
 
 pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     // functions
