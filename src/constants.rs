@@ -126,6 +126,8 @@ pub const STOP:&'static str = "stop";
 
 pub const MAX_ESCAPE:usize = 15;
 
+pub const HOST_NAME_MAX:usize = 64;
+
 #[test]
 fn fd_regex_test() {
     assert_eq!(FD_REGEX.captures("@10").unwrap().at(2).unwrap(), "10");

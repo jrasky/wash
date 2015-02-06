@@ -60,7 +60,10 @@ impl LineReader {
 
     pub fn draw_ps1(&mut self) {
         let cwd = env::current_dir().unwrap();
-        self.controls.outf(format_args!("{path} => run(", path=condense_path(cwd).display()));
+        self.controls.outf(format_args!("{login}@{host}:{path} => run(",
+                                        host=get_hostname().ok().unwrap(),
+                                        login=get_login().ok().unwrap(),
+                                        path=condense_path(cwd).display()));
     }
 
     fn handle_signal(&mut self, set:&SigSet) {
