@@ -3,12 +3,10 @@ use libc::*;
 use std::collections::RingBuf;
 
 use std::num::*;
-use std::env;
 
 use input::*;
 use controls::*;
 use constants::*;
-use util::*;
 use signal::*;
 use types::*;
 use ioctl::*;
@@ -58,14 +56,6 @@ impl LineReader {
         self.restarted = true;
     }
 
-    pub fn draw_ps1(&mut self) {
-        let cwd = env::current_dir().unwrap();
-        self.controls.outf(format_args!("{login}@{host}:{path} => run(",
-                                        host=get_hostname().ok().unwrap(),
-                                        login=get_login().ok().unwrap(),
-                                        path=condense_path(cwd).display()));
-    }
-
     fn handle_signal(&mut self, set:&SigSet) {
         let sig = match signal_wait_set(set, None) {
             Err(e) => panic!("Didn't get signal: {}", e),
@@ -73,10 +63,9 @@ impl LineReader {
         };
         match sig.signo {
             SIGINT => {
-                self.controls.outs("\nInterrupt\n");
+                self.controls.outs("\nInterrupt");
                 self.clear();
-                self.draw_ps1();
-                self.controls.query_cursor();
+                self.finished = true;
             },
             SIGWINCH => {
                 match term_winsize() {

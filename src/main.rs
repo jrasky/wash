@@ -68,7 +68,10 @@ pub fn main() {
             _ => {/* nothing */}
         }
         if !state.in_block() {
-            reader.draw_ps1();
+            match state.env.runf(&format!("prompt"), &WashArgs::Empty) {
+                Err(_) => reader.controls.outs("prompt failed => run("),
+                Ok(v) => reader.controls.outs(v.flatten().as_slice())
+            }
         }
         match reader.read_line() {
             None => {

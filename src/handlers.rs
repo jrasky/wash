@@ -88,6 +88,19 @@ handler!(equalequal_handler, pre, next, state, {
     }
 });
 
+handler!(dot_handler, pre, next, state, {
+    let last = match pre.pop() {
+        None => return Err(format!("Cannot dot with nothing")),
+        Some(v) => v
+    };
+    if next.is_empty() {
+        return Err(format!("Cannot dot with nothing"));
+    }
+    let anext = try!(state.input_to_args(next.remove(0)));
+    pre.push(Flat(vec![last.flatten(), anext.flatten()].concat()));
+    return Ok(Continue);
+});
+
 handler!(tildaequal_handler, pre, next, state, {
     let re = match Regex::new(try!(state.input_to_args(InputValue::Long(next.clone()))).flatten().as_slice()) {
         Err(e) => return Err(format!("{}", e)),
@@ -257,6 +270,7 @@ pub fn load_handlers(state:&mut ShellState) -> Result<WashArgs, String> {
     try!(state.insert_handler(">", geq_handler));
     try!(state.insert_handler("==", equalequal_handler));
     try!(state.insert_handler("~=", tildaequal_handler));
+    try!(state.insert_handler(".", dot_handler));
 
     // block start/end
     try!(state.insert_handler("act!", act_handler));

@@ -18,6 +18,7 @@ use script::*;
 use signal::*;
 use constants::*;
 use ioctl::*;
+use util::*;
 
 // !!!
 // Wash function calling convention
@@ -327,6 +328,21 @@ impl WashEnv {
             } else if *name == "hostname" {
                 return Ok(Flat(tryf!(get_hostname(),
                          "Could not get hostname: {err}")));
+            } else if *name == "args" {
+                let mut out = vec![];
+                for arg in env::args() {
+                    out.push(Flat(tryf!(arg.into_string(),
+                                        "Could not turn {err:?} into string")));
+                }
+                return Ok(Long(out));
+            } else if *name == "cwd" {
+                let cwd = tryf!(env::current_dir(),
+                                "Couldn't get current directory: {err}");
+                return Ok(Flat(format!("{}", cwd.display())));
+            } else if *name == "scwd" {
+                let cwd = tryf!(env::current_dir(),
+                                "Couldn't get current directory: {err}");
+                return Ok(Flat(format!("{}", condense_path(cwd).display())));
             } else {
                 return Err(format!("System variable not found"));
             }

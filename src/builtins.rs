@@ -325,11 +325,27 @@ builtin!(ftime_func, args, _, {
     return Ok(Flat(strf_time(&fmt, &lt)));
 });
 
+builtin!(dot_func, args, _, {
+    return Ok(Flat(args.flatten_vec().concat()));
+});
+
+builtin!(prompt_func, _, env, {
+    return dot_func(&Long(vec![
+        try!(env.getvp(&format!("login"), &format!("sys"))),
+        Flat(format!("@")),
+        try!(env.getvp(&format!("hostname"), &format!("sys"))),
+        Flat(format!(":")),
+        try!(env.getvp(&format!("scwd"), &format!("sys"))),
+        Flat(format!(" => run("))
+            ]), env);
+});
+
 builtin!(builtins_func, _, _, {
     return Ok(Long(vec![
         Flat("$".to_string()),
         Flat("builtins".to_string()),
         Flat("cd".to_string()),
+        Flat("dot".to_string()),
         Flat("fg".to_string()),
         Flat("get".to_string()),
         Flat("jobs".to_string()),
@@ -352,6 +368,8 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insf("job", job_func));
     try!(env.insf("fg", fg_func));
     try!(env.insf("ftime", ftime_func));
+    try!(env.insf("dot", dot_func));
+    try!(env.insf("prompt", prompt_func));
 
     // commands that aren't really meant to be called by users
     try!(env.insf("describe_process_output", describe_process_output));
