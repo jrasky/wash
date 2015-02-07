@@ -128,6 +128,9 @@ pub const MAX_ESCAPE:usize = 15;
 
 pub const HOST_NAME_MAX:usize = 64;
 
+// strf needs an arbitrary buffer, hopefully 200 characters is big enough
+pub const STRF_BUF_SIZE:usize = 200;
+
 #[test]
 fn fd_regex_test() {
     assert_eq!(FD_REGEX.captures("@10").unwrap().at(2).unwrap(), "10");

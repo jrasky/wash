@@ -11,6 +11,7 @@ use util::*;
 use constants::*;
 use types::*;
 use env::*;
+use ioctl::*;
 
 macro_rules! builtin {
     ($name:ident, $args:pat, $env:pat, $func:block) => {
@@ -283,9 +284,11 @@ builtin!(setp_func, args, env, {
             }
             v => v.flatten()
         };
-        if path == "env".to_string() {
+        if path == "sys" {
+            return Err(format!("Cannot set variable path to system variables"));
+        } else if path == "env" {
             return Err("Cannot set variable path to environment variables".to_string());
-        } else if path == "pipe".to_string() {
+        } else if path == "pipe" {
             return Err("Cannot set variable path to job pipes".to_string());
         } else {
             env.variables = path.clone();
@@ -308,6 +311,18 @@ builtin!(describe_process_output, args, _, {
     } else {
         return Ok(Empty);
     }
+});
+
+builtin!(ftime_func, args, _, {
+    let fmt = match args.get(0) {
+        Flat(s) => s,
+        _ => return Err(format!("Time format must be flat"))
+    };
+    let lt = match get_time() {
+        None => return Err(format!("Could not get current time")),
+        Some(t) => t
+    };
+    return Ok(Flat(strf_time(&fmt, &lt)));
 });
 
 builtin!(builtins_func, _, _, {
@@ -336,6 +351,7 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insf("jobs", jobs_func));
     try!(env.insf("job", job_func));
     try!(env.insf("fg", fg_func));
+    try!(env.insf("ftime", ftime_func));
 
     // commands that aren't really meant to be called by users
     try!(env.insf("describe_process_output", describe_process_output));

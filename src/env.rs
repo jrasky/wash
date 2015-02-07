@@ -17,6 +17,7 @@ use types::*;
 use script::*;
 use signal::*;
 use constants::*;
+use ioctl::*;
 
 // !!!
 // Wash function calling convention
@@ -201,7 +202,9 @@ impl WashEnv {
     pub fn insvp(&mut self, name:String, path:String, val:WashArgs) -> Result<WashArgs, String> {
         if val.is_empty() {
             // unset
-            if path == "pipe" {
+            if path == "sys" {
+                return Err(format!("System variables are read-only"));
+            } else if path == "pipe" {
                 return Err("Pipes are read-only variables".to_string())
             } else if path == "env" {
                 env::remove_var(name.as_slice());
@@ -216,7 +219,11 @@ impl WashEnv {
                 }
             }
         } else {
-            if path == "env" {
+            if path == "pipe" {
+                return Err(format!("Pipes are read-only variales"));
+            } else if path == "sys" {
+                return Err(format!("System variables are read-only"))
+            } else if path == "env" {
                 if !val.is_flat() {
                     return Err("Environment variables can only be flat".to_string());
                 }
@@ -269,7 +276,9 @@ impl WashEnv {
     }
     
     pub fn getallp(&self, path:&String) -> Result<WashArgs, String> {
-        if *path == "env".to_string() {
+        if *path == "sys" {
+            return Err(format!("Cannot get all system variables"));
+        } else if *path == "env" {
             let mut out = vec![];
             let envs = env::vars();
             for (name, value) in envs {
@@ -277,7 +286,7 @@ impl WashEnv {
                                    Flat(value.into_string().ok().unwrap())]));
             }
             return Ok(Long(out));
-        } else if *path == "pipe".to_string() {
+        } else if *path == "pipe" {
             // list of non-background jobs (which can be piped)
             let mut out = vec![];
             for (id, job) in self.term.jobs.iter() {
@@ -310,13 +319,24 @@ impl WashEnv {
     }
 
     pub fn getvp(&self, name:&String, path:&String) -> Result<WashArgs, String> {
-        if *path == "env".to_string() {
+        if *path == "sys" {
+            // special variables like usernames and things
+            if *name == "login" {
+                return Ok(Flat(tryf!(get_login(),
+                                     "Could not get username: {err}")));
+            } else if *name == "hostname" {
+                return Ok(Flat(tryf!(get_hostname(),
+                         "Could not get hostname: {err}")));
+            } else {
+                return Err(format!("System variable not found"));
+            }
+        } else if *path == "env" {
             // environment variables
             return match env::var_string(name.as_slice()) {
                 Err(e) => Err(format!("{}", e)),
                 Ok(s) => Ok(Flat(s))
             }
-        } else if *path == "pipe".to_string() {
+        } else if *path == "pipe" {
             // pipe Fd's
             let from = try!(self.get_job(&match from_str_radix(name.as_slice(), 10) {
                 Err(e) => return Err(format!("Did not give job number: {}", e)),
