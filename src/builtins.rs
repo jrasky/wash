@@ -340,6 +340,10 @@ builtin!(prompt_func, _, env, {
             ]), env);
 });
 
+builtin!(subprompt_func, _, _, {
+    return Ok(Flat(format!(" => run(")));
+});
+
 builtin!(builtins_func, _, _, {
     return Ok(Long(vec![
         Flat("$".to_string()),
@@ -370,6 +374,7 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insf("ftime", ftime_func));
     try!(env.insf("dot", dot_func));
     try!(env.insf("prompt", prompt_func));
+    try!(env.insf("subprompt", subprompt_func));
 
     // commands that aren't really meant to be called by users
     try!(env.insf("describe_process_output", describe_process_output));

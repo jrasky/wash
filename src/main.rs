@@ -67,7 +67,12 @@ pub fn main() {
             },
             _ => {/* nothing */}
         }
-        if !state.in_block() {
+        if state.in_block() {
+            match state.env.runf(&format!("subprompt"), &WashArgs::Empty) {
+                Err(_) => reader.controls.outs("prompt failed => run("),
+                Ok(v) => reader.controls.outs(v.flatten().as_slice())
+            }
+        } else {
             match state.env.runf(&format!("prompt"), &WashArgs::Empty) {
                 Err(_) => reader.controls.outs("prompt failed => run("),
                 Ok(v) => reader.controls.outs(v.flatten().as_slice())
