@@ -172,7 +172,32 @@ impl LineReader {
                 }
             }
         }
-        self.controls.outs(self.bpart.as_slice());
+        let splits:Vec<&str> = NL_REGEX.split(self.bpart.as_slice()).collect();
+        if splits.len() > 1 {
+            let old = self.controls.get_pos();
+            for part in splits.iter() {
+                if self.controls.grow_check(part.len()) {
+                    let crow = self.controls.get_row();
+                    let total = crow + part.len();
+                    for row in range(crow + 1,
+                                     crow + total/self.controls.width() + 1) {
+                        self.controls.clear_line();
+                        self.controls.move_to(Position {
+                            col: 1,
+                            row: row
+                        });
+                    }
+                } else {
+                    self.controls.clear_line();
+                    self.controls.next_start();
+                }
+            }
+            self.controls.move_to(old);
+            self.controls.outs(self.bpart.as_slice());
+        } else {
+            // no newlines
+            self.controls.outs(splits[0]);
+        }
     }
 
     pub fn idraw_part(&mut self) {

@@ -5,6 +5,7 @@ use unicode::str::*;
 use std::str;
 use std::old_io;
 use std::fmt;
+use std::cmp::*;
 
 use constants::*;
 use util::*;
@@ -50,21 +51,43 @@ impl Controls {
         self.roff = 0;
     }
 
+    pub fn get_row(&mut self) -> usize {
+        self.cursor.row
+    }
+
+    pub fn width(&mut self) -> usize {
+        self.tsize.col as usize
+    }
+
+    pub fn get_pos(&mut self) -> Position {
+        self.cursor
+    }
+
+    fn row_length(&mut self) -> usize {
+        if !self.rows.contains_key(&((self.cursor.row as isize + self.roff) as usize)) {
+            return 1;
+        } else {
+            return self.rows[(self.cursor.row as isize + self.roff) as usize];
+        }
+    }
+
+    fn save_row(&mut self, len:usize) {
+        if !self.rows.contains_key(&((self.cursor.row as isize + self.roff) as usize)) {
+            self.rows.insert((self.cursor.row as isize + self.roff) as usize, len);
+        } else {
+            self.rows[(self.cursor.row as isize + self.roff) as usize] = len;
+        }
+    }
+
     fn move_right(&mut self, by:usize) {
         self.cursor.col += by;
-        let mut row_size = {
-            if !self.rows.contains_key(&((self.cursor.row as isize + self.roff) as usize)) {1}
-            else {self.rows[(self.cursor.row as isize + self.roff) as usize]}
-        };
+        let mut row_size = self.row_length();
         if self.cursor.col > row_size {
             loop {
                 if self.cursor.col > row_size {
                     self.cursor.col -= row_size;
                     self.cursor.row += 1;
-                    row_size = {
-                        if !self.rows.contains_key(&((self.cursor.row as isize + self.roff) as usize)) {1}
-                        else {self.rows[(self.cursor.row as isize + self.roff) as usize]}
-                    };
+                    row_size = self.row_length();
                 } else {
                     break;
                 }
@@ -78,17 +101,14 @@ impl Controls {
 
     fn move_left(&mut self, mut by:usize) {
         loop {
-            if by > self.cursor.col {
+            if by >= self.cursor.col {
                 by -= self.cursor.col;
                 if self.cursor.row == 0 {
                     self.roff -= 1;
                 } else {
                     self.cursor.row -= 1;
                 }
-                self.cursor.col = {
-                    if !self.rows.contains_key(&((self.cursor.row as isize + self.roff) as usize)) {1}
-                    else {self.rows[(self.cursor.row as isize + self.roff) as usize]}
-                };
+                self.cursor.col = self.row_length();
             } else {
                 self.cursor.col -= by;
                 break;
@@ -96,14 +116,15 @@ impl Controls {
         }
     }
 
+    pub fn grow_check(&mut self, len:usize) -> bool {
+        self.cursor.col + len > self.tsize.col as usize
+    }
+
     fn grow(&mut self, by:usize) {
         self.cursor.col += by;
         if self.cursor.col > self.tsize.col as usize {
-            if !self.rows.contains_key(&((self.cursor.row as isize + self.roff) as usize)) {
-                self.rows.insert((self.cursor.row as isize + self.roff) as usize, self.tsize.col as usize);
-            } else {
-                self.rows[(self.cursor.row as isize + self.roff) as usize] = self.tsize.col as usize;
-            }
+            let col = self.tsize.col as usize;
+            self.save_row(col);
             self.cursor.row += self.cursor.col / self.tsize.col as usize;
             self.cursor.col = self.cursor.col % self.tsize.col as usize;
             if self.cursor.row > self.tsize.row as usize {
@@ -111,11 +132,8 @@ impl Controls {
                 self.cursor.row = self.tsize.row as usize;
             }
         }
-        if !self.rows.contains_key(&((self.cursor.row as isize + self.roff) as usize)) {
-            self.rows.insert((self.cursor.row as isize + self.roff) as usize, self.cursor.col);
-        } else {
-            self.rows[(self.cursor.row as isize + self.roff) as usize] = self.cursor.col;
-        }
+        let col = self.cursor.col;
+        self.save_row(col);
     }
 
     fn shrink(&mut self, by:usize) {
@@ -133,11 +151,8 @@ impl Controls {
         } else {
             self.cursor.col -= by;
         }
-        if !self.rows.contains_key(&((self.cursor.row as isize + self.roff) as usize)) {
-            self.rows.insert((self.cursor.row as isize + self.roff) as usize, self.cursor.col);
-        } else {
-            self.rows[(self.cursor.row as isize + self.roff) as usize] = self.cursor.col;
-        }
+        let col = self.cursor.col;
+        self.save_row(col);
     }
 
     fn new_row(&mut self) {
@@ -146,7 +161,7 @@ impl Controls {
         } else {
             self.cursor.row += 1;
         }
-        self.cursor.col = 0;
+        self.cursor.col = 1;
     }
 
     /* out* and err* functions are assumed to be output
@@ -157,15 +172,25 @@ impl Controls {
         if ch == NL {
             self.new_row();
         } else {
+            if self.grow_check(1) {
+                self.stdout.write_char(NL).unwrap();
+            }
             self.grow(1);
         }
     }
 
     pub fn outs(&mut self, s:&str) {
         self.stdout.write_str(s).unwrap();
-        for part in NL_REGEX.split(s) {
-            self.grow(part.len());
-            self.new_row();
+        let mut splits = NL_REGEX.split(s);
+        match splits.next() {
+            Some(part) => {
+                self.grow(part.len());
+                for part in splits {
+                    self.new_row();
+                    self.grow(part.len());
+                }
+            },
+            _ => {}
         }
     }
 
@@ -175,9 +200,16 @@ impl Controls {
 
     pub fn err(&mut self, s:&str) {
         self.stderr.write_str(s).unwrap();
-        for part in NL_REGEX.split(s) {
-            self.grow(part.len());
-            self.new_row();
+        let mut splits = NL_REGEX.split(s);
+        match splits.next() {
+            Some(part) => {
+                self.grow(part.len());
+                for part in splits {
+                    self.new_row();
+                    self.grow(part.len());
+                }
+            },
+            _ => {}
         }
     }
 
@@ -230,7 +262,7 @@ impl Controls {
     }
 
     pub fn cursor_right(&mut self) {
-        if self.cursor.col < self.tsize.col as usize {
+        if self.cursor.col < self.row_length() {
             self.stdout.write_str(CRSR_RIGHT).unwrap();
             self.move_right(1);
         } else {
@@ -242,10 +274,10 @@ impl Controls {
     pub fn cursors_left(&mut self, by:usize) {
         if by == 0 {
             return;
-        } else if by <= 3 && by + self.cursor.col < self.tsize.col as usize {
+        } else if by <= 3 && self.cursor.col > by {
             self.stdout.write_str(build_string(DEL, by).as_slice()).unwrap();
             self.move_left(by);
-        } else if by < self.cursor.col {
+        } else if self.cursor.col > by {
             self.stdout.write_fmt(format_args!("{}{}D", ANSI_BEGIN, by)).unwrap();
             self.move_left(by);
         } else {
@@ -257,7 +289,7 @@ impl Controls {
     pub fn cursors_right(&mut self, by:usize) {
         if by == 0 {
             return;
-        } else if by + self.cursor.col < self.tsize.col as usize {
+        } else if by + self.cursor.col <= self.row_length() {
             self.stdout.write_fmt(format_args!("{}{}C", ANSI_BEGIN, by)).unwrap();
             self.move_right(by);
         } else {
@@ -269,7 +301,8 @@ impl Controls {
     pub fn clear_line(&mut self) {
         self.stdout.write_str(ANSI_BEGIN).unwrap();
         self.stdout.write_char('K').unwrap();
-        self.rows.remove(&self.cursor.row);
+        let col = self.cursor.col;
+        self.save_row(col);
     }
 
     pub fn clear_line_to(&mut self, len:usize) {
@@ -287,6 +320,15 @@ impl Controls {
             }
             self.move_to(old)
         }
+    }
+
+    pub fn next_start(&mut self) {
+        let row = self.cursor.row + 1;
+        let mrow = self.tsize.row as usize;
+        self.move_to(Position {
+            col: 1,
+            row: min(row, mrow)
+        });
     }
 
     pub fn flush(&mut self) {
