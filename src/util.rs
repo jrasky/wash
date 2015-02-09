@@ -119,7 +119,7 @@ fn build_string_test() {
 #[test]
 fn expand_path_test() {
     // tests require the HOME env set
-    let homep = Path::new(os::homedir().unwrap());
+    let homep = Path::new(env::home_dir().unwrap());
     assert!(expand_path(Path::new("~/Documents/scripts/")) == homep.join("Documents/scripts/"));
     assert!(expand_path(Path::new("/etc/wash/")) == Path::new("/etc/wash/"));
 }
@@ -127,14 +127,9 @@ fn expand_path_test() {
 #[test]
 fn condense_path_test() {
     // tests require the HOME env set
-    let homep = Path::new(os::homedir().unwrap());
+    let homep = Path::new(env::home_dir().unwrap());
     assert!(condense_path(homep.join("Documents/scripts/")) ==
             Path::new("~/Documents/scripts/"));
     assert!(condense_path(Path::new("/home/")) == Path::new("/home/"));
     assert!(condense_path(Path::new("/etc/wash/")) == Path::new("/etc/wash/"));
-}
-
-#[test]
-fn str_to_usize_test() {
-    assert_eq!(str_to_usize("123"), Some(123));
 }

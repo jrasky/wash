@@ -336,12 +336,12 @@ builtin!(prompt_func, _, env, {
         try!(env.getvp(&format!("hostname"), &format!("sys"))),
         Flat(format!(":")),
         try!(env.getvp(&format!("scwd"), &format!("sys"))),
-        Flat(format!(" => run("))
+        Flat(format!(" => $("))
             ]), env);
 });
 
 builtin!(subprompt_func, _, _, {
-    return Ok(Flat(format!(" => run(")));
+    return Ok(Flat(format!(" => $(")));
 });
 
 builtin!(builtins_func, _, _, {

@@ -111,6 +111,7 @@ impl LineReader {
             Ok(size) => self.controls.update_size(size)
         }
         // update cursor position before anything
+        self.controls.clear_rows();
         self.controls.query_cursor();
         while !self.finished && !self.eof {
             sread = match select(&read, &emvc, &emvc,
@@ -199,7 +200,11 @@ impl LineReader {
                 }
             },
             NL => {
-                self.finished = true;
+                if !self.line.push(NL) {
+                    self.finished = true;
+                } else {
+                    self.controls.outc(NL);
+                }
             },
             ESC => {
                 self.escape = true;
@@ -209,7 +214,7 @@ impl LineReader {
                 match self.line.pop() {
                     None => return false,
                     Some(_) => {
-                        self.controls.cursor_left();
+                        self.controls.del();
                         self.draw_part();
                         self.controls.outc(SPC);
                         self.controls.cursors_left(self.line.part.len() + 1);

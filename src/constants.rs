@@ -120,6 +120,7 @@ pub static EQ_PATH_REGEX:Regex = regex!("^([^ \t\r\n\"():]*):([^ \t\r\n\"():]+)$
 pub static EQ_TEMP_REGEX:Regex = regex!("^([^ \t\r\n\"():]*):?([^ \t\r\n\"():]+):$");
 pub static FD_REGEX:Regex = regex!("^@([^ \t\r\n\"():01234567890]*):?([\\d]+)$");
 pub static PPOS_REGEX:Regex = regex!("^\\[(\\d+);(\\d+)$");
+pub static NL_REGEX:Regex = regex!("\n");
 
 // stop error
 pub const STOP:&'static str = "stop";
