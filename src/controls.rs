@@ -39,6 +39,7 @@ impl Controls {
 
     pub fn update_cursor(&mut self, pos:Position) {
         self.cursor = pos;
+        self.save_row(pos.col);
     }
 
     pub fn update_size(&mut self, size:WinSize) {
