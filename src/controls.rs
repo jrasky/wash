@@ -79,6 +79,7 @@ impl Controls {
     }
 
     fn move_right(&mut self, by:usize) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
         self.cursor.col += by;
         let mut row_size = self.row_length();
         if self.cursor.col > row_size {
@@ -99,6 +100,7 @@ impl Controls {
     }
 
     fn move_left(&mut self, mut by:usize) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
         loop {
             if by >= self.cursor.col {
                 by -= self.cursor.col;
@@ -120,6 +122,7 @@ impl Controls {
     }
 
     pub fn grow(&mut self, by:usize) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
         self.cursor.col += by;
         if self.cursor.col > self.tsize.col as usize {
             let col = self.tsize.col as usize;
@@ -136,6 +139,7 @@ impl Controls {
     }
 
     pub fn shrink(&mut self, by:usize) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
         if by >= self.cursor.col {
             self.rows.remove(&((self.cursor.row as isize + self.roff) as usize));
             let diff = by - self.cursor.col;
@@ -155,6 +159,7 @@ impl Controls {
     }
 
     fn new_row(&mut self) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
         if self.cursor.row == self.tsize.row as usize {
             self.roff += 1;
         } else {
@@ -168,6 +173,7 @@ impl Controls {
 
     pub fn outc(&mut self, ch:char) {
         self.stdout.write_char(ch).unwrap();
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
         if ch == NL {
             self.new_row();
         } else {
@@ -179,6 +185,10 @@ impl Controls {
     }
 
     pub fn outs(&mut self, s:&str) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {
+            self.stdout.write_str(s).unwrap();
+            return;
+        }
         let mut splits = NL_REGEX.split(s);
         match splits.next() {
             Some(part) => {
@@ -206,6 +216,10 @@ impl Controls {
     }
 
     pub fn err(&mut self, s:&str) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {
+            self.stderr.write_str(s).unwrap();
+            return;
+        }
         self.stderr.write_str(s).unwrap();
         let mut splits = NL_REGEX.split(s);
         match splits.next() {
@@ -228,6 +242,7 @@ impl Controls {
     }
 
     pub fn del(&mut self) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
         if self.cursor.col > 1 {
             self.stdout.write_char(DEL).unwrap();
             self.shrink(1);
@@ -262,6 +277,7 @@ impl Controls {
     }
     
     pub fn cursor_left(&mut self) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
         if self.cursor.col > 1 {
             self.stdout.write_char(DEL).unwrap();
             self.move_left(1);
@@ -272,6 +288,7 @@ impl Controls {
     }
 
     pub fn cursor_right(&mut self) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
         if self.cursor.col < self.row_length() {
             self.stdout.write_str(CRSR_RIGHT).unwrap();
             self.move_right(1);
@@ -282,6 +299,7 @@ impl Controls {
     }
     
     pub fn cursors_left(&mut self, by:usize) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
         if by == 0 {
             return;
         } else if by <= 3 && self.cursor.col > by {
@@ -297,6 +315,7 @@ impl Controls {
     }
 
     pub fn cursors_right(&mut self, by:usize) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
         if by == 0 {
             return;
         } else if by + self.cursor.col <= self.row_length() {
@@ -316,13 +335,16 @@ impl Controls {
     }
 
     pub fn clear_line_to(&mut self, len:usize) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
         let old = self.cursor;
         let mut total = self.cursor.col + len;
+        let mut rlen = self.row_length();
         loop {
             self.clear_line();
-            if total > self.row_length() {
-                total -= self.row_length();
+            if total > rlen {
+                total -= rlen;
                 self.next_start();
+                rlen = self.row_length();
             } else {
                 break;
             }
@@ -331,6 +353,7 @@ impl Controls {
     }
 
     pub fn next_start(&mut self) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
         self.new_row();
         let row = self.cursor.row;
         self.move_to(Position {

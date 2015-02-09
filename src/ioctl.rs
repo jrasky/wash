@@ -18,10 +18,10 @@ pub struct WinSize {
 impl WinSize {
     pub fn new() -> WinSize {
         WinSize {
-            row: 1,
-            col: 1,
-            xpixel: 1,
-            ypixel: 1
+            row: 0,
+            col: 0,
+            xpixel: 0,
+            ypixel: 0
         }
     }
 }
