@@ -21,7 +21,8 @@ pub struct LineReader {
     pub eof: bool,
     pub restarted: bool,
     history: RingBuf<InputLine>,
-    bhistory: Vec<InputLine>
+    bhistory: Vec<InputLine>,
+    first_rsave: bool
 }
 
 impl LineReader {
@@ -36,7 +37,8 @@ impl LineReader {
             eof: false,
             restarted: false,
             history: RingBuf::new(),
-            bhistory: vec![]
+            bhistory: vec![],
+            first_rsave: false
         }
     }
 
@@ -48,6 +50,7 @@ impl LineReader {
         self.finished = false;
         self.eof = false;
         self.restarted = false;
+        self.first_rsave = false;
     }
 
     pub fn restart(&mut self) {
@@ -376,6 +379,10 @@ impl LineReader {
                         }
                     };
                     self.controls.update_cursor(pointer);
+                    if !self.first_rsave {
+                        self.controls.save_row(pointer.col);
+                        self.first_rsave = true;
+                    }
                 }
             },
             ch => {

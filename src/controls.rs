@@ -39,7 +39,6 @@ impl Controls {
 
     pub fn update_cursor(&mut self, pos:Position) {
         self.cursor = pos;
-        self.save_row(pos.col);
     }
 
     pub fn update_size(&mut self, size:WinSize) {
@@ -63,7 +62,7 @@ impl Controls {
         self.cursor
     }
 
-    fn row_length(&mut self) -> usize {
+    pub fn row_length(&mut self) -> usize {
         if !self.rows.contains_key(&((self.cursor.row as isize + self.roff) as usize)) {
             return 1;
         } else {
@@ -71,7 +70,7 @@ impl Controls {
         }
     }
 
-    fn save_row(&mut self, len:usize) {
+    pub fn save_row(&mut self, len:usize) {
         if !self.rows.contains_key(&((self.cursor.row as isize + self.roff) as usize)) {
             self.rows.insert((self.cursor.row as isize + self.roff) as usize, len);
         } else {
@@ -179,7 +178,8 @@ impl Controls {
             self.new_row();
         } else {
             if self.grow_check(1) {
-                self.stdout.write_char(NL).unwrap();
+                self.stdout.write_char(SPC).unwrap();
+                self.stdout.write_char(DEL).unwrap();
             }
             self.grow(1);
         }
@@ -195,7 +195,8 @@ impl Controls {
             Some(part) => {
                 self.stdout.write_str(part).unwrap();
                 if self.cursor.col + part.len() - 1 == self.tsize.col as usize {
-                    self.stdout.write_char(NL).unwrap();
+                    self.stdout.write_char(SPC).unwrap();
+                    self.stdout.write_char(DEL).unwrap();
                 }
                 self.grow(part.len());
                 for part in splits {
@@ -203,7 +204,8 @@ impl Controls {
                     self.stdout.write_char(NL).unwrap();
                     self.stdout.write_str(part).unwrap();
                     if self.cursor.col + part.len() - 1 == self.tsize.col as usize {
-                        self.stdout.write_char(NL).unwrap();
+                        self.stdout.write_char(SPC).unwrap();
+                        self.stdout.write_char(DEL).unwrap();
                     }
                     self.grow(part.len());
                 }
