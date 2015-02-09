@@ -246,7 +246,8 @@ impl LineReader {
                         self.controls.del();
                         let count = self.draw_part();
                         self.controls.outc(SPC);
-                        self.controls.cursors_left(count + 1);
+                        self.controls.del();
+                        self.controls.cursors_left(count);
                     }
                 }
             },

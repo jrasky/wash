@@ -119,7 +119,7 @@ impl Controls {
         self.cursor.col + len > self.tsize.col as usize
     }
 
-    fn grow(&mut self, by:usize) {
+    pub fn grow(&mut self, by:usize) {
         self.cursor.col += by;
         if self.cursor.col > self.tsize.col as usize {
             let col = self.tsize.col as usize;
@@ -135,7 +135,7 @@ impl Controls {
         self.save_row(col);
     }
 
-    fn shrink(&mut self, by:usize) {
+    pub fn shrink(&mut self, by:usize) {
         if by >= self.cursor.col {
             self.rows.remove(&((self.cursor.row as isize + self.roff) as usize));
             let diff = by - self.cursor.col;
