@@ -5,7 +5,6 @@ use unicode::str::*;
 use std::str;
 use std::old_io;
 use std::fmt;
-use std::cmp::*;
 
 use constants::*;
 use util::*;
@@ -180,13 +179,21 @@ impl Controls {
     }
 
     pub fn outs(&mut self, s:&str) {
-        self.stdout.write_str(s).unwrap();
         let mut splits = NL_REGEX.split(s);
         match splits.next() {
             Some(part) => {
+                self.stdout.write_str(part).unwrap();
+                if self.cursor.col + part.len() - 1 == self.tsize.col as usize {
+                    self.stdout.write_char(NL).unwrap();
+                }
                 self.grow(part.len());
                 for part in splits {
                     self.new_row();
+                    self.stdout.write_char(NL).unwrap();
+                    self.stdout.write_str(part).unwrap();
+                    if self.cursor.col + part.len() - 1 == self.tsize.col as usize {
+                        self.stdout.write_char(NL).unwrap();
+                    }
                     self.grow(part.len());
                 }
             },
@@ -206,6 +213,9 @@ impl Controls {
                 self.grow(part.len());
                 for part in splits {
                     self.new_row();
+                    if self.cursor.col + part.len() == self.tsize.col as usize {
+                        self.stdout.write_char(NL).unwrap();
+                    }
                     self.grow(part.len());
                 }
             },
@@ -306,28 +316,26 @@ impl Controls {
     }
 
     pub fn clear_line_to(&mut self, len:usize) {
-        self.clear_line();
-        let total = len + self.cursor.col;
-        if total > self.tsize.col as usize {
-            let old = self.cursor;
-            for row in range(self.cursor.row + 1,
-                             self.cursor.row + total/self.tsize.col as usize + 1) {
-                self.move_to(Position {
-                    col: 1,
-                    row: row
-                });
-                self.clear_line();
+        let old = self.cursor;
+        let mut total = self.cursor.col + len;
+        loop {
+            self.clear_line();
+            if total > self.row_length() {
+                total -= self.row_length();
+                self.next_start();
+            } else {
+                break;
             }
-            self.move_to(old)
         }
+        self.move_to(old);
     }
 
     pub fn next_start(&mut self) {
-        let row = self.cursor.row + 1;
-        let mrow = self.tsize.row as usize;
+        self.new_row();
+        let row = self.cursor.row;
         self.move_to(Position {
             col: 1,
-            row: min(row, mrow)
+            row: row
         });
     }
 

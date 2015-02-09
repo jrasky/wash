@@ -157,10 +157,10 @@ impl LineReader {
         }        
     }
     
-    pub fn draw_part(&mut self) {
+    pub fn draw_part(&mut self) -> usize {
         // quick out if part is empty
         if self.line.part.is_empty() {
-            return;
+            return 0;
         }
         if self.bpart.is_empty() {
             // only calculate bpart when it needs to be recalculated
@@ -173,7 +173,7 @@ impl LineReader {
             }
         }
         let splits:Vec<&str> = NL_REGEX.split(self.bpart.as_slice()).collect();
-        if splits.len() > 1 {
+        if self.controls.grow_check(splits[0].len()) {
             let old = self.controls.get_pos();
             for part in splits.iter() {
                 if self.controls.grow_check(part.len()) {
@@ -187,6 +187,8 @@ impl LineReader {
                             row: row
                         });
                     }
+                    self.controls.clear_line();
+                    self.controls.next_start();
                 } else {
                     self.controls.clear_line();
                     self.controls.next_start();
@@ -194,16 +196,18 @@ impl LineReader {
             }
             self.controls.move_to(old);
             self.controls.outs(self.bpart.as_slice());
+            return self.bpart.len();
         } else {
-            // no newlines
+            // change doesn't affect anything other than this line
             self.controls.outs(splits[0]);
+            return splits[0].len();
         }
     }
 
     pub fn idraw_part(&mut self) {
         // in-place draw of the line part
-        self.draw_part();
-        self.controls.cursors_left(self.bpart.len());
+        let count = self.draw_part();
+        self.controls.cursors_left(count);
     }
 
     pub fn handle_ch(&mut self, ch:char) -> bool {
@@ -240,9 +244,9 @@ impl LineReader {
                     None => return false,
                     Some(_) => {
                         self.controls.del();
-                        self.draw_part();
+                        let count = self.draw_part();
                         self.controls.outc(SPC);
-                        self.controls.cursors_left(self.line.part.len() + 1);
+                        self.controls.cursors_left(count + 1);
                     }
                 }
             },
