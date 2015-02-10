@@ -381,6 +381,7 @@ impl LineReader {
                     self.controls.update_cursor(pointer);
                     if !self.first_rsave {
                         self.controls.save_row(pointer.col);
+                        self.controls.update_line(pointer.col);
                         self.first_rsave = true;
                     }
                 }

@@ -45,8 +45,60 @@ impl Controls {
 
     pub fn update_cursor(&mut self, pos:Position) {
         self.cursor = pos;
+        // recalculate rows based on lines
+        let old_roff = self.roff;
+        let mut line = self.line;
+        let mut llen = self.linecol;
+        loop {
+            let rdiff = llen / self.tsize.col as usize;
+            // move up the row difference
+            if rdiff > self.cursor.row {
+                self.roff -= (rdiff - self.cursor.row) as isize;
+                self.cursor.row = 0;
+            } else {
+                self.cursor.row -= rdiff;
+            }
+            // move up one line
+            if line == 0 {
+                break;
+            } else {
+                line -= 1;
+                llen = self.lines[line];
+                // move up one row for the line
+                if self.cursor.row == 0 {
+                    self.roff -= 1;
+                } else {
+                    self.cursor.row -= 1;
+                }
+            }
+        }
+        // the cursor should now be positioned on the correct row
+        // for the first line
+        // set the cursor to the first column
+        self.rows.clear();
+        self.cursor.col = 0;
+        let lclone = self.lines.clone();
+        let lc = self.linecol;
+        // grow causes linecol and lines to change, clear these first
+        self.lines.clear();
+        self.linecol = 0;
+        // grow by each line until the end
+        for llen in lclone.values() {
+            self.grow(*llen);
+            // puts an extra new_row at the end of the last line,
+            // but that doesn't really matter too much
+            self.new_row();
+        }
+        // we are now at the end, restore the original position and lines
+        self.cursor = pos;
+        self.roff = old_roff;
+        self.lines = lclone;
+        self.linecol = lc;
+        // and done, we should now have a correct row representation
+        // based on the lines previously typed, and we should be
+        // correctly positioned within these rows.
     }
-
+    
     pub fn update_size(&mut self, size:WinSize) {
         self.tsize = size;
     }
@@ -54,6 +106,9 @@ impl Controls {
     pub fn clear_rows(&mut self) {
         self.rows.clear();
         self.roff = 0;
+        self.linecol = 0;
+        self.line = 0;
+        self.lines.clear();
     }
 
     pub fn get_row(&mut self) -> usize {
@@ -84,9 +139,27 @@ impl Controls {
         }
     }
 
+    pub fn update_line(&mut self, len:usize) {
+        self.linecol = len;
+        if self.lines.contains_key(&self.line) {
+            self.lines[self.line] = self.linecol;
+        } else {
+            self.lines.insert(self.line, self.linecol);
+        }
+    }
+
+    fn line_length(&mut self) -> usize {
+        if self.lines.contains_key(&self.line) {
+            self.lines[self.line]
+        } else {
+            0
+        }
+    }
+
     fn move_right(&mut self, by:usize) {
         if self.tsize.col == 0 || self.tsize.row == 0 {return}
         self.cursor.col += by;
+        self.linecol += by;
         let mut row_size = self.row_length();
         if self.cursor.col > row_size {
             loop {
@@ -103,10 +176,29 @@ impl Controls {
                 self.cursor.row = self.tsize.row as usize;
             }
         }
+        let llen = self.line_length();
+        if self.linecol > llen {
+            self.linecol = 0;
+            self.line += 1;
+        }
     }
 
     fn move_left(&mut self, mut by:usize) {
         if self.tsize.col == 0 || self.tsize.row == 0 {return}
+        let mut lby = by;
+        loop {
+            if lby > self.linecol {
+                if self.line > 0 {
+                    self.line -= 1;
+                }
+                let llen = self.line_length();
+                lby -= self.linecol + 1;
+                self.linecol = llen;
+            } else {
+                self.linecol -= lby;
+                break;
+            }
+        }
         loop {
             if by >= self.cursor.col {
                 by -= self.cursor.col;
@@ -161,15 +253,11 @@ impl Controls {
                     break;
                 } else {
                     self.lines[self.line] -= self.linecol;
-                    lby -= self.linecol;
-                    self.line -= 1;
-                    self.linecol = {
-                        if self.lines.contains_key(&self.line) {
-                            self.lines[self.line]
-                        } else {
-                            0
-                        }
-                    };
+                    lby -= self.linecol + 1;
+                    if self.line > 0 {
+                        self.line -= 1;
+                    }
+                    self.linecol = self.line_length();
                 }
             } else {
                 self.linecol -= lby;
