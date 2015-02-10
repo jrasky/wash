@@ -21,6 +21,9 @@ pub struct Controls {
     cursor: Position,
     tsize: WinSize,
     rows: VecMap<usize>,
+    lines: VecMap<usize>,
+    line: usize,
+    linecol: usize,
     roff: isize
 }
 
@@ -33,6 +36,9 @@ impl Controls {
             cursor: Position::new(),
             tsize: WinSize::new(),
             rows: VecMap::new(),
+            lines: VecMap::new(),
+            line: 0,
+            linecol: 0,
             roff: 0
         }
     }
@@ -124,6 +130,12 @@ impl Controls {
     pub fn grow(&mut self, by:usize) {
         if self.tsize.col == 0 || self.tsize.row == 0 {return}
         self.cursor.col += by;
+        self.linecol += by;
+        if self.lines.contains_key(&self.line) {
+            self.lines[self.line] += by;
+        } else {
+            self.lines.insert(self.line, self.linecol);
+        }
         if self.cursor.col > self.tsize.col as usize {
             let col = self.tsize.col as usize;
             self.save_row(col);
@@ -138,21 +150,47 @@ impl Controls {
         self.save_row(col);
     }
 
-    pub fn shrink(&mut self, by:usize) {
+    pub fn shrink(&mut self, mut by:usize) {
         if self.tsize.col == 0 || self.tsize.row == 0 {return}
-        if by >= self.cursor.col {
-            self.rows.remove(&((self.cursor.row as isize + self.roff) as usize));
-            let diff = by - self.cursor.col;
-            self.cursor.col = self.tsize.col as usize -
-                (diff % self.tsize.col as usize);
-            let rdiff = (diff / self.tsize.col as usize) + 1;
-            if rdiff > self.cursor.row {
-                self.cursor.row = 0;
+        let mut lby = by;
+        loop {
+            if lby > self.linecol {
+                if self.line == 0 {
+                    self.linecol = 0;
+                    self.lines[0] = 0;
+                    break;
+                } else {
+                    self.lines[self.line] -= self.linecol;
+                    lby -= self.linecol;
+                    self.line -= 1;
+                    self.linecol = {
+                        if self.lines.contains_key(&self.line) {
+                            self.lines[self.line]
+                        } else {
+                            0
+                        }
+                    };
+                }
             } else {
-                self.cursor.row -= rdiff;
+                self.linecol -= lby;
+                self.lines[self.line] -= lby;
+                break;
             }
-        } else {
-            self.cursor.col -= by;
+        }
+        loop {
+            if by >= self.cursor.col {
+                by -= self.cursor.col;
+                self.rows.remove(&((self.cursor.row as isize + self.roff) as usize));
+                if self.cursor.row == 0 {
+                    self.roff -= 1;
+                } else {
+                    self.cursor.row -= 1;
+                }
+                self.cursor.col = self.row_length();
+            } else {
+                self.cursor.col -= by;
+                break;
+            }
         }
         let col = self.cursor.col;
         self.save_row(col);
@@ -168,6 +206,18 @@ impl Controls {
         self.cursor.col = 1;
     }
 
+    fn new_line(&mut self) {
+        if self.tsize.col == 0 || self.tsize.row == 0 {return}
+        self.new_row();
+        self.line += 1;
+        self.linecol = 0;
+        if self.lines.contains_key(&self.line) {
+            self.lines[self.line] = self.linecol;
+        } else {
+            self.lines.insert(self.line, self.linecol);
+        }
+    }
+
     /* out* and err* functions are assumed to be output
        functions */
 
@@ -175,7 +225,7 @@ impl Controls {
         self.stdout.write_char(ch).unwrap();
         if self.tsize.col == 0 || self.tsize.row == 0 {return}
         if ch == NL {
-            self.new_row();
+            self.new_line();
         } else {
             if self.grow_check(1) {
                 self.stdout.write_char(SPC).unwrap();
@@ -200,7 +250,7 @@ impl Controls {
                 }
                 self.grow(part.len());
                 for part in splits {
-                    self.new_row();
+                    self.new_line();
                     self.stdout.write_char(NL).unwrap();
                     self.stdout.write_str(part).unwrap();
                     if self.cursor.col + part.len() - 1 == self.tsize.col as usize {
