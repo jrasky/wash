@@ -66,6 +66,7 @@ impl LineReader {
         };
         match sig.signo {
             SIGINT => {
+                self.controls.cursors_right(self.line.part.len());
                 self.controls.outs("\nInterrupt");
                 self.clear();
                 self.finished = true;
