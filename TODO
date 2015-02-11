@@ -1,5 +1,3 @@
-- settings
- - maybe vars on a special path?
 - Setting normal variables for one function call?
  - setting the default variable path for one function call?
 - finish scripting
@@ -9,6 +7,11 @@
  - pre-caching
  - startup scripts
 - Re-write functions and handlers in scripts where possible
+- put various settings and things into settings variables
+- Polish history implementation
+ - is a type of completion
+ - maybe a separate object class
+ - combine previous commands, lines, exit statuses and the such?
 - completion
  - hook into bash completion
  - Parameter expansion, based around regex
@@ -21,3 +24,13 @@ future:
  - over dbus
 - terminal client to match
 - wash_start entry points
+
+Thoughts on completion:
+
+Implement as a graph, where each node has info like line, time, etc
+completion are weight functions
+ => two major classes of completions:
+  - min-complete
+  - max complete
+ where each selects either the min-weighted or max-weighted neighbor
+ => things like history are simple functions of time, min-weighted

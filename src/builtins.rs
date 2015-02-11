@@ -284,7 +284,9 @@ builtin!(setp_func, args, env, {
             }
             v => v.flatten()
         };
-        if path == "sys" {
+        if path == "cfg" {
+            return Err(format!("Cannot set variable path to configuration variables"));
+        } else if path == "sys" {
             return Err(format!("Cannot set variable path to system variables"));
         } else if path == "env" {
             return Err("Cannot set variable path to environment variables".to_string());
