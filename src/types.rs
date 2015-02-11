@@ -128,6 +128,20 @@ impl PartialEq for WashArgs {
 }
 
 impl WashArgs {
+    pub fn as_input(&self) -> InputValue {
+        match self {
+            &Empty => InputValue::Short(String::new()),
+            &Flat(ref v) => InputValue::Literal(v.clone()),
+            &Long(ref v) => {
+                let mut out = vec![];
+                for item in v.iter() {
+                    out.push(item.as_input());
+                }
+                InputValue::Long(out)
+            }
+        }
+    }
+    
     pub fn flatten_vec(&self) -> Vec<String> {
         match self {
             &Flat(ref s) => vec![s.clone()],

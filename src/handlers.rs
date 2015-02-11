@@ -30,6 +30,40 @@ handler!(equal_handler, pre, next, state, {
     return Ok(Stop);
 });
 
+handler!(colon_handler, pre, next, state, {
+    // set variable, add handler at end to unset once the line finishes
+    let (path, name, old, val) = try!(equal_inner(pre, next, state));
+    if path == Some(format!("env")) {
+        // todo: maybe create a better syntax for this
+        pre.push(Flat(format!("env:{}:", name)));
+        pre.push(val);
+    } else {
+        if path.is_none() {
+            try!(state.env.insv(name.clone(), val));
+        } else {
+            try!(state.env.insvp(name.clone(), path.clone().unwrap(), val));
+        }
+        let mut after = vec![];
+        if path.is_none() {
+            after.push(InputValue::Short(format!("{}", name)));
+        } else {
+            after.push(InputValue::Short(format!("{}:{}", path.unwrap(), name)));
+        }
+        after.push(InputValue::Split(format!(" ")));
+        after.push(InputValue::Short(format!("=")));
+        after.push(InputValue::Split(format!(" ")));
+        after.push(old.as_input());
+        state.add_next(InputValue::Long(after));
+    }
+    while match next[0] {
+        InputValue::Split(_) => true,
+        _ => false
+    } {
+        next.remove(0);
+    }
+    return Ok(Continue);
+});
+
 fn equal_inner(pre:&mut Vec<WashArgs>, next:&mut Vec<InputValue>,
                state:&mut ShellState) -> Result<(Option<String>, String, WashArgs, WashArgs), String> {
     // other l-values might eventually be supported,
@@ -271,6 +305,7 @@ pub fn load_handlers(state:&mut ShellState) -> Result<WashArgs, String> {
     try!(state.insert_handler("==", equalequal_handler));
     try!(state.insert_handler("~=", tildaequal_handler));
     try!(state.insert_handler(".", dot_handler));
+    try!(state.insert_handler(":", colon_handler));
 
     // block start/end
     try!(state.insert_handler("act!", act_handler));

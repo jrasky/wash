@@ -1,5 +1,3 @@
-- Setting normal variables for one function call?
- - setting the default variable path for one function call?
 - finish scripting
  - rewrite to not link directly to dl
  - interactive/compiled mode
@@ -8,6 +6,7 @@
  - startup scripts
 - Re-write functions and handlers in scripts where possible
 - put various settings and things into settings variables
+- improve passing of environment variables to new jobs
 - Polish history implementation
  - is a type of completion
  - maybe a separate object class

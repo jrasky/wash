@@ -276,7 +276,7 @@ builtin!(get_func, args, env, {
 builtin!(setp_func, args, env, {
     if args.len() < 1 {
         env.variables = String::new();
-        return Ok(Flat(String::new()));
+        return Ok(Empty);
     } else {
         let path = match args.get(0) {
             ref v if !v.is_flat() => {
@@ -294,7 +294,7 @@ builtin!(setp_func, args, env, {
             return Err("Cannot set variable path to job pipes".to_string());
         } else {
             env.variables = path.clone();
-            return Ok(Flat(path));
+            return Ok(Empty);
         }
     }
 });

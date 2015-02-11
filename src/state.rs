@@ -35,7 +35,8 @@ pub struct ShellState {
     pub env: WashEnv,
     blocks: Vec<WashBlock>,
     handlers: HandlerTable,
-    last: Option<Result<WashArgs, String>>
+    last: Option<Result<WashArgs, String>>,
+    next: Vec<InputValue>
 }
 
 impl ShellState {
@@ -44,12 +45,17 @@ impl ShellState {
             handlers: HashMap::new(),
             env: WashEnv::new(),
             blocks: vec![],
-            last: None
+            last: None,
+            next: vec![]
         }
     }
 
     pub fn in_block(&self) -> bool {
         return !self.blocks.is_empty();
+    }
+
+    pub fn add_next(&mut self, line:InputValue) {
+        self.next.push(line)
     }
     
     pub fn has_handler(&self, word:&String) -> bool {
@@ -192,8 +198,15 @@ impl ShellState {
     }
 
     pub fn process_line(&mut self, line:InputValue) -> Result<WashArgs, String> {
-        let out = self.process_line_inner(line);
+        let mut out = self.process_line_inner(line);
         self.last = Some(out.clone());
+        // run next actions, drop the output if they succeed
+        let next = self.next.clone();
+        self.next.clear();
+        match self.process_lines(next.iter()) {
+            Err(e) => out = Err(e),
+            _ => {}
+        }
         return out;
     }
 
