@@ -20,15 +20,22 @@ use constants::*;
 use ioctl::*;
 use util::*;
 
+use self::FuncEntry::*;
+
 // !!!
 // Wash function calling convention
 pub type WashFunc = fn(&WashArgs, &mut WashEnv) -> Result<WashArgs, String>;
+pub enum FuncEntry {
+    Direct(WashFunc),
+    #[allow(dead_code)]
+    Indirect(WashBlock) // all of this will be reimplemented soon
+}
 
 // >Dat pointer indirection
 // Sorry bro, Rust doesn't have DSTs yet
 // Once it does they'll turn into a more compact structure
 pub type VarTable = HashMap<String, WashArgs>;
-pub type FuncTable = HashMap<String, WashFunc>;
+pub type FuncTable = HashMap<String, FuncEntry>;
 pub type ScriptTable = HashMap<Path, WashScript>;
 pub type PathTable = HashMap<String, VarTable>;
 
@@ -246,7 +253,7 @@ impl WashEnv {
     }
 
     pub fn insf(&mut self, name:&str, func:WashFunc) -> Result<WashArgs, String> {
-        self.functions.insert(name.to_string(), func);
+        self.functions.insert(name.to_string(), Direct(func));
         return Ok(Empty);
     }
 
@@ -283,8 +290,7 @@ impl WashEnv {
             let mut out = vec![];
             let envs = env::vars();
             for (name, value) in envs {
-                out.push(Long(vec![Flat(name.into_string().ok().unwrap()),
-                                   Flat(value.into_string().ok().unwrap())]));
+                out.push(Long(vec![Flat(name), Flat(value)]));
             }
             return Ok(Long(out));
         } else if *path == "pipe" {
@@ -331,8 +337,7 @@ impl WashEnv {
             } else if *name == "args" {
                 let mut out = vec![];
                 for arg in env::args() {
-                    out.push(Flat(tryf!(arg.into_string(),
-                                        "Could not turn {err:?} into string")));
+                    out.push(Flat(arg));
                 }
                 return Ok(Long(out));
             } else if *name == "cwd" {
@@ -348,7 +353,7 @@ impl WashEnv {
             }
         } else if *path == "env" {
             // environment variables
-            return match env::var_string(name.as_slice()) {
+            return match env::var(name.as_slice()) {
                 Err(e) => Err(format!("{}", e)),
                 Ok(s) => Ok(Flat(s))
             }
@@ -438,11 +443,12 @@ impl WashEnv {
     }
 
     pub fn runf(&mut self, name:&String, args:&WashArgs) -> Result<WashArgs, String> {
+        self.handle_sigint();
         let func = match self.functions.get(name) {
             None => return Err("Function not found".to_string()),
-            Some(func) => func.clone()
+            Some(&Direct(ref func)) => func.clone(),
+            Some(_) => return Err(format!("Cannot run indirect functions this way"))
         };
-        self.handle_sigint();
         let out = func(args, self);
         self.unhandle_sigint();
         return out;

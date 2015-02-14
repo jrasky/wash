@@ -9,27 +9,13 @@ use types::*;
 use util::*;
 use env::*;
 
-use self::HandlerResult::*;
+use types::HandlerResult::*;
 
 // Note with handlers: Err means Stop, not necessarily Fail
 // return semi-redundant result type because try! is so damn useful
 pub type WashHandler = fn(&mut Vec<WashArgs>, &mut Vec<InputValue>, &mut ShellState) -> Result<HandlerResult, String>;
 
 pub type HandlerTable = HashMap<String, WashHandler>;
-
-pub enum HandlerResult {
-    Continue,
-    Stop,
-    More(WashBlock)
-}
-
-#[derive(Clone)]
-pub struct WashBlock {
-    pub start: String,
-    pub next: Vec<InputValue>,
-    pub close: Vec<InputValue>,
-    pub content: Vec<InputValue>
-}
 
 pub struct ShellState {
     pub env: WashEnv,
@@ -93,7 +79,7 @@ impl ShellState {
         return Ok(out);
     }
 
-    pub fn process_lines<'a, T:Iterator<Item=&'a InputValue>>(&mut self, lines:T) -> Result<WashArgs, String> {
+    pub fn process_lines<'b, T:Iterator<Item=&'b InputValue>>(&mut self, lines:T) -> Result<WashArgs, String> {
         let mut out = Flat(String::new());
         let reset_sigint;
         if self.env.catch_sigint {
@@ -192,6 +178,10 @@ impl ShellState {
             self.env.catch_sigint = true;
             self.env.unhandle_sigint();
             return out;
+        } else if block.start == "def" {
+            // will turn into function definition
+            // TODO: rewrite state/env to make this work better
+            return Err(format!("Not implemented"));
         } else {
             return Err(format!("Don't know how to handle block: {}", block.start));
         }

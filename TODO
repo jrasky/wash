@@ -1,3 +1,5 @@
+- Implement an AST for WashScript
+ - major rework of line processing
 - finish scripting
  - rewrite to not link directly to dl
  - interactive/compiled mode

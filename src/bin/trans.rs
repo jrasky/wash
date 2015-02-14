@@ -1,10 +1,10 @@
 #![feature(core)]
 #![feature(io)]
-#![feature(os)]
 #![feature(path)]
 #![feature(env)]
 #![feature(plugin)]
-#[plugin] #[no_link]
+#![plugin(regex_macros)]
+#[no_link]
 extern crate regex_macros;
 extern crate regex;
 
@@ -167,7 +167,7 @@ pub fn main() {
         None => panic!("No arguments given"),
         Some(v) => v
     };
-    let inp = Path::new(name.into_string().ok().unwrap());
+    let inp = Path::new(name);
     if !inp.exists() {
         panic!("File does not exist");
     }

@@ -3,7 +3,7 @@ use regex::Regex;
 use std::num::*;
 
 use types::WashArgs::*;
-use state::HandlerResult::*;
+use types::HandlerResult::*;
 
 use util::*;
 use constants::*;

@@ -26,6 +26,20 @@ pub struct Position {
     pub col: usize
 }
 
+pub enum HandlerResult {
+    Continue,
+    Stop,
+    More(WashBlock)
+}
+
+#[derive(Clone)]
+pub struct WashBlock {
+    pub start: String,
+    pub next: Vec<InputValue>,
+    pub close: Vec<InputValue>,
+    pub content: Vec<InputValue>
+}
+
 impl Position {
     pub fn new() -> Position {
         Position {

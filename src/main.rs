@@ -1,21 +1,23 @@
+#![feature(box_syntax)]
+#![feature(unsafe_destructor)]
 #![feature(collections)]
 #![feature(core)]
 #![feature(path)]
 #![feature(env)]
-#![feature(os)]
 #![feature(io)]
 #![feature(libc)]
 #![feature(std_misc)]
 #![feature(unicode)]
 #![feature(rustc_private)]
 #![feature(plugin)]
+#![plugin(regex_macros)]
 extern crate sodiumoxide;
 extern crate libc;
 extern crate serialize;
 extern crate unicode;
 extern crate regex;
 extern crate core;
-#[plugin] #[no_link]
+#[no_link]
 extern crate regex_macros;
 
 use reader::*;
