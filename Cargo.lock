@@ -10,12 +10,12 @@ dependencies = [
 [[package]]
 name = "libsodium-sys"
 version = "0.0.1"
-source = "git+https://github.com/dnaq/sodiumoxide.git#883e2d877e4ac743d812cb491a2c8c75f41456ff"
+source = "git+https://github.com/dnaq/sodiumoxide.git#3a590ea0969013658bbfa25e602e6a2fcf68661b"
 
 [[package]]
 name = "regex"
 version = "0.1.14"
-source = "git+https://github.com/rust-lang/regex#90ef3c4b58140d672ed97cdf45e59592d122368e"
+source = "git+https://github.com/rust-lang/regex#88121cb3af1e4f14282f93381f91bbb5bc06e07b"
 
 [[package]]
 name = "regex"
@@ -33,7 +33,7 @@ dependencies = [
 [[package]]
 name = "sodiumoxide"
 version = "0.0.1"
-source = "git+https://github.com/dnaq/sodiumoxide.git#883e2d877e4ac743d812cb491a2c8c75f41456ff"
+source = "git+https://github.com/dnaq/sodiumoxide.git#3a590ea0969013658bbfa25e602e6a2fcf68661b"
 dependencies = [
  "libsodium-sys 0.0.1 (git+https://github.com/dnaq/sodiumoxide.git)",
 ]
