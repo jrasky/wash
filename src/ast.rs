@@ -9,12 +9,20 @@ use types::InputValue::*;
 use self::Action::*;
 use self::HandlerResult::*;
 
+macro_rules! handler {
+    ($name:ident, $contents:pat, $count:pat,
+     $out:pat, $ast:pat, $func:block) => {
+        fn $name($contents:&mut DList<InputValue>, $count:&mut usize,
+                 $out:&mut DList<Action>, $ast:&mut AST) -> AstResult
+            $func
+    }
+}
+
 pub type SectionTable = HashMap<SectionType, DList<Action>>;
 pub type HandlerTable = HashMap<String, AstHandler>;
 
 pub type AstResult = Result<HandlerResult, String>;
-// Fun fact: AstHandler actually takes four usizes
-pub type AstHandler = fn(&Vec<InputValue>, usize, &mut usize, &mut DList<Action>, &mut AST) -> AstResult;
+pub type AstHandler = fn(&mut DList<InputValue>, &mut usize, &mut DList<Action>, &mut AST) -> AstResult;
 
 pub enum HandlerResult {
     Continue, Stop, More
@@ -49,9 +57,7 @@ pub enum Action {
     // * VS Specific actions
     // push CFV onto VS
     Temp,
-    // join CFV and top of VS into Long, unless
-    // CFV is Empty, in which case just put top of
-    // VS into new Long
+    // pop top of VS into CFV
     Get,
     // pop last given elements of VS into new
     // long, put into CFV
@@ -259,22 +265,26 @@ impl fmt::Debug for AST {
 impl AST {
     pub fn new() -> AST {
         AST {
-            sections: {
-                let mut map = HashMap::new();
-                map.insert(SectionType::Run, DList::new());
-                map
-            },
+            sections: HashMap::new(),
             handlers: HashMap::new(),
             position: SectionType::Run
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.sections.clear();
+        self.position = SectionType::Run;
     }
 
     pub fn add_handler(&mut self, word:&str, callback:AstHandler) {
         self.handlers.insert(word.to_string(), callback);
     }
 
-    pub fn add_line(&mut self, line:InputValue) -> Result<(), String> {
+    pub fn add_line(&mut self, line:&mut InputValue) -> Result<(), String> {
         let mut aclist = try!(self.process(line));
+        if !self.sections.contains_key(&self.position) {
+            self.sections.insert(self.position, DList::new());
+        }
         match self.sections.get_mut(&self.position) {
             None => Err(format!("Position not found in section table")),
             Some(mut section) => {
@@ -284,100 +294,204 @@ impl AST {
         }
     }
 
-    pub fn process(&mut self, line:InputValue) -> Result<DList<Action>, String> {
+    pub fn process(&mut self, line:&mut InputValue) -> Result<DList<Action>, String> {
         match line {
-            Split(_) => Ok(DList::new()),
-            Short(s) | Literal(s) => {
+            &mut Split(_) => Ok(DList::new()),
+            &mut Short(ref s) => {
                 let mut out = DList::new();
-                out.push_back(Set(WashArgs::Flat(s)));
+                if VAR_PATH_REGEX.is_match(s.as_slice()) ||
+                    VAR_REGEX.is_match(s.as_slice()) {
+                        out.push_back(Set(WashArgs::Flat(s.clone())));
+                        out.push_back(Load);
+                    } else {
+                        out.push_back(Set(WashArgs::Flat(s.clone())));
+                    }
                 Ok(out)
             },
-            Long(v) => {
+            &mut Literal(ref s) => {
+                let mut out = DList::new();
+                out.push_back(Set(WashArgs::Flat(s.clone())));
+                Ok(out)
+            },
+            &mut Long(ref mut v) => {
                 let mut out = DList::new();
                 let mut count = 0;
-                let mut index = 0;
-                let mut iter = v.iter();
+                let mut items:DList<InputValue> = v.drain().collect();
                 loop {
-                    match iter.next() {
+                    match items.pop_front() {
                         None => break,
-                        Some(&Short(ref s)) if self.handlers.contains_key(s) => {
+                        Some(Short(ref s)) if self.handlers.contains_key(s) => {
                             // since this is a function call we can just clone it
                             // and it's just cloning a usize, so it's pretty fast
                             let callback = self.handlers.get(s).unwrap().clone();
-                            match try!(callback(&v, index, &mut count,
+                            match try!(callback(&mut items, &mut count,
                                                 &mut out, self)) {
                                 Continue => continue,
                                 Stop => return Ok(out),
                                 More => panic!("Not implemented")
                             }
                         },
-                        Some(item) => {
-                            let aclist = try!(self.process(item.clone()));
-                            for acitem in aclist.iter() {
-                                out.push_back(acitem.clone());
-                            }
-                            if !aclist.is_empty() {
+                        Some(mut item) => {
+                            let mut aclist = try!(self.process(&mut item));
+                            let was_empty = aclist.is_empty();
+                            out.append(&mut aclist);
+                            if !was_empty {
                                 out.push_back(Temp);
                                 count += 1;
                             }
-                            index += 1;
                         }
                     }
                 }
-                out.push_back(Join(count));
+                if count > 0 {
+                    out.push_back(Join(count));
+                }
                 Ok(out)
             },
-            Function(n, v) => {
+            &mut Function(ref n, ref mut v) => {
                 let mut aclist;
                 if v.is_empty() {
                     aclist = DList::new();
                 } else if v.len() == 1 {
-                    aclist = try!(self.process(v[0].clone()));
+                    aclist = try!(self.process(&mut v[0]));
                 } else {
-                    aclist = try!(self.process(Long(v)));
+                    aclist = try!(self.process(&mut Long(v.clone())));
                 }
-                aclist.push_back(Call(n));
+                aclist.push_back(Call(n.clone()));
                 Ok(aclist)
             }
         }
     }
 }
 
-fn handle_equal(contents:&Vec<InputValue>, index:usize,
-                _:&mut usize, out:&mut DList<Action>,
-                ast:&mut AST) -> AstResult {
-    // both the name and value are evaluated
-    // out already contains the evaluation of
-    // the name, temp it
+handler!(handle_equal, contents, count, out, ast, {
     // since this is a Long, the name/path combo
     // should already be on VS at this point
-    // now evaluate the value
-    if contents.len() - 1 == index {
-        out.push_back(Set(WashArgs::Empty));
+    // if the variable is named directly, it could be that
+    // two instructions up is a Load
+    // remove this so you don't have to "$name" every time
+    let back1 = out.pop_back();
+    let back2 = out.pop_back();
+    if back1 == Some(Temp) && back2 == Some(Load) {
+        out.push_back(Temp);
     } else {
-        let aclist;
-        let mut value = contents[index + 1].clone();
-        match value {
-            Split(_) if contents.len() -2 > index => {
-                value = contents[index + 2].clone();
-            },
+        match back2 {
+            Some(v) => out.push_back(v),
             _ => {}
         }
-        aclist = try!(ast.process(value));
+        match back1 {
+            Some(v) => out.push_back(v),
+            _ => {}
+        }
+    }
+    // now evaluate the value
+    if contents.is_empty() {
+        out.push_back(Set(WashArgs::Empty));
+    } else {
+        let mut value = match contents.pop_front().unwrap() {
+            Split(_) if !contents.is_empty() => contents.pop_front().unwrap(),
+            v => v
+        };
+        let mut aclist = try!(ast.process(&mut value));
         if aclist.is_empty() {
             out.push_back(Set(WashArgs::Empty));
         } else {
-            for item in aclist.iter() {
-                out.push_back(item.clone())
-            }
+            out.append(&mut aclist);
         }
     }
     // now the value is on CFV
     // name is hopefully on the top of VS
     out.push_back(Store);
+    // the situation now is that the CFV has one item on it,
+    // and the VS *should* be empty, so
+    *count = 0;
     return Ok(Stop);
-}
+});
+
+handler!(equalequal_inner, contents, count, out, ast, {
+    // LHS is already partially evaluated into VS
+    if *count > 1 {
+        // more than one element means we need to join
+        // them and re-push them back
+        out.push_back(Join(*count));
+        out.push_back(Temp);
+    }
+    if contents.is_empty() {
+        out.push_back(Set(WashArgs::Empty));
+        out.push_back(Temp);
+    } else {
+        while match contents.front() {
+            Some(&Split(_)) => true,
+            _ => false
+        } {
+            contents.pop_front();
+        }
+        let mut aclist = {
+            if contents.len() > 1 {
+                let mut v = vec![];
+                loop {
+                    match contents.pop_front() {
+                        None => break,
+                        Some(val) => v.push(val)
+                    }
+                }
+                try!(ast.process(&mut Long(v)))
+            } else {
+                try!(ast.process(contents.front_mut().unwrap()))
+            }
+        };
+        out.append(&mut aclist);
+        out.push_back(Temp);
+    }
+    // now the two arguments we're interested in are at the top
+    // of the VS
+    out.push_back(Join(2));
+    // VS has been emptied as a result
+    *count = 0;
+    return Ok(Continue);
+});
+
+handler!(handle_equalequal, contents, count, out, ast, {
+    try!(equalequal_inner(contents, count, out, ast));
+    out.push_back(Call(format!("equal?")));
+    return Ok(Stop);
+});
+
+handler!(handle_tildaequal, contents, count, out, ast, {
+    try!(equalequal_inner(contents, count, out, ast));
+    out.push_back(Call(format!("re_equal?")));
+    return Ok(Stop);
+});
+
+handler!(handle_dot, contents, count, out, ast, {
+    if contents.is_empty() {
+        out.push_back(Set(WashArgs::Empty));
+    } else {
+        let mut value = match contents.pop_front().unwrap() {
+            Split(_) if !contents.is_empty() => contents.pop_front().unwrap(),
+            v => v
+        };
+        let mut aclist = try!(ast.process(&mut value));
+        if aclist.is_empty() {
+            out.push_back(Set(WashArgs::Empty));
+        } else {
+            out.append(&mut aclist);
+        }
+        out.push_back(Temp);
+    }
+    out.push_back(Join(2));
+    out.push_back(Call(format!("dot")));
+    if !contents.is_empty() || *count > 1 {
+        // Only temp if there's something else on the line
+        out.push_back(Temp);
+    } else {
+        *count -= 1;
+    }
+    return Ok(Continue);
+});
 
 pub fn load_handlers(ast:&mut AST) {
     ast.add_handler("=", handle_equal);
+    ast.add_handler("==", handle_equalequal);
+    ast.add_handler("~=", handle_tildaequal);
+    ast.add_handler(".", handle_dot);
 }

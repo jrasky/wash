@@ -98,7 +98,7 @@ pub fn main() {
                     reader.clear();
                 }
             },
-            Some(line) => {
+            Some(mut line) => {
                 state.env.outc(NL);
                 /*
                 match state.process_line(line) {
@@ -117,12 +117,13 @@ pub fn main() {
                         }
                     }
                 }*/
-                match ast.add_line(line) {
+                match ast.add_line(&mut line) {
                     Err(e) => println!("Error: {}", e),
                     Ok(_) => {
                         println!("AST:\n{:?}", ast);
                     }
                 }
+                ast.clear();
                 reader.clear();
             }
         }
