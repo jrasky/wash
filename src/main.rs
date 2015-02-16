@@ -10,6 +10,7 @@
 #![feature(unicode)]
 #![feature(rustc_private)]
 #![feature(plugin)]
+#![feature(hash)]
 #![plugin(regex_macros)]
 extern crate sodiumoxide;
 extern crate libc;
@@ -27,6 +28,8 @@ use builtins::*;
 use handlers::*;
 use types::*;
 
+use ast::AST;
+
 mod constants;
 #[macro_use]
 mod util;
@@ -43,11 +46,13 @@ mod env;
 mod state;
 mod handlers;
 mod ioctl;
+mod ast;
 
 // public so no warnings when we run tests
 pub fn main() {
     let mut reader = LineReader::new();
     let mut state = ShellState::new();
+    let mut ast = AST::new();
     let mut cleaned_jobs;
     match load_builtins(&mut state.env) {
         Err(e) => state.env.errf(format_args!("Could not load builtings: {}\n", e)),
@@ -57,6 +62,7 @@ pub fn main() {
         Err(e) => state.env.errf(format_args!("Could not load handlers: {}\n", e)),
         _ => {}
     }
+    ast::load_handlers(&mut ast);
     state.env.update_terminal();
     loop {
         state.env.flush();
@@ -94,6 +100,7 @@ pub fn main() {
             },
             Some(line) => {
                 state.env.outc(NL);
+                /*
                 match state.process_line(line) {
                     Err(e) => {
                         if e == STOP.to_string() {
@@ -108,6 +115,12 @@ pub fn main() {
                             // add extra newline
                             state.env.outc(NL);
                         }
+                    }
+                }*/
+                match ast.add_line(line) {
+                    Err(e) => println!("Error: {}", e),
+                    Ok(_) => {
+                        println!("AST:\n{:?}", ast);
                     }
                 }
                 reader.clear();

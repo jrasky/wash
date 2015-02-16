@@ -2,6 +2,8 @@
 // Useful in many places
 use std::cmp::*;
 
+use std::fmt;
+
 use self::WashArgs::*;
 
 #[derive(Clone)]
@@ -62,35 +64,37 @@ impl InputValue {
     pub fn clear(&mut self) {
         *self = InputValue::Short(String::new());
     }
+}
 
-    #[cfg(test)]
-    pub fn print(&self) {
+impl fmt::Debug for InputValue {
+    fn fmt(&self, fmt:&mut fmt::Formatter) -> fmt::Result {
         use self::InputValue::*;
         match self {
-            &Short(ref v) => {
-                print!("Short({})\n", v);
-            },
-            &Literal(ref v) => {
-                print!("Literal({})\n", v);
-            },
-            &Split(ref v) => {
-                print!("Split({})\n", v);
-            },
             &Long(ref v) => {
-                print!("Long(");
-                for item in v.clone().iter() {
-                    item.print();
+                try!(fmt.write_str("Long("));
+                for item in v.iter() {
+                    try!(fmt.write_fmt(format_args!("{:?} ", item)));
                 }
-                print!(")\n");
+                try!(fmt.write_str(")"));
             },
             &Function(ref n, ref v) => {
-                print!("Function({}, (", n);
-                for item in v.clone().iter() {
-                    item.print();
+                try!(fmt.write_fmt(format_args!("Function({}, Long(", n)));
+                for item in v.iter() {
+                    try!(fmt.write_fmt(format_args!("{:?} ", item)));
                 }
-                print!("))\n");
+                try!(fmt.write_str("))"));
+            },
+            &Short(ref s) => {
+                try!(fmt.write_fmt(format_args!("Short({})", s)));
+            },
+            &Literal(ref s) => {
+                try!(fmt.write_fmt(format_args!("Literal({})", s)));
+            },
+            &Split(ref s) => {
+                try!(fmt.write_fmt(format_args!("Split({})", s)));
             }
         }
+        Ok(())
     }
 }
 
@@ -138,6 +142,27 @@ impl PartialEq for WashArgs {
                 _ => return false
             }
         }
+    }
+}
+
+impl fmt::Debug for WashArgs {
+    fn fmt(&self, fmt:&mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Empty => {
+                try!(fmt.write_str("Empty"));
+            },
+            &Flat(ref s) => {
+                try!(fmt.write_fmt(format_args!("Flat({})", s)));
+            },
+            &Long(ref v) => {
+                try!(fmt.write_str("Long("));
+                for item in v.iter() {
+                    try!(fmt.write_fmt(format_args!("{:?} ", item)));
+                }
+                try!(fmt.write_str(")"));
+            }
+        }
+        Ok(())
     }
 }
 

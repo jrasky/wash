@@ -794,9 +794,9 @@ fn test_input_against(line:String, against:InputValue) -> bool {
                 let ooinput = input.clone();
                 if !input.push(ch) {
                     println!("\nRefused to push character: \"{}\"", ch);
-                    Long(ooinput.back).print();
+                    println!("{:?}", ooinput.back);
                     println!("--------");
-                    ooinput.front.print();
+                    println!("{:?}", ooinput.front);
                     return false;
                 }
                 let oinput = input.clone();
@@ -806,30 +806,30 @@ fn test_input_against(line:String, against:InputValue) -> bool {
                         Some(v) => v.to_string(),
                         None => format!("None")
                     });
-                    Long(ooinput.back).print();
+                    println!("{:?}", ooinput.back);
                     println!("--------");
-                    Long(input.back).print();
+                    println!("{:?}", input.back);
                     println!("--------");
-                    ooinput.front.print();
+                    println!("{:?}", ooinput.front);
                     println!("--------");
-                    input.front.print();
+                    println!("{:?}", input.front);
                     return false;
                 }
                 if input.back != ooinput.back ||
                     input.front != ooinput.front ||
                     input.part != ooinput.part {
                         println!("\nPopping didn't return to state before pushing: \"{}\"", ch);
-                        Long(ooinput.back).print();
+                        println!("{:?}", ooinput.back);
                         println!("--------");
-                        Long(oinput.back).print();
+                        println!("{:?}", oinput.back);
                         println!("--------");
-                        Long(input.back).print();
+                        println!("{:?}", input.back);
                         println!("--------");
-                        ooinput.front.print();
+                        println!("{:?}", ooinput.front);
                         println!("--------");
-                        oinput.front.print();
+                        println!("{:?}", oinput.front);
                         println!("--------");
-                        input.front.print();
+                        println!("{:?}", input.front);
                         return false;
                     }
                 let binput = input.clone();
@@ -838,21 +838,21 @@ fn test_input_against(line:String, against:InputValue) -> bool {
                     input.front != oinput.front ||
                     input.part != oinput.part {
                         println!("\nPushing didn't return to state before popping: \"{}\"", ch);
-                        Long(ooinput.back).print();
+                        println!("{:?}", ooinput.back);
                         println!("--------");
-                        Long(oinput.back).print();
+                        println!("{:?}", oinput.back);
                         println!("--------");
-                        Long(binput.back).print();
+                        println!("{:?}", binput.back);
                         println!("--------");
-                        Long(input.back).print();
+                        println!("{:?}", input.back);
                         println!("--------");
-                        ooinput.front.print();
+                        println!("{:?}", ooinput.front);
                         println!("--------");
-                        oinput.front.print();
+                        println!("{:?}", oinput.front);
                         println!("--------");
-                        binput.front.print();
+                        println!("{:?}", binput.front);
                         println!("--------");
-                        input.front.print();
+                        println!("{:?}", input.front);
                         return false;
                     }
             }
@@ -863,7 +863,7 @@ fn test_input_against(line:String, against:InputValue) -> bool {
     match input.process() {
         Some(ref v) if v.clone() == against => {},
         Some(ref v) => {
-            v.print();
+            println!("{:?}", v);
             return false;
         }
         _ => return false
