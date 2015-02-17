@@ -25,7 +25,16 @@ pub type AstResult = Result<HandlerResult, String>;
 pub type AstHandler = fn(&mut DList<InputValue>, &mut usize, &mut DList<Action>, &mut AST) -> AstResult;
 
 pub enum HandlerResult {
-    Continue, Stop, More
+    Continue, Stop,
+    More(SectionType)
+}
+
+#[derive(Copy, Clone, Eq, Hash)]
+pub enum SectionType {
+    // Special section types
+    Load, Run,
+    // Other sections are numbered
+    Number(usize)
 }
 
 // Acronyms
@@ -235,14 +244,6 @@ impl fmt::Debug for Action {
     }
 }
 
-#[derive(Copy, Eq, Hash)]
-pub enum SectionType {
-    // Special section types
-    Load, Run,
-    // Other sections are numbered
-    Number(usize)
-}
-
 impl PartialEq for SectionType {
     fn eq(&self, other:&SectionType) -> bool {
         use self::SectionType::*;
@@ -286,7 +287,10 @@ pub struct AST {
     handlers: HandlerTable,
     position: SectionType,
     extra_section: usize,
-    endline: DList<Action>
+    endline: DList<Action>,
+    blocks: Vec<SectionType>,
+    pub elif: Option<SectionType>,
+    pub sec_loop: bool
 }
 
 impl fmt::Debug for AST {
@@ -295,7 +299,11 @@ impl fmt::Debug for AST {
             try!(fmt.write_fmt(format_args!("Handler for {}\n", handler)));
         }
         try!(fmt.write_fmt(format_args!("\nPosition: {:?}\n", self.position)));
-        try!(fmt.write_fmt(format_args!("Extra section number: {}\n\n", self.extra_section)));
+        try!(fmt.write_fmt(format_args!("Extra section number: {}\n", self.extra_section)));
+        for block in self.blocks.iter() {
+            try!(fmt.write_fmt(format_args!("Block jumped to from {:?}\n", block)));
+        }
+        try!(fmt.write_str("\n"));
         for section in self.sections.keys() {
             try!(fmt.write_fmt(format_args!(".{:?}\n", section)));
             for item in self.sections.get(section).unwrap().iter() {
@@ -314,7 +322,10 @@ impl AST {
             handlers: HashMap::new(),
             position: SectionType::Run,
             extra_section: 0,
-            endline: DList::new()
+            endline: DList::new(),
+            blocks: vec![],
+            elif: None,
+            sec_loop: false
         }
     }
 
@@ -323,6 +334,13 @@ impl AST {
         self.position = SectionType::Run;
         self.extra_section = 0;
         self.endline.clear();
+        self.blocks.clear();
+        self.elif = None;
+        self.sec_loop = false;
+    }
+
+    pub fn in_block(&self) -> bool {
+        !self.blocks.is_empty()
     }
 
     pub fn add_handler(&mut self, word:&str, callback:AstHandler) {
@@ -371,7 +389,7 @@ impl AST {
     }
 
     pub fn add_line(&mut self, line:&mut InputValue) -> Result<(), String> {
-        let mut aclist = try!(self.process(line));
+        let mut aclist = try!(self.process(line, true));
         aclist.append(&mut self.endline);
         if !self.sections.contains_key(&self.position) {
             self.sections.insert(self.position, DList::new());
@@ -385,9 +403,47 @@ impl AST {
         }
     }
 
-    pub fn process(&mut self, line:&mut InputValue) -> Result<DList<Action>, String> {
+    pub fn end_block(&mut self) -> Result<(), String> {
+        match self.blocks.pop() {
+            None => Err(format!("No block to end")),
+            Some(SectionType::Number(n)) => {
+                if self.sec_loop {
+                    match self.position {
+                        SectionType::Number(n) => {
+                            self.current_section().push_back(Jump(n));
+                            self.sec_loop = false;
+                        }, _ => panic!("Cannot loop .run")
+                    }
+                } else {
+                    self.current_section().push_back(Jump(n));
+                }
+                self.move_to(SectionType::Number(n));
+                Ok(())
+            },
+            Some(section) => {
+                self.move_to(section);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn process(&mut self, line:&mut InputValue, run:bool) -> Result<DList<Action>, String> {
         match line {
             &mut Split(_) => Ok(DList::new()),
+            &mut Short(ref s) if self.handlers.contains_key(s) => {
+                // since this is a function call we can just clone it
+                // and it's just cloning a usize, so it's pretty fast
+                let callback = self.handlers.get(s).unwrap().clone();
+                let mut out = DList::new();
+                match try!(callback(&mut DList::new(), &mut 0,
+                                    &mut out, self)) {
+                    Continue | Stop => Ok(out),
+                    More(section) => {
+                        self.blocks.push(section);
+                        Ok(out)
+                    }
+                }
+            },
             &mut Short(ref s) => {
                 let mut out = DList::new();
                 if VAR_PATH_REGEX.is_match(s.as_slice()) ||
@@ -419,11 +475,14 @@ impl AST {
                                                 &mut out, self)) {
                                 Continue => continue,
                                 Stop => return Ok(out),
-                                More => panic!("Not implemented")
+                                More(section) => {
+                                    self.blocks.push(section);
+                                    continue
+                                }
                             }
                         },
                         Some(mut item) => {
-                            let mut aclist = try!(self.process(&mut item));
+                            let mut aclist = try!(self.process(&mut item, run));
                             let was_empty = aclist.is_empty();
                             out.append(&mut aclist);
                             if !was_empty {
@@ -433,21 +492,37 @@ impl AST {
                         }
                     }
                 }
-                if count > 0 {
+                // this code is duplicated in handle_endblock
+                if count == 1 {
+                    out.push_back(Get);
+                    if run {
+                        out.push_back(Call(format!("run")));
+                        out.push_back(Call(format!("describe_process_output")));
+                    }
+                } else if count > 1 {
                     out.push_back(Join(count));
+                    if run {
+                        out.push_back(Call(format!("run")));
+                        out.push_back(Call(format!("describe_process_output")));
+                    }
                 }
                 Ok(out)
             },
             &mut Function(ref n, ref mut v) => {
                 let mut aclist;
+                let old_blocks = self.blocks.clone();
                 if v.is_empty() {
                     aclist = DList::new();
                 } else if v.len() == 1 {
-                    aclist = try!(self.process(&mut v[0]));
+                    aclist = try!(self.process(&mut v[0], run));
                 } else {
-                    aclist = try!(self.process(&mut Long(v.clone())));
+                    aclist = try!(self.process(&mut Long(v.clone()), run));
                 }
-                aclist.push_back(Call(n.clone()));
+                if self.blocks == old_blocks {
+                    // unbalanced block delimiters cancel
+                    // function calls on a line
+                    aclist.push_back(Call(n.clone()));
+                }
                 Ok(aclist)
             }
         }
@@ -483,7 +558,7 @@ handler!(handle_equal, contents, count, out, ast, {
             Split(_) if !contents.is_empty() => contents.pop_front().unwrap(),
             v => v
         };
-        let mut aclist = try!(ast.process(&mut value));
+        let mut aclist = try!(ast.process(&mut value, false));
         if aclist.is_empty() {
             newacs.push_back(Set(WashArgs::Empty));
         } else {
@@ -546,9 +621,9 @@ handler!(equalequal_inner, contents, count, out, ast, {
                         Some(val) => v.push(val)
                     }
                 }
-                try!(ast.process(&mut Long(v)))
+                try!(ast.process(&mut Long(v), false))
             } else {
-                try!(ast.process(contents.front_mut().unwrap()))
+                try!(ast.process(contents.front_mut().unwrap(), false))
             }
         };
         out.append(&mut aclist);
@@ -582,7 +657,7 @@ handler!(handle_dot, contents, count, out, ast, {
             Split(_) if !contents.is_empty() => contents.pop_front().unwrap(),
             v => v
         };
-        let mut aclist = try!(ast.process(&mut value));
+        let mut aclist = try!(ast.process(&mut value, false));
         if aclist.is_empty() {
             out.push_back(Insert(WashArgs::Empty));
         } else {
@@ -660,7 +735,7 @@ handler!(handle_geq, contents, count, out, ast, {
             Split(_) if !contents.is_empty() => contents.pop_front().unwrap(),
             v => v
         };
-        let mut aclist = try!(ast.process(&mut value));
+        let mut aclist = try!(ast.process(&mut value, false));
         if aclist.is_empty() {
             return Err(format!("No file name given"));
         }
@@ -689,7 +764,7 @@ handler!(handle_leq, contents, count, out, ast, {
             Split(_) if !contents.is_empty() => contents.pop_front().unwrap(),
             v => v
         };
-        let mut aclist = try!(ast.process(&mut value));
+        let mut aclist = try!(ast.process(&mut value, false));
         if aclist.is_empty() {
             return Err(format!("No file name given"));
         }
@@ -697,12 +772,190 @@ handler!(handle_leq, contents, count, out, ast, {
         // the following demonstrates the beauty of Get
         out.push_back(Call(format!("open_input")));
         out.push_back(Temp);
-        out.push_back(Set(WashArgs::Flat(format!("@:"))));
+        out.push_back(Set(WashArgs::Flat(format!("@"))));
         out.push_back(Get);
         out.push_back(Call(format!("dot")));
         out.push_back(Get);
         return Ok(Continue);
     }
+});
+
+handler!(handle_if, contents, count, out, ast, {
+    ast.current_section().append(out);
+    let mut values = vec![];
+    loop {
+        match contents.pop_front() {
+            None => break,
+            Some(Short(ref s)) if *s == "{" => break,
+            Some(v) => values.push(v)
+        }
+    }
+    let mut aclist = try!(ast.process(&mut Long(values), false));
+    let old_section = ast.new_section();
+    let secnum = match ast.get_position() {
+        SectionType::Number(n) => n,
+        _ => panic!("New section wasn't numbered")
+    };
+    ast.new_section();
+    let finalsec = match ast.get_position() {
+        SectionType::Number(n) => n,
+        _ => panic!("New section wasn't numbered")
+    };
+    ast.new_section();
+    let elifsec = match ast.get_position() {
+        SectionType::Number(n) => n,
+        _ => panic!("New section wasn't numbered")
+    };
+    ast.move_to(old_section);
+    aclist.push_back(Branch(secnum));
+    aclist.push_back(Jump(elifsec));
+    ast.current_section().append(&mut aclist);
+    ast.move_to(SectionType::Number(elifsec));
+    ast.elif = Some(SectionType::Number(elifsec));
+    ast.current_section().push_back(Jump(finalsec));
+    *count = 0;
+    ast.move_to(SectionType::Number(secnum));
+    return Ok(More(SectionType::Number(finalsec)));
+});
+
+handler!(handle_elif, contents, count, out, ast, {
+    let old_section = match ast.elif {
+        None => return Err(format!("No proceeding if block for elif")),
+        Some(s) => s
+    };
+    ast.current_section().append(out);
+    let mut values = vec![];
+    loop {
+        match contents.pop_front() {
+            None => break,
+            Some(Short(ref s)) if *s == "{" => break,
+            Some(v) => values.push(v)
+        }
+    }
+    let mut aclist = try!(ast.process(&mut Long(values), false));
+    ast.new_section();
+    let secnum = match ast.get_position() {
+        SectionType::Number(n) => n,
+        _ => panic!("New section wasn't numbered")
+    };
+    ast.new_section();
+    let elifsec = match ast.get_position() {
+        SectionType::Number(n) => n,
+        _ => panic!("New section wasn't numbered")
+    };
+    ast.move_to(old_section);
+    let finalsec = match ast.current_section().pop_back() {
+        Some(Jump(n)) => n,
+        _ => panic!("Elif section malformed")
+    };
+    aclist.push_back(Branch(secnum));
+    aclist.push_back(Jump(elifsec));
+    ast.current_section().append(&mut aclist);
+    ast.move_to(SectionType::Number(elifsec));
+    ast.elif = Some(SectionType::Number(elifsec));
+    ast.current_section().push_back(Jump(finalsec));
+    *count = 0;
+    ast.move_to(SectionType::Number(secnum));
+    return Ok(More(SectionType::Number(finalsec)));
+});
+
+handler!(handle_else, contents, count, out, ast, {
+    ast.current_section().append(out);
+    let old_section = match ast.elif {
+        None => return Err(format!("No proceeding if block for else")),
+        Some(s) => s
+    };
+    loop {
+        match contents.pop_front() {
+            None => break,
+            Some(Short(ref s)) if *s == "{" => break,
+            Some(_) => {}
+        }
+    }
+    ast.move_to(old_section);
+    let finalsec = match ast.current_section().pop_back() {
+        Some(Jump(n)) => n,
+        _ => panic!("Elif section malformed")
+    };
+    ast.elif = None;
+    *count = 0;
+    return Ok(More(SectionType::Number(finalsec)));
+});
+
+handler!(handle_while, contents, count, out, ast, {
+    ast.current_section().append(out);
+    let mut values = vec![];
+    loop {
+        match contents.pop_front() {
+            None => break,
+            Some(Short(ref s)) if *s == "{" => break,
+            Some(v) => values.push(v)
+        }
+    }
+    let mut aclist = try!(ast.process(&mut Long(values), false));
+    let old_sec = ast.new_section();
+    let newsec = match ast.get_position() {
+        SectionType::Number(n) => n,
+        _ => panic!("New section wasn't numbered")
+    };
+    ast.new_section();
+    let finalsec = match ast.get_position() {
+        SectionType::Number(n) => n,
+        _ => panic!("New section wasn't numbered")
+    };
+    ast.move_to(old_sec);
+    ast.current_section().push_back(Jump(newsec));
+    ast.move_to(SectionType::Number(newsec));
+    aclist.push_back(Branch(finalsec));
+    ast.current_section().append(&mut aclist);
+    *count = 0;
+    ast.sec_loop = true;
+    return Ok(More(SectionType::Number(finalsec)));
+});
+
+handler!(handle_act, contents, count, out, ast, {
+    ast.current_section().append(out);
+    loop {
+        match contents.pop_front() {
+            None => break,
+            Some(Short(ref s)) if *s == "{" => break,
+            Some(_) => {}
+        }
+    }
+    let old_sec = ast.new_section();
+    let newsec = match ast.get_position() {
+        SectionType::Number(n) => n,
+        _ => panic!("New section wasn't numbered")
+    };
+    ast.new_section();
+    let finalsec = match ast.get_position() {
+        SectionType::Number(n) => n,
+        _ => panic!("New section wasn't numbered")
+    };
+    ast.move_to(old_sec);
+    ast.current_section().push_back(Jump(newsec));
+    ast.move_to(SectionType::Number(newsec));
+    *count = 0;
+    return Ok(More(SectionType::Number(finalsec)));
+});
+
+handler!(handle_endblock, _, count, out, ast, {
+    {
+        let mut sec = ast.current_section();
+        sec.append(out);
+        if *count > 0 {
+            if *count > 1 {
+                sec.push_back(Join(*count));
+            } else {
+                sec.push_back(Get);
+            }
+            sec.push_back(Call(format!("run")));
+            sec.push_back(Call(format!("describe_process_output")));
+        }
+    }
+    try!(ast.end_block());
+    *count = 0;
+    return Ok(Continue);
 });
 
 pub fn load_handlers(ast:&mut AST) {
@@ -716,4 +969,11 @@ pub fn load_handlers(ast:&mut AST) {
     ast.add_handler("|", handle_bar);
     ast.add_handler(">", handle_geq);
     ast.add_handler("<", handle_leq);
+
+    ast.add_handler("act!", handle_act);
+    ast.add_handler("if!", handle_if);
+    ast.add_handler("elif!", handle_elif);
+    ast.add_handler("else!", handle_else);
+    ast.add_handler("while!", handle_while);
+    ast.add_handler("}", handle_endblock);
 }

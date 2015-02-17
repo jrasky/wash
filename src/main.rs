@@ -76,7 +76,7 @@ pub fn main() {
             },
             _ => {/* nothing */}
         }
-        if state.in_block() {
+        if ast.in_block() {
             match state.env.runf(&format!("subprompt"), &WashArgs::Empty) {
                 Err(_) => reader.controls.outs("prompt failed => run("),
                 Ok(v) => reader.controls.outs(v.flatten().as_slice())
@@ -99,7 +99,7 @@ pub fn main() {
                     reader.clear();
                 }
             },
-            Some(line) => {
+            Some(mut line) => {
                 state.env.outc(NL);
                 /*
                 match state.process_line(line) {
@@ -118,19 +118,18 @@ pub fn main() {
                         }
                     }
                 }*/
-                let args = match line {
-                    InputValue::Long(v) => v,
-                    v => vec![v]
-                };
-                let mut exec_func = Function(format!("describe_function_output"),
-                                             vec![Function(format!("run"), args)]);
-                match ast.add_line(&mut exec_func) {
-                    Err(e) => println!("Error: {}", e),
+                match ast.add_line(&mut line) {
+                    Err(e) => {
+                        println!("Error: {}", e);
+                        ast.clear();
+                    },
                     Ok(_) => {
-                        println!("AST:\n{:?}", ast);
+                        if !ast.in_block() {
+                            println!("AST:\n{:?}", ast);
+                            ast.clear();
+                        }
                     }
                 }
-                ast.clear();
                 reader.clear();
             }
         }
