@@ -585,10 +585,8 @@ handler!(handle_equal, contents, count, out, ast, {
         ast.add_endline(Set(WashArgs::Empty));
         ast.add_endline(Get);
         ast.add_endline(Store);
-        
-    } else {
-        out.append(&mut newacs);
     }
+    out.append(&mut newacs);
     // in either case the end result is one item
     // is consumed from the original, given VS
     *count -= 1;
