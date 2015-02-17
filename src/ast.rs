@@ -43,6 +43,8 @@ pub enum Action {
     // arguments are on the CFV
     // store value in CFV
     Call(String),
+    // fail with the given message
+    Fail(String),
     // take name, path stored on the top of VS (like $path:name)
     // store CFV in that name, path
     Store,
@@ -57,7 +59,13 @@ pub enum Action {
     // * VS Specific actions
     // push CFV onto VS
     Temp,
-    // pop top of VS into CFV
+    // pop top of VS, append to CFV if CFV is Long
+    // and top of VS is not long, join to CFV if
+    // VS is long, join with CFV in new Long if CFV
+    // is not Empty and top of VS is not Long,
+    // prepend CFV to top of VS and replace CFV with
+    // that if top of VS is Long, replace CFV if it
+    // is Empty
     Get,
     // pop last given elements of VS into new
     // long, put into CFV
@@ -85,6 +93,10 @@ impl PartialEq for Action {
             },
             &Call(ref n) => match other {
                 &Call(ref on) if *n == *on => true,
+                _ => false
+            },
+            &Fail(ref m) => match other {
+                &Fail(ref om) if *m == *om => true,
                 _ => false
             },
             &Store => match other {
@@ -151,6 +163,9 @@ impl fmt::Debug for Action {
             },
             &Call(ref n) => {
                 try!(fmt.write_fmt(format_args!("Call({})", n)));
+            },
+            &Fail(ref m) => {
+                try!(fmt.write_fmt(format_args!("Fail({})", m)));
             },
             &Store => {
                 try!(fmt.write_str("Store"));
@@ -242,7 +257,8 @@ impl fmt::Debug for SectionType {
 pub struct AST {
     sections: SectionTable,
     handlers: HandlerTable,
-    position: SectionType
+    position: SectionType,
+    extra_section: usize
 }
 
 impl fmt::Debug for AST {
@@ -250,7 +266,8 @@ impl fmt::Debug for AST {
         for handler in self.handlers.keys() {
             try!(fmt.write_fmt(format_args!("Handler for {}\n", handler)));
         }
-        try!(fmt.write_fmt(format_args!("\nPosition: {:?}\n\n", self.position)));
+        try!(fmt.write_fmt(format_args!("\nPosition: {:?}\n", self.position)));
+        try!(fmt.write_fmt(format_args!("Extra section number: {}\n\n", self.extra_section)));
         for section in self.sections.keys() {
             try!(fmt.write_fmt(format_args!(".{:?}\n", section)));
             for item in self.sections.get(section).unwrap().iter() {
@@ -267,17 +284,47 @@ impl AST {
         AST {
             sections: HashMap::new(),
             handlers: HashMap::new(),
-            position: SectionType::Run
+            position: SectionType::Run,
+            extra_section: 0
         }
     }
 
     pub fn clear(&mut self) {
         self.sections.clear();
         self.position = SectionType::Run;
+        self.extra_section = 0;
     }
 
     pub fn add_handler(&mut self, word:&str, callback:AstHandler) {
         self.handlers.insert(word.to_string(), callback);
+    }
+
+    pub fn new_section(&mut self) -> SectionType {
+        let out = self.position;
+        self.position = SectionType::Number(self.extra_section);
+        if !self.sections.contains_key(&self.position) {
+            self.sections.insert(self.position, DList::new());
+        }
+        self.extra_section += 1;
+        return out;
+    }
+
+    pub fn current_section(&mut self) -> &mut DList<Action> {
+        if !self.sections.contains_key(&self.position) {
+            self.sections.insert(self.position, DList::new());
+        }
+        return self.sections.get_mut(&self.position).unwrap();
+    }
+
+    pub fn move_to(&mut self, section:SectionType) {
+        self.position = section;
+        if !self.sections.contains_key(&self.position) {
+            self.sections.insert(self.position, DList::new());
+        }
+    }
+
+    pub fn get_position(&mut self) -> SectionType {
+        self.position
     }
 
     pub fn add_line(&mut self, line:&mut InputValue) -> Result<(), String> {
@@ -416,8 +463,7 @@ handler!(equalequal_inner, contents, count, out, ast, {
         out.push_back(Temp);
     }
     if contents.is_empty() {
-        out.push_back(Set(WashArgs::Empty));
-        out.push_back(Temp);
+        out.push_back(Insert(WashArgs::Empty));
     } else {
         while match contents.front() {
             Some(&Split(_)) => true,
@@ -464,7 +510,7 @@ handler!(handle_tildaequal, contents, count, out, ast, {
 
 handler!(handle_dot, contents, count, out, ast, {
     if contents.is_empty() {
-        out.push_back(Set(WashArgs::Empty));
+        out.push_back(Insert(WashArgs::Empty));
     } else {
         let mut value = match contents.pop_front().unwrap() {
             Split(_) if !contents.is_empty() => contents.pop_front().unwrap(),
@@ -472,11 +518,11 @@ handler!(handle_dot, contents, count, out, ast, {
         };
         let mut aclist = try!(ast.process(&mut value));
         if aclist.is_empty() {
-            out.push_back(Set(WashArgs::Empty));
+            out.push_back(Insert(WashArgs::Empty));
         } else {
             out.append(&mut aclist);
+            out.push_back(Temp);
         }
-        out.push_back(Temp);
     }
     out.push_back(Join(2));
     out.push_back(Call(format!("dot")));
@@ -489,9 +535,119 @@ handler!(handle_dot, contents, count, out, ast, {
     return Ok(Continue);
 });
 
+handler!(handle_semiamper, _, count, out, _, {
+    if *count > 0 {
+        out.push_back(Join(*count));
+        *count = 0;
+    }
+    out.push_back(Call(format!("run")));
+    return Ok(Continue);
+});
+
+handler!(handle_amper, _, count, out, _, {
+    if *count > 0 {
+        out.push_back(Join(*count));
+        *count = 0;
+    }
+    out.push_back(Call(format!("job")));
+    return Ok(Continue);
+});
+
+handler!(handle_amperamper, contents, count, out, ast, {
+    // amperamper is an extension of semiamper
+    try!(handle_semiamper(contents, count, out, ast));
+    out.push_back(Call(format!("run_failed?")));
+    let old_section = ast.new_section();
+    let new_num = match ast.get_position() {
+        SectionType::Number(n) => n,
+        _ => panic!("New section wasn't a numbered one")
+    };
+    ast.current_section().push_back(Fail(STOP.to_string()));
+    ast.move_to(old_section);
+    out.push_back(Branch(new_num));
+    return Ok(Continue);
+});
+
+handler!(handle_bar, contents, count, out, ast, {
+    // extension of amper
+    try!(handle_amper(contents, count, out, ast));
+    out.push_back(Insert(WashArgs::Flat(format!("$pipe:"))));
+    out.push_back(Temp);
+    out.push_back(Join(2));
+    out.push_back(Call(format!("dot")));
+    out.push_back(Load);
+    out.push_back(Temp);
+    *count += 1;
+    return Ok(Continue);
+});
+
+handler!(handle_geq, contents, count, out, ast, {
+    if *count > 0 {
+        out.push_back(Join(*count));
+        *count = 0;
+    }
+    out.push_back(Temp);
+    if contents.is_empty() {
+        return Err(format!("No file name given"));
+    } else {
+        let mut value = match contents.pop_front().unwrap() {
+            Split(_) if !contents.is_empty() => contents.pop_front().unwrap(),
+            v => v
+        };
+        let mut aclist = try!(ast.process(&mut value));
+        if aclist.is_empty() {
+            return Err(format!("No file name given"));
+        }
+        out.append(&mut aclist);
+        // the following demonstrates the beauty of Get
+        out.push_back(Call(format!("open_output")));
+        out.push_back(Temp);
+        out.push_back(Set(WashArgs::Flat(format!("@out:"))));
+        out.push_back(Get);
+        out.push_back(Call(format!("dot")));
+        out.push_back(Get);
+        return Ok(Continue);
+    }
+});
+
+handler!(handle_leq, contents, count, out, ast, {
+    if *count > 0 {
+        out.push_back(Join(*count));
+        *count = 0;
+    }
+    out.push_back(Temp);
+    if contents.is_empty() {
+        return Err(format!("No file name given"));
+    } else {
+        let mut value = match contents.pop_front().unwrap() {
+            Split(_) if !contents.is_empty() => contents.pop_front().unwrap(),
+            v => v
+        };
+        let mut aclist = try!(ast.process(&mut value));
+        if aclist.is_empty() {
+            return Err(format!("No file name given"));
+        }
+        out.append(&mut aclist);
+        // the following demonstrates the beauty of Get
+        out.push_back(Call(format!("open_input")));
+        out.push_back(Temp);
+        out.push_back(Set(WashArgs::Flat(format!("@:"))));
+        out.push_back(Get);
+        out.push_back(Call(format!("dot")));
+        out.push_back(Get);
+        return Ok(Continue);
+    }
+});
+
 pub fn load_handlers(ast:&mut AST) {
     ast.add_handler("=", handle_equal);
     ast.add_handler("==", handle_equalequal);
     ast.add_handler("~=", handle_tildaequal);
     ast.add_handler(".", handle_dot);
+    ast.add_handler("&;", handle_semiamper);
+    ast.add_handler("&", handle_amper);
+    ast.add_handler("&&", handle_amperamper);
+    ast.add_handler("|", handle_bar);
+    ast.add_handler(">", handle_geq);
+    ast.add_handler("<", handle_leq);
 }
