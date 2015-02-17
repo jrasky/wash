@@ -297,9 +297,6 @@ pub struct AST {
 
 impl fmt::Debug for AST {
     fn fmt(&self, fmt:&mut fmt::Formatter) -> fmt::Result {
-        for handler in self.handlers.keys() {
-            try!(fmt.write_fmt(format_args!("Handler for {}\n", handler)));
-        }
         try!(fmt.write_fmt(format_args!("\nPosition: {:?}\n", self.position)));
         try!(fmt.write_fmt(format_args!("Extra section number: {}\n", self.extra_section)));
         for block in self.blocks.iter() {
@@ -517,9 +514,9 @@ impl AST {
                 if v.is_empty() {
                     aclist = DList::new();
                 } else if v.len() == 1 {
-                    aclist = try!(self.process(&mut v[0], run));
+                    aclist = try!(self.process(&mut v[0], false));
                 } else {
-                    aclist = try!(self.process(&mut Long(v.clone()), run));
+                    aclist = try!(self.process(&mut Long(v.clone()), false));
                 }
                 if self.blocks == old_blocks {
                     // unbalanced block delimiters cancel

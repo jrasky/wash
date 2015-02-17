@@ -103,6 +103,7 @@ pub fn main() {
                     },
                     Ok(_) => {
                         if !ast.in_block() {
+                            println!("{:?}", ast);
                             match ast.evaluate() {
                                 Err(e) => {
                                     println!("Error: {}", e);
