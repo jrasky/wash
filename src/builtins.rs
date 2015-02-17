@@ -65,6 +65,14 @@ builtin!(equal_func, args, _, {
     }
 });
 
+builtin!(not_func, args, _, {
+    if args.is_empty() {
+        Ok(Flat(format!("empty")))
+    } else {
+        Ok(Empty)
+    }
+});
+
 fn job_args(args:&WashArgs, env:&mut WashEnv) -> Result<(Option<Fd>, Option<Fd>, Option<Fd>,
                                                          String, Vec<String>, Vec<(String, Option<String>)>), String> {
     // turns arguments into file descriptor options, command name and args
@@ -388,6 +396,7 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insf("prompt", prompt_func));
     try!(env.insf("subprompt", subprompt_func));
     try!(env.insf("equal?", equal_func));
+    try!(env.insf("not?", not_func));
 
     // commands that aren't really meant to be called by users
     try!(env.insf("describe_process_output", describe_process_output));

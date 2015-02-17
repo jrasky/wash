@@ -1145,6 +1145,7 @@ handler!(handle_while, contents, count, out, ast, {
     ast.move_to(old_sec);
     ast.current_section().push_back(Jump(newsec));
     ast.move_to(SectionType::Number(newsec));
+    aclist.push_back(Call(format!("not?")));
     aclist.push_back(Branch(finalsec));
     ast.current_section().append(&mut aclist);
     *count = 0;
