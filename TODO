@@ -2,6 +2,8 @@
  - find way to pass environment variables for jobs
    in special way so they aren't ever set for the
    host process
+- Implement the optimizer
+- Implement conversion to IR
 - finish scripting
  - rewrite to not link directly to dl
  - interactive/compiled mode
