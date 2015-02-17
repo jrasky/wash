@@ -59,6 +59,10 @@ pub enum Action {
     // * VS Specific actions
     // push CFV onto VS
     Temp,
+    // clone the value on top of VS to CFV
+    Top,
+    // swap CFV and top of VS
+    Swap,
     // pop top of VS, append to CFV if CFV is Long
     // and top of VS is not long, join to CFV if
     // VS is long, join with CFV in new Long if CFV
@@ -81,7 +85,9 @@ pub enum Action {
     // pop off VS, store into name, path
     UnStack(String, String),
     // load given variable onto VS
-    Stack(String, String)
+    Stack(String, String),
+    // copy and insert the top of VS
+    ReInsert
 }
 
 impl PartialEq for Action {
@@ -124,6 +130,14 @@ impl PartialEq for Action {
                 &Temp => true,
                 _ => false
             },
+            &Top => match other {
+                &Top => true,
+                _ => false
+            },
+            &Swap => match other {
+                &Swap => true,
+                _ => false
+            },
             &Get => match other {
                 &Get => true,
                 _ => false
@@ -150,7 +164,11 @@ impl PartialEq for Action {
                 &Stack(ref on, ref op) if *n == *on &&
                     *p == *op => true,
                 _ => false
-            }
+            },
+            &ReInsert => match other {
+                &ReInsert => true,
+                _ => false
+            },
         }
     }
 }
@@ -185,6 +203,12 @@ impl fmt::Debug for Action {
             &Temp => {
                 try!(fmt.write_str("Temp"));
             },
+            &Top => {
+                try!(fmt.write_str("Top"));
+            },
+            &Swap => {
+                try!(fmt.write_str("Swap"));
+            },
             &Get => {
                 try!(fmt.write_str("Get"));
             },
@@ -202,7 +226,10 @@ impl fmt::Debug for Action {
             },
             &Stack(ref n, ref p) => {
                 try!(fmt.write_fmt(format_args!("Stack({}, {})", n, p)));
-            }
+            },
+            &ReInsert => {
+                try!(fmt.write_str("ReInsert"));
+            },
         }
         Ok(())
     }
@@ -258,7 +285,8 @@ pub struct AST {
     sections: SectionTable,
     handlers: HandlerTable,
     position: SectionType,
-    extra_section: usize
+    extra_section: usize,
+    endline: DList<Action>
 }
 
 impl fmt::Debug for AST {
@@ -285,7 +313,8 @@ impl AST {
             sections: HashMap::new(),
             handlers: HashMap::new(),
             position: SectionType::Run,
-            extra_section: 0
+            extra_section: 0,
+            endline: DList::new()
         }
     }
 
@@ -293,10 +322,15 @@ impl AST {
         self.sections.clear();
         self.position = SectionType::Run;
         self.extra_section = 0;
+        self.endline.clear();
     }
 
     pub fn add_handler(&mut self, word:&str, callback:AstHandler) {
         self.handlers.insert(word.to_string(), callback);
+    }
+
+    pub fn add_endline(&mut self, action:Action) {
+        self.endline.push_back(action);
     }
 
     pub fn new_section(&mut self) -> SectionType {
@@ -323,12 +357,22 @@ impl AST {
         }
     }
 
+    pub fn move_current_to(&mut self, section:SectionType) {
+        let content = match self.sections.remove(&self.position) {
+            None => DList::new(),
+            Some(l) => l
+        };
+        self.position = section;
+        self.sections.insert(self.position, content);
+    }
+
     pub fn get_position(&mut self) -> SectionType {
         self.position
     }
 
     pub fn add_line(&mut self, line:&mut InputValue) -> Result<(), String> {
         let mut aclist = try!(self.process(line));
+        aclist.append(&mut self.endline);
         if !self.sections.contains_key(&self.position) {
             self.sections.insert(self.position, DList::new());
         }
@@ -431,8 +475,9 @@ handler!(handle_equal, contents, count, out, ast, {
         }
     }
     // now evaluate the value
+    let mut newacs = DList::new();
     if contents.is_empty() {
-        out.push_back(Set(WashArgs::Empty));
+        newacs.push_back(Set(WashArgs::Empty));
     } else {
         let mut value = match contents.pop_front().unwrap() {
             Split(_) if !contents.is_empty() => contents.pop_front().unwrap(),
@@ -440,18 +485,39 @@ handler!(handle_equal, contents, count, out, ast, {
         };
         let mut aclist = try!(ast.process(&mut value));
         if aclist.is_empty() {
-            out.push_back(Set(WashArgs::Empty));
+            newacs.push_back(Set(WashArgs::Empty));
         } else {
-            out.append(&mut aclist);
+            newacs.append(&mut aclist);
         }
     }
     // now the value is on CFV
     // name is hopefully on the top of VS
-    out.push_back(Store);
-    // the situation now is that the CFV has one item on it,
-    // and the VS *should* be empty, so
-    *count = 0;
-    return Ok(Stop);
+    newacs.push_back(Store);
+    while match contents.front() {
+        Some(&Split(_)) => true,
+        _ => false
+    } {
+        contents.pop_front();
+    }
+    if !contents.is_empty() {
+        // there are other things on the line, so this variable
+        // should be unset at the end.
+        out.push_back(ReInsert);
+        out.push_back(Top);
+        out.push_back(Load);
+        out.push_back(Swap);
+        out.push_back(Temp);
+        ast.add_endline(Set(WashArgs::Empty));
+        ast.add_endline(Get);
+        ast.add_endline(Store);
+        
+    } else {
+        out.append(&mut newacs);
+    }
+    // in either case the end result is one item
+    // is consumed from the original, given VS
+    *count -= 1;
+    return Ok(Continue);
 });
 
 handler!(equalequal_inner, contents, count, out, ast, {

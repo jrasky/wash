@@ -29,6 +29,7 @@ use handlers::*;
 use types::*;
 
 use ast::AST;
+use types::InputValue::*;
 
 mod constants;
 #[macro_use]
@@ -98,7 +99,7 @@ pub fn main() {
                     reader.clear();
                 }
             },
-            Some(mut line) => {
+            Some(line) => {
                 state.env.outc(NL);
                 /*
                 match state.process_line(line) {
@@ -117,7 +118,13 @@ pub fn main() {
                         }
                     }
                 }*/
-                match ast.add_line(&mut line) {
+                let args = match line {
+                    InputValue::Long(v) => v,
+                    v => vec![v]
+                };
+                let mut exec_func = Function(format!("describe_function_output"),
+                                             vec![Function(format!("run"), args)]);
+                match ast.add_line(&mut exec_func) {
                     Err(e) => println!("Error: {}", e),
                     Ok(_) => {
                         println!("AST:\n{:?}", ast);
