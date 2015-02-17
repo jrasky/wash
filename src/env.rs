@@ -443,12 +443,12 @@ impl WashEnv {
     }
 
     pub fn runf(&mut self, name:&String, args:&WashArgs) -> Result<WashArgs, String> {
-        self.handle_sigint();
         let func = match self.functions.get(name) {
             None => return Err("Function not found".to_string()),
             Some(&Direct(ref func)) => func.clone(),
             Some(_) => return Err(format!("Cannot run indirect functions this way"))
         };
+        self.handle_sigint();
         let out = func(args, self);
         self.unhandle_sigint();
         return out;

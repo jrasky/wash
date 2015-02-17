@@ -55,6 +55,16 @@ builtin!(outs_func, args, env, {
     return Ok(Empty);
 });
 
+builtin!(equal_func, args, _, {
+    if !args.is_long() || !args.len() == 2 {
+        Err(format!("Invalid arguments to equals?"))
+    } else if args.get(0) == args.get(1) {
+        Ok(Empty)
+    } else {
+        Ok(Flat(format!("not equal")))
+    }
+});
+
 fn job_args(args:&WashArgs, env:&mut WashEnv) -> Result<(Option<Fd>, Option<Fd>, Option<Fd>,
                                                          String, Vec<String>, Vec<(String, Option<String>)>), String> {
     // turns arguments into file descriptor options, command name and args
@@ -377,6 +387,7 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insf("dot", dot_func));
     try!(env.insf("prompt", prompt_func));
     try!(env.insf("subprompt", subprompt_func));
+    try!(env.insf("equal?", equal_func));
 
     // commands that aren't really meant to be called by users
     try!(env.insf("describe_process_output", describe_process_output));

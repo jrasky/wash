@@ -259,6 +259,13 @@ impl WashArgs {
         }
     }
 
+    pub fn is_long(&self) -> bool {
+        match self {
+            &Long(_) => true,
+            _ => false
+        }
+    }
+
     pub fn get(&self, index:usize) -> WashArgs {
         if index >= self.len() {
             return Empty;

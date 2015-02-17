@@ -52,37 +52,32 @@ mod ast;
 // public so no warnings when we run tests
 pub fn main() {
     let mut reader = LineReader::new();
-    let mut state = ShellState::new();
     let mut ast = AST::new();
     let mut cleaned_jobs;
-    match load_builtins(&mut state.env) {
-        Err(e) => state.env.errf(format_args!("Could not load builtings: {}\n", e)),
-        _ => {}
-    }
-    match load_handlers(&mut state) {
-        Err(e) => state.env.errf(format_args!("Could not load handlers: {}\n", e)),
+    match load_builtins(&mut ast.env) {
+        Err(e) => ast.env.errf(format_args!("Could not load builtings: {}\n", e)),
         _ => {}
     }
     ast::load_handlers(&mut ast);
-    state.env.update_terminal();
+    ast.env.update_terminal();
     loop {
-        state.env.flush();
-        cleaned_jobs = state.env.clean_jobs();
+        ast.env.flush();
+        cleaned_jobs = ast.env.clean_jobs();
         match cleaned_jobs {
             WashArgs::Long(v) => {
                 for status in v.iter() {
-                    state.env.outf(format_args!("{}\n", status.flatten()));
+                    ast.env.outf(format_args!("{}\n", status.flatten()));
                 }
             },
             _ => {/* nothing */}
         }
         if ast.in_block() {
-            match state.env.runf(&format!("subprompt"), &WashArgs::Empty) {
+            match ast.env.runf(&format!("subprompt"), &WashArgs::Empty) {
                 Err(_) => reader.controls.outs("prompt failed => run("),
                 Ok(v) => reader.controls.outs(v.flatten().as_slice())
             }
         } else {
-            match state.env.runf(&format!("prompt"), &WashArgs::Empty) {
+            match ast.env.runf(&format!("prompt"), &WashArgs::Empty) {
                 Err(_) => reader.controls.outs("prompt failed => run("),
                 Ok(v) => reader.controls.outs(v.flatten().as_slice())
             }
@@ -92,32 +87,15 @@ pub fn main() {
                 if reader.eof {
                     break;
                 } else if !reader.line.is_empty() {
-                    state.env.outc(BEL);
+                    ast.env.outc(BEL);
                     reader.restart();
                 } else {
-                    state.env.outc(NL);
+                    ast.env.outc(NL);
                     reader.clear();
                 }
             },
             Some(mut line) => {
-                state.env.outc(NL);
-                /*
-                match state.process_line(line) {
-                    Err(e) => {
-                        if e == STOP.to_string() {
-                            // Stop, not Fail
-                        } else {
-                            state.env.errf(format_args!("{}\n", e));
-                        }
-                    },
-                    Ok(v) => {
-                        if !v.is_empty() {
-                            state.env.outs(v.flatten().as_slice());
-                            // add extra newline
-                            state.env.outc(NL);
-                        }
-                    }
-                }*/
+                ast.env.outc(NL);
                 match ast.add_line(&mut line) {
                     Err(e) => {
                         println!("Error: {}", e);
@@ -125,7 +103,11 @@ pub fn main() {
                     },
                     Ok(_) => {
                         if !ast.in_block() {
-                            println!("AST:\n{:?}", ast);
+                            match ast.evaluate() {
+                                Err(e) => {
+                                    println!("Error: {}", e);
+                                }, _ => {}
+                            };
                             ast.clear();
                         }
                     }
@@ -134,6 +116,6 @@ pub fn main() {
             }
         }
     }
-    state.env.outs("\nExiting\n");
-    state.env.flush();
+    ast.env.outs("\nExiting\n");
+    ast.env.flush();
 }
