@@ -375,15 +375,6 @@ impl AST {
         }
     }
 
-    pub fn move_current_to(&mut self, section:SectionType) {
-        let content = match self.sections.remove(&self.position) {
-            None => DList::new(),
-            Some(l) => l
-        };
-        self.position = section;
-        self.sections.insert(self.position, content);
-    }
-
     pub fn get_position(&mut self) -> SectionType {
         self.position
     }

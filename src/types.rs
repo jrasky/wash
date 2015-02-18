@@ -28,12 +28,6 @@ pub struct Position {
     pub col: usize
 }
 
-pub enum HandlerResult {
-    Continue,
-    Stop,
-    More(WashBlock)
-}
-
 #[derive(Clone)]
 pub struct WashBlock {
     pub start: String,
@@ -166,21 +160,7 @@ impl fmt::Debug for WashArgs {
     }
 }
 
-impl WashArgs {
-    pub fn as_input(&self) -> InputValue {
-        match self {
-            &Empty => InputValue::Short(String::new()),
-            &Flat(ref v) => InputValue::Literal(v.clone()),
-            &Long(ref v) => {
-                let mut out = vec![];
-                for item in v.iter() {
-                    out.push(item.as_input());
-                }
-                InputValue::Long(out)
-            }
-        }
-    }
-    
+impl WashArgs {    
     pub fn flatten_vec(&self) -> Vec<String> {
         match self {
             &Flat(ref s) => vec![s.clone()],
@@ -214,6 +194,7 @@ impl WashArgs {
         }
     }
 
+    #[allow(dead_code)] // this may be used again some day
     pub fn flatten_with_inner(&self, outer:&str, inner:&str) -> String {
         match self {
             &Flat(ref s) => s.clone(),

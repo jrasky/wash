@@ -1,8 +1,6 @@
 use std::cmp::*;
 use std::env;
 
-use types::*;
-
 #[macro_export]
 macro_rules! tryp {
     ($e:expr) => ({
@@ -23,14 +21,6 @@ macro_rules! tryf {
     })
 }
 
-pub fn get_nm_index<T>(vec:&Vec<T>, index:usize) -> Option<&T> {
-    if index >= vec.len() {
-        return None;
-    } else {
-        return Some(&vec[index]);
-    }
-}
-
 // work around lack of DST
 pub fn build_string(ch:char, count:usize) -> String {
     let mut s = String::new();
@@ -42,18 +32,6 @@ pub fn build_string(ch:char, count:usize) -> String {
         s.push(ch);
         i += 1;
     }
-}
-
-pub fn reverse<T:Clone>(vec:Vec<T>) -> Vec<T> {
-    let mut vec = vec.clone();
-    let mut out = vec![];
-    loop {
-        match vec.pop() {
-            None => break,
-            Some(v) => out.push(v)
-        }
-    }
-    return out;
 }
 
 pub fn expand_path(path:Path) -> Path {
@@ -79,35 +57,6 @@ pub fn condense_path(path:Path) -> Path {
         }
     } else {
         return path;
-    }
-}
-
-
-pub fn create_content(next:&mut Vec<InputValue>) -> Result<Vec<InputValue>, String> {
-    let mut one_line = false;
-    let mut line = vec![];
-    loop {
-        match next.pop() {
-            Some(InputValue::Short(ref s)) if *s == "{".to_string() => break,
-            Some(InputValue::Short(ref s)) if *s == "}".to_string() && !one_line => {
-                // one-line block
-                one_line = true;
-            },
-            Some(InputValue::Split(_)) if !one_line => continue,
-            Some(v) => {
-                if one_line {
-                    line.insert(0, v);
-                } else {
-                    return Err("Malformed block".to_string())
-                }
-            },
-            _ => return Err(format!("Malformed block"))
-        }
-    }
-    if line.is_empty() {
-        return Ok(vec![]);
-    } else {
-        return Ok(vec![InputValue::Long(line)]);
     }
 }
 

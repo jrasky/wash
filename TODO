@@ -1,3 +1,4 @@
+- Implement getall functionality
 - Implement the optimizer
 - Implement more handlers, like !=
 - Rework functions in env so they can be AST blocks

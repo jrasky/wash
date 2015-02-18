@@ -466,10 +466,6 @@ impl WashEnv {
         return out;
     }
 
-    pub fn runfs(&mut self, name:&str, args:&WashArgs) -> Result<WashArgs, String> {
-        return self.runf(&name.to_string(), args);
-    }
-
     pub fn load_script(&mut self, path:Path, args:&WashArgs) -> Result<WashArgs, String> {
         let mut script = match self.scripts.remove(&path) {
             Some(script) => script,
@@ -492,10 +488,6 @@ impl WashEnv {
         }
     }
 
-    pub fn describe_process_output(&mut self, out:&WashArgs) -> Result<WashArgs, String> {
-        return self.runfs("describe_process_output", out);
-    }
-    
     fn run_script(&mut self, args:&WashArgs, script:&mut WashScript) -> Result<WashArgs, String> {
         if !script.is_compiled() {
             return Err("String is not compiled".to_string());

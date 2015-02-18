@@ -23,9 +23,7 @@ extern crate regex_macros;
 
 use reader::*;
 use constants::*;
-use state::*;
 use builtins::*;
-use handlers::*;
 use types::*;
 
 use ast::AST;
@@ -44,8 +42,6 @@ mod builtins;
 mod command;
 mod types;
 mod env;
-mod state;
-mod handlers;
 mod ioctl;
 mod ast;
 
