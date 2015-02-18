@@ -1,4 +1,3 @@
-- Make sure function can be called like commands
 - Implement the optimizer
 - Rework functions in env so they can be AST blocks
 - Implement function output redirection
