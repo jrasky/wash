@@ -93,6 +93,10 @@ pub fn main() {
             Some(mut line) => {
                 ast.env.outc(NL);
                 match ast.add_line(&mut line) {
+                    Err(ref e) if *e == STOP => {
+                        // the silent error
+                        ast.clear();
+                    },
                     Err(e) => {
                         println!("Error: {}", e);
                         ast.clear();
@@ -101,6 +105,9 @@ pub fn main() {
                         if !ast.in_block() {
                             println!("{:?}", ast);
                             match ast.evaluate() {
+                                Err(ref e) if *e == STOP => {
+                                    // the silent error
+                                }
                                 Err(e) => {
                                     println!("Error: {}", e);
                                 }, _ => {}
