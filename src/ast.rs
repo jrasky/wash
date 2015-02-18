@@ -541,39 +541,31 @@ impl AST {
                     None => return Ok(WashArgs::Empty),
                     Some(action) => match action {
                         Jump(n) => {
-                            println!("Jump to .{}", n);
                             self.position = SectionType::Number(n);
                             break;
                         },
                         Branch(n) => {
                             if cfv.is_empty() {
-                                println!("Branch to .{}", n);
                                 self.position = SectionType::Number(n);
                                 break;
-                            } else {
-                                println!("Not branching, CFV is {:?}", cfv);
                             }
                         },
                         Set(v) => {
-                            println!("Set CFV to {:?}", v);
                             cfv = v;
                         },
                         Insert(v) => {
-                            println!("Insertting {:?}", v);
                             vs.push_back(v);
                         },
                         ReInsert => {
                             match vs.pop_back() {
                                 None => {},
                                 Some(v) => {
-                                    println!("Reinserting {:?}", v);
                                     vs.push_back(v.clone());
                                     vs.push_back(v);
                                 }
                             }
                         },
                         Temp => {
-                            println!("Push {:?} onto VS", cfv);
                             vs.push_back(cfv);
                             cfv = WashArgs::Empty;
                         },
@@ -582,7 +574,6 @@ impl AST {
                                 None => WashArgs::Empty,
                                 Some(v) => v.clone()
                             };
-                            println!("Pop {:?} off VS", top);
                             cfv = top;
                         },
                         Swap => {
@@ -590,29 +581,24 @@ impl AST {
                                 None => WashArgs::Empty,
                                 Some(v) => v
                             };
-                            println!("Swap CFV {:?} and VS {:?}", cfv, top);
                             vs.push_back(cfv);
                             cfv = top;
                         },
                         Get => {
                             match vs.pop_back() {
                                 None | Some(WashArgs::Empty) => {
-                                    println!("Setting CFV to Empty");
                                     cfv = WashArgs::Empty;
                                 },
                                 Some(WashArgs::Long(mut v)) => {
                                     match cfv {
                                         WashArgs::Long(ref mut cv) => {
-                                            println!("Appending top of VS to CFV");
                                             cv.append(&mut v);
                                         },
                                         WashArgs::Flat(s) => {
-                                            println!("Appending top of VS to CFV in new Long");
                                             v.insert(0, WashArgs::Flat(s));
                                             cfv = WashArgs::Long(v);
                                         },
                                         WashArgs::Empty => {
-                                            println!("Replacing CFV with top VS");
                                             cfv = WashArgs::Long(v);
                                         }
                                     }
@@ -620,17 +606,14 @@ impl AST {
                                 Some(WashArgs::Flat(s)) => {
                                     match cfv {
                                         WashArgs::Long(ref mut cv) => {
-                                            println!("Pushing top of VS onto CFV");
                                             cv.push(WashArgs::Flat(s));
                                         },
                                         WashArgs::Flat(cs) => {
-                                            println!("Creating new Long with CFV and top of VS");
                                             let v = vec![WashArgs::Flat(cs),
                                                          WashArgs::Flat(s)];
                                             cfv = WashArgs::Long(v);
                                         },
                                         WashArgs::Empty => {
-                                            println!("Replacing CFV with top VS");
                                             cfv = WashArgs::Flat(s);
                                         }
                                     }
@@ -646,10 +629,8 @@ impl AST {
                                 }
                             };
                             cfv = WashArgs::Long(vs.split_off(index).into_iter().collect());
-                            println!("Split off {:?} onto CFV", cfv);
                         },
                         Call(n) => {
-                            println!("Running {} with args {:?}", n, cfv);
                             cfv = try!(self.env.runf(&n, &cfv));
                         },
                         Proc(n, c) => {
@@ -670,7 +651,6 @@ impl AST {
                                     WashArgs::Long(vargs)
                                 }
                             };
-                            println!("Running {} with args {:?}, pushing result to VS", n, args);
                             vs.push_back(try!(self.env.runf(&n, &cfv)));
                         },
                         Fail(m) => {
@@ -678,11 +658,9 @@ impl AST {
                         },
                         DStore(n, p) => {
                             if p.is_empty() {
-                                println!("Setting ${} to {:?}", n, cfv);
                                 try!(self.env.insv(n, cfv));
                                 cfv = WashArgs::Empty;
                             } else {
-                                println!("Setting ${}:{} to {:?}", p, n, cfv);
                                 try!(self.env.insvp(n, p, cfv));
                                 cfv = WashArgs::Empty;
                             }
@@ -693,19 +671,15 @@ impl AST {
                                 Some(v) => v
                             };
                             if p.is_empty() {
-                                println!("Setting ${} to {:?}", n, top);
                                 try!(self.env.insv(n, top));
                             } else {
-                                println!("Setting ${}:{} to {:?}", p, n, top);
                                 try!(self.env.insvp(n, p, top));
                             }
                         },
                         Stack(n, p) => {
                             if p.is_empty() {
-                                println!("Getting ${}, pushing to VS", n);
                                 vs.push_back(try!(self.env.getv(&n)));
                             } else {
-                                println!("Getting ${}:{}, pushing to VS", p, n);
                                 vs.push_back(try!(self.env.getvp(&n, &p)));
                             }
                         },
@@ -721,7 +695,6 @@ impl AST {
                                                                com_name)),
                                     Some(caps) => {
                                         let name = caps.at(1).unwrap();
-                                        println!("Setting {} to {:?}", com_name, cfv);
                                         try!(self.env.insv(name.to_string(), cfv));
                                         cfv = WashArgs::Empty;
                                     }
@@ -729,7 +702,6 @@ impl AST {
                                 Some(caps) => {
                                     let path = caps.at(1).unwrap();
                                     let name = caps.at(2).unwrap();
-                                    println!("Setting {} to {:?}", com_name, cfv);
                                     try!(self.env.insvp(name.to_string(), path.to_string(), cfv));
                                     cfv = WashArgs::Empty;
                                 }
@@ -746,14 +718,12 @@ impl AST {
                                                                com_name)),
                                     Some(caps) => {
                                         let name = caps.at(1).unwrap();
-                                        println!("Getting {}", com_name);
                                         cfv = try!(self.env.getv(&name.to_string()));
                                     }
                                 },
                                 Some(caps) => {
                                     let path = caps.at(1).unwrap();
                                     let name = caps.at(2).unwrap();
-                                    println!("Getting {}", com_name);
                                     cfv = try!(self.env.getvp(&name.to_string(), &path.to_string()));
                                 }
                             }
