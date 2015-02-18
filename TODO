@@ -1,5 +1,8 @@
 - Implement the optimizer
+- Implement more handlers, like !=
 - Rework functions in env so they can be AST blocks
+- Implement runtime-defined functions
+ - think about function arguments, how to access them
 - Implement function output redirection
 - Implement conversion to IR
 - find way to pass environment variables for jobs
