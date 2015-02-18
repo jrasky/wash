@@ -160,19 +160,31 @@ builtin!(job_func, args, env, {
         return Err("No arguments given".to_string());
     } else if args.is_flat() {
         // easy case, no arguments to the function
-        id = try!(env.run_job(&args.flatten(), &vec![]));
+        if env.hasf(&args.flatten()) {
+            return Err(format!("Cannot run functions as jobs"));
+        } else {
+            id = try!(env.run_job(&args.flatten(), &vec![]));
+        }
     } else if !args.get(0).is_flat() {
         return Err("Can only run flat names".to_string());
     } else if !FD_REGEX.is_match(args.get(0).flatten().as_slice()) &&
         !EQ_TEMP_REGEX.is_match(args.get(0).flatten().as_slice()) {
-        // easy case, just a command
-        let args_slice = args.slice(1, -1);
-        id = try!(env.run_job(&args.get(0).flatten(), &args_slice.flatten_vec()));
-    } else {
-        // hard case, full argument set
-        let (stdin, stdout, stderr, name, argc, envs) = try!(job_args(args, env));
-        id = try!(env.run_job_fd(stdin, stdout, stderr, &name, &argc, &envs));
-    }
+            // easy case, just a command
+            let args_slice = args.slice(1, -1);
+            if env.hasf(&args.get(0).flatten()) {
+                return Err(format!("Cannot run functions as jobs"));
+            } else {
+                id = try!(env.run_job(&args.get(0).flatten(), &args_slice.flatten_vec()));
+            }
+        } else {
+            // hard case, full argument set
+            let (stdin, stdout, stderr, name, argc, envs) = try!(job_args(args, env));
+            if env.hasf(&name) {
+                return Err(format!("Cannot run functions as jobs"));
+            } else {
+                id = try!(env.run_job_fd(stdin, stdout, stderr, &name, &argc, &envs));
+            }
+        }
     return Ok(Flat(format!("{}", id)));
 });
 
@@ -196,7 +208,7 @@ builtin!(job_output_func, args, env, {
         return Err(s);
     } else {
         let mut s = String::from_utf8_lossy(out.output.as_slice()).into_owned();
-                // remove trailing newlines
+        // remove trailing newlines
         match s.pop() {
             Some(v) if v != NL => s.push(v),
             _ => {}
@@ -215,19 +227,33 @@ builtin!(run_func, args, env, {
         return Err("No arguments given".to_string());
     } else if args.is_flat() {
         // easy case, no arguments to the function
-        out = try!(env.run_command(&args.flatten(), &vec![]));
+        if env.hasf(&args.flatten()) {
+            try!(env.runf(&args.flatten(), &Empty));
+            out = ExitStatus(0);
+        } else {
+            out = try!(env.run_command(&args.flatten(), &vec![]));
+        }
     } else if !args.get(0).is_flat() {
         return Err("Can only run flat names".to_string());
     } else if !FD_REGEX.is_match(args.get(0).flatten().as_slice()) &&
         !EQ_TEMP_REGEX.is_match(args.get(0).flatten().as_slice()) {
             // easy case, just a command
             let args_slice = args.slice(1, -1);
-            out = try!(env.run_command(&args.get(0).flatten(), &args_slice.flatten_vec()));
-    } else {
-        // hard case, full argument set
-        let (stdin, stdout, stderr, name, argc, envs) = try!(job_args(args, env));
-        out = try!(env.run_command_fd(stdin, stdout, stderr, &name, &argc, &envs));
-    }
+            if env.hasf(&args.get(0).flatten()) {
+                try!(env.runf(&args.get(0).flatten(), &args_slice));
+                out = ExitStatus(0);
+            } else {
+                out = try!(env.run_command(&args.get(0).flatten(), &args_slice.flatten_vec()));
+            }
+        } else {
+            // hard case, full argument set
+            let (stdin, stdout, stderr, name, argc, envs) = try!(job_args(args, env));
+            if env.hasf(&name) {
+                return Err(format!("Cannot redirect function output"));
+            } else {
+                out = try!(env.run_command_fd(stdin, stdout, stderr, &name, &argc, &envs));
+            }
+        }
     return match out {
         ExitSignal(sig) => {
             return Ok(Long(vec![Flat("signal".to_string()),
@@ -343,11 +369,11 @@ builtin!(describe_process_output, args, _, {
     } else if argv == vec!["signal", "19"] || // SIGSTOP
         argv == vec!["signal", "20"] { // SIGTSTP
             return Err(format!("Command stopped"));
-    } else if argv != vec!["status", "0"] {
-        return Err(format!("Command failed with {} {}", argv[0], argv[1]));
-    } else {
-        return Ok(Empty);
-    }
+        } else if argv != vec!["status", "0"] {
+            return Err(format!("Command failed with {} {}", argv[0], argv[1]));
+        } else {
+            return Ok(Empty);
+        }
 });
 
 builtin!(run_failed_func, args, _, {

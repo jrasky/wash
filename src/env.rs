@@ -28,7 +28,8 @@ pub type WashFunc = fn(&WashArgs, &mut WashEnv) -> Result<WashArgs, String>;
 pub enum FuncEntry {
     Direct(WashFunc),
     #[allow(dead_code)]
-    Indirect(WashBlock) // all of this will be reimplemented soon
+    // TODO: rewrite this to be AST-aware
+    Indirect(WashBlock)
 }
 
 // >Dat pointer indirection
@@ -449,8 +450,19 @@ impl WashEnv {
             Some(_) => return Err(format!("Cannot run indirect functions this way"))
         };
         self.handle_sigint();
+        // in the case a function calls other functions
+        let do_unhandle;
+        if self.catch_sigint {
+            self.catch_sigint = false;
+            do_unhandle = true;
+        } else {
+            do_unhandle = false;
+        }
         let out = func(args, self);
-        self.unhandle_sigint();
+        if do_unhandle {
+            self.catch_sigint = true;
+            self.unhandle_sigint();
+        }
         return out;
     }
 

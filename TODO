@@ -1,5 +1,7 @@
 - Make sure function can be called like commands
 - Implement the optimizer
+- Rework functions in env so they can be AST blocks
+- Implement function output redirection
 - Implement conversion to IR
 - find way to pass environment variables for jobs
   in special way so they aren't ever set for the
@@ -10,6 +12,8 @@
  - permanent caches
  - pre-caching
  - startup scripts
+- Implement running functions as jobs
+ - do what bash does an run them in a new wash process
 - Re-write functions and handlers in scripts where possible
 - put various settings and things into settings variables
 - improve passing of environment variables to new jobs

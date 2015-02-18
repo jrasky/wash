@@ -453,6 +453,10 @@ impl AST {
                     } else {
                         out.push_back(Set(WashArgs::Flat(s.clone())));
                     }
+                if run {
+                    out.push_back(Call(format!("run")));
+                    out.push_back(Call(format!("describe_process_output")));
+                }
                 Ok(out)
             },
             &mut Literal(ref s) => {
@@ -482,7 +486,7 @@ impl AST {
                             }
                         },
                         Some(mut item) => {
-                            let mut aclist = try!(self.process(&mut item, run));
+                            let mut aclist = try!(self.process(&mut item, false));
                             let was_empty = aclist.is_empty();
                             out.append(&mut aclist);
                             if !was_empty {
