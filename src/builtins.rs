@@ -1,3 +1,5 @@
+use regex::Regex;
+
 use std::old_io::process::ProcessExit::*;
 use std::os::unix::prelude::*;
 
@@ -62,6 +64,21 @@ builtin!(equal_func, args, _, {
         Ok(Empty)
     } else {
         Ok(Flat(format!("not equal")))
+    }
+});
+
+builtin!(re_equal_func, args, _, {
+    if !args.is_long() || !args.len() == 2 {
+        Err(format!("Invalid arguments to equals?"))
+    } else if args.get(1).is_flat() {
+        let re = tryf!(Regex::new(args.get(1).flatten().as_slice()), "{err}");
+        if re.is_match(args.get(0).flatten().as_slice()) {
+            Ok(Empty)
+        } else {
+            Ok(Flat(format!("not equal")))
+        }
+    } else {
+        Err(format!("Right-hand side must be flat (regex)"))
     }
 });
 
@@ -333,6 +350,15 @@ builtin!(describe_process_output, args, _, {
     }
 });
 
+builtin!(run_failed_func, args, _, {
+    let argv = args.flatten_vec();
+    if argv == vec!["status", "0"] {
+        Ok(Flat(format!("succeeded")))
+    } else {
+        Ok(Empty)
+    }
+});
+
 builtin!(ftime_func, args, _, {
     let fmt = match args.get(0) {
         Flat(s) => s,
@@ -362,6 +388,26 @@ builtin!(prompt_func, _, env, {
 
 builtin!(subprompt_func, _, _, {
     return Ok(Flat(format!(" => $(")));
+});
+
+builtin!(open_output_func, args, env, {
+    let fname = match args {
+        &Flat(ref s) => s.clone(),
+        _ => return Err(format!("File name must be flat"))
+    };
+    let fpath = expand_path(Path::new(fname));
+    let fid = try!(env.output_file(&fpath));
+    Ok(Flat(format!("{}", fid)))
+});
+
+builtin!(open_input_func, args, env, {
+    let fname = match args {
+        &Flat(ref s) => s.clone(),
+        _ => return Err(format!("File name must be flat"))
+    };
+    let fpath = expand_path(Path::new(fname));
+    let fid = try!(env.input_file(&fpath));
+    Ok(Flat(format!("{}", fid)))
 });
 
 builtin!(builtins_func, _, _, {
@@ -397,6 +443,10 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insf("subprompt", subprompt_func));
     try!(env.insf("equal?", equal_func));
     try!(env.insf("not?", not_func));
+    try!(env.insf("re_equal?", re_equal_func));
+    try!(env.insf("open_input", open_input_func));
+    try!(env.insf("open_output", open_output_func));
+    try!(env.insf("run_failed?", run_failed_func));
 
     // commands that aren't really meant to be called by users
     try!(env.insf("describe_process_output", describe_process_output));

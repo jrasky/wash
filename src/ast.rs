@@ -964,7 +964,7 @@ handler!(handle_bar, contents, count, out, ast, {
 handler!(handle_geq, contents, count, out, ast, {
     if *count > 0 {
         out.push_back(Join(*count));
-        *count = 0;
+        *count = 1;
     }
     out.push_back(Temp);
     if contents.is_empty() {
@@ -985,7 +985,6 @@ handler!(handle_geq, contents, count, out, ast, {
         out.push_back(Set(WashArgs::Flat(format!("@out:"))));
         out.push_back(Get);
         out.push_back(Call(format!("dot")));
-        out.push_back(Get);
         return Ok(Continue);
     }
 });
@@ -993,7 +992,7 @@ handler!(handle_geq, contents, count, out, ast, {
 handler!(handle_leq, contents, count, out, ast, {
     if *count > 0 {
         out.push_back(Join(*count));
-        *count = 0;
+        *count = 1;
     }
     out.push_back(Temp);
     if contents.is_empty() {
@@ -1014,7 +1013,6 @@ handler!(handle_leq, contents, count, out, ast, {
         out.push_back(Set(WashArgs::Flat(format!("@"))));
         out.push_back(Get);
         out.push_back(Call(format!("dot")));
-        out.push_back(Get);
         return Ok(Continue);
     }
 });
