@@ -1,6 +1,8 @@
 - Implement the optimizer
  - Unused results pass
  - inter-section optimization
+ - create instruction for pull-load-temp pattern
+ - cfv and vs tracking in the optimizer
  - Make final optimization call O(n)
 - Implement more handlers, like !=
 - Rework functions in env so they can be AST blocks

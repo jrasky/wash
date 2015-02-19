@@ -488,6 +488,7 @@ impl AST {
                             } else {
                                 cfv_empty = false;
                             }
+                            out.push_back(Set(v));
                         }
                     },
                     Join(n) => match section.front() {
@@ -504,6 +505,7 @@ impl AST {
                             changes = true;
                         },
                         _ => {
+                            out.push_back(Join(n));
                             cfv_empty = false;
                         }
                     },
@@ -554,11 +556,47 @@ impl AST {
                             cfv_empty = false;
                         }
                     },
+                    Load => {
+                        if section.front() == Some(&Temp) {
+                            match out.back() {
+                                Some(&Set(WashArgs::Flat(_))) => {
+                                    let var = match out.pop_back() {
+                                        Some(Set(WashArgs::Flat(s))) => s,
+                                        _ => panic!("bock and pop_back returned differently")
+                                    };
+                                    let name; let path;
+                                    match VAR_PATH_REGEX.captures(var.as_slice()) {
+                                        None => match VAR_REGEX.captures(var.as_slice()) {
+                                            None => return Err(format!("Load would have failed with {}", var)),
+                                            Some(caps) => {
+                                                name = caps.at(1).unwrap().to_string();
+                                                path = String::new();
+                                            }
+                                        },
+                                        Some(caps) => {
+                                            name = caps.at(2).unwrap().to_string();
+                                            path = caps.at(1).unwrap().to_string();
+                                        }
+                                    }
+                                    section.pop_front();
+                                    out.push_back(Stack(name, path));
+                                    changes = true;
+                                },
+                                _ => {
+                                    out.push_back(Load);
+                                    cfv_empty = false;
+                                }
+                            }
+                        } else {
+                            out.push_back(Load);
+                            cfv_empty = false;
+                        }
+                    },
                     Store | Temp => {
                         out.push_back(item);
                         cfv_empty = true;
                     },
-                    Load | Top | Swap => {
+                    Top | Swap => {
                         out.push_back(item);
                         cfv_empty = false;
                     }
