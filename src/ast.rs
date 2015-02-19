@@ -273,14 +273,14 @@ impl AST {
     }
 
     pub fn optimize(&mut self) -> Result<(), String> {
-        while try!(self.opcombine()) {}
-        while try!(self.jumpreduce()) {}
+        try!(self.opcombine());
+        try!(self.jumpreduce());
         Ok(())
     }
 
     pub fn jumpreduce(&mut self) -> Result<bool, String> {
         // hashmap of sectiontype to (len, jumps_to, jumped_to_from)
-        let mut jumps = HashMap::<SectionType, (usize, Vec<SectionType>, Vec<SectionType>)>::new();
+        let mut jumps = HashMap::<SectionType, (usize, HashSet<SectionType>, HashSet<SectionType>)>::new();
         let mut visited = HashSet::new();
         let mut to_visit = vec![];
         let mut position = SectionType::Run;
@@ -313,7 +313,7 @@ impl AST {
                     }
                 }
             } else {
-                jumps.insert(position, (section.len(), vec![], vec![]));
+                jumps.insert(position, (section.len(), HashSet::new(), HashSet::new()));
             }
             for item in section.iter() {
                 match item {
@@ -322,22 +322,30 @@ impl AST {
                             match jumps.get_mut(&SectionType::Number(*n)) {
                                 None => panic!("contains_key and get_mut returned differently"),
                                 Some(sec) => {
-                                    sec.2.push(position);
+                                    sec.2.insert(position);
                                 }
                             }
                         } else {
                             jumps.insert(SectionType::Number(*n),
-                                         (0, vec![], vec![position]));
+                                         (0, HashSet::new(), {
+                                             let mut t = HashSet::new();
+                                             t.insert(position);
+                                             t
+                                         }));
                         }
                         if jumps.contains_key(&position) {
                             match jumps.get_mut(&position) {
                                 None => panic!("contains_key and get_mut returned differently"),
                                 Some(sec) => {
-                                    sec.1.push(SectionType::Number(*n));
+                                    sec.1.insert(SectionType::Number(*n));
                                 }
                             }
                         } else {
-                            jumps.insert(position, (section.len(), vec![SectionType::Number(*n)], vec![]));
+                            jumps.insert(position, (section.len(), {
+                                let mut t = HashSet::new();
+                                t.insert(SectionType::Number(*n));
+                                t
+                            }, HashSet::new()));
                         }
                         to_visit.push(SectionType::Number(*n));
                     },
@@ -348,11 +356,27 @@ impl AST {
                 }
             }
         }
+        to_visit.clear();
         let mut moved = HashMap::<SectionType, SectionType>::new();
-        for (sec, info) in jumps.iter() {
+        for sec in jumps.keys() {
+            to_visit.push(*sec);
+        }
+        loop {
+            position = match to_visit.pop() {
+                None => break,
+                Some(sec) => sec
+            };
+            if moved.contains_key(&position) {
+                // skip this section, it's been moved
+                continue;
+            }
+            let info = match jumps.remove(&position) {
+                None => return Err(format!("Section not found: {:?}", position)),
+                Some(v) => v
+            };
             if info.0 == 0 {
-                let num = match sec {
-                    &SectionType::Number(ref n) => n,
+                let num = match position {
+                    SectionType::Number(n) => n,
                     _ => panic!(".run and .load can't be jumped to")
                 };
                 // this seciton is empty,
@@ -369,38 +393,42 @@ impl AST {
                     loop {
                         match destsec.pop_back() {
                             None => return Err(format!("Pass 0: No jump found in section")),
-                            Some(Jump(ref n)) if n == num => {
+                            Some(Jump(ref n)) if *n == num => {
                                 // we've found the jump to our section
                                 break;
                             },
                             _ => {/* continue */}
                         }
                     }
+                    let destinfo = jumps.get_mut(&t).unwrap();
+                    destinfo.1.remove(&position);
+                    destinfo.0 = destsec.len();
+                    to_visit.push(t);
                 }
-                self.sections.remove(sec);
+                self.sections.remove(&position);
                 changes = true;
             } else if info.2.len() == 1 {
                 // only jumped to once, so move ourselves to that point in that section
-                let num = match sec {
-                    &SectionType::Number(ref n) => n,
+                let num = match position {
+                    SectionType::Number(n) => n,
                     _ => panic!(".run and .load can't be jumped to")
                 };
                 let dest = {
-                    let mut t = (info.2)[0].clone();
+                    let mut t = info.2.iter().next().unwrap().clone();
                     while moved.contains_key(&t) {
                         t = *(moved.get(&t).unwrap());
                     }
                     t
                 };
-                if *sec == dest {
+                if position == dest {
                     // don't move to ourselves
                     continue;
                 }
-                let mut orig = match self.sections.remove(sec) {
-                    None => return Err(format!("Pass 1: Original {:?} not found", sec)),
+                let mut orig = match self.sections.remove(&position) {
+                    None => return Err(format!("Pass 1: Original {:?} not found", position)),
                     Some(sec) => sec
                 };
-                moved.insert(*sec, dest);
+                moved.insert(position, dest);
                 let destsec = match self.sections.get_mut(&dest) {
                     None => return Err(format!("Pass 1: Destination {:?} not found", dest)),
                     Some(sec) => sec
@@ -408,7 +436,7 @@ impl AST {
                 loop {
                     match destsec.pop_back() {
                         None => return Err(format!("Pass 1: No jump found in section")),
-                        Some(Jump(ref n)) if n == num => {
+                        Some(Jump(ref n)) if *n == num => {
                             // we've found the jump to our section
                             destsec.append(&mut orig);
                             break;
@@ -416,7 +444,13 @@ impl AST {
                         _ => {/* continue */}
                     }
                 }
+                let destinfo = jumps.get_mut(&dest).unwrap();
+                destinfo.1.remove(&position);
+                destinfo.0 = destsec.len();
+                to_visit.push(dest);
                 changes = true;
+            } else {
+                jumps.insert(position, info);
             }
         }
         Ok(changes)
