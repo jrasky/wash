@@ -1,6 +1,7 @@
 - Implement the optimizer
  - Unused results pass
  - inter-section optimization
+ - Make final optimization call O(n)
 - Implement more handlers, like !=
 - Rework functions in env so they can be AST blocks
 - Implement runtime-defined functions
