@@ -893,13 +893,19 @@ fn test_input_against(line:String, against:InputValue) -> bool {
 }
 
 #[test]
-fn test_input() {
+fn test_input_short() {
     // test short
     assert!(test_input_against("hello_world".to_string(), Short("hello_world".to_string())));
+}
 
+#[test]
+fn test_input_literal() {
     // test literal
     assert!(test_input_against("\"hello world\"".to_string(), Literal("hello world".to_string())));
-    
+}
+
+#[test]
+fn test_input_arg_list() {
     // test arg list
     assert!(test_input_against("hello_world, \"hello world\", another arg".to_string(), Long(vec![
         Short("hello_world".to_string()),
@@ -910,7 +916,10 @@ fn test_input() {
         Split(" ".to_string()),
         Short("arg".to_string())
             ])));
-    
+}
+
+#[test]
+fn test_input_function() {
     // test function
     assert!(test_input_against("test_func(hello_world, \"hello world\", \"another arg\")".to_string(),
                                Function("test_func".to_string(), vec![
@@ -926,7 +935,10 @@ fn test_input() {
                                Function("test_func".to_string(), vec![
                                    Literal("hello world".to_string()),
                                    ])));
-    
+}
+
+#[test]
+fn test_input_nested_lists() {
     // test nested lists
     assert!(test_input_against("list (within (lists (within lists)))".to_string(), Long(vec![
         Short("list".to_string()),
@@ -971,7 +983,10 @@ fn test_input() {
                         ])
                     ])
             ])));
-    
+}
+
+#[test]
+fn test_input_nested_functions() {
     // test nested functions
     assert!(test_input_against("functions(calling functions(calling functions(with args)))".to_string(),
                                Function("functions".to_string(), vec![
@@ -987,7 +1002,10 @@ fn test_input() {
                                                ])
                                            ])
                                        ])));
+}
 
+#[test]
+fn test_input_function_list_args() {
     // harder test
     assert!(test_input_against("function(with, (more \"args\"))".to_string(),
                                Function("function".to_string(), vec![
@@ -1000,7 +1018,10 @@ fn test_input() {
                                            ])
                                        ])
                                ));
+}
 
+#[test]
+fn test_input_multiline_literal() {
     // multiline literal test
     assert!(test_input_against("\"literal with\nmultiple lines\"".to_string(),
                                Literal("literal with\nmultiple lines".to_string())));
