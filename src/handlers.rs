@@ -70,8 +70,7 @@ handler!(handle_equal, contents, count, out, ast, {
         out.push_back(Load);
         out.push_back(Swap);
         out.push_back(Temp);
-        ast.add_endline(Set(WashArgs::Empty));
-        ast.add_endline(Get);
+        ast.add_endline(Pull);
         ast.add_endline(Store);
     }
     out.append(&mut newacs);

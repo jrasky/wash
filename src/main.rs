@@ -105,6 +105,15 @@ pub fn main() {
                     },
                     Ok(_) => {
                         if !ast.in_block() {
+                            println!("{:?}", ast);
+                            match ast.optimize() {
+                                Err(e) => {
+                                    println!("Optimization error: {}", e);
+                                },
+                                Ok(_) => {
+                                    println!("{:?}", ast);
+                                }
+                            }
                             match ast.evaluate() {
                                 Err(ref e) if *e == STOP => {
                                     // the silent error

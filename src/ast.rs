@@ -35,7 +35,7 @@ impl fmt::Debug for AST {
         }
         try!(fmt.write_str("\n"));
         for section in self.sections.keys() {
-            try!(fmt.write_fmt(format_args!(".{:?}\n", section)));
+            try!(fmt.write_fmt(format_args!("{:?}\n", section)));
             for item in self.sections.get(section).unwrap().iter() {
                 try!(fmt.write_fmt(format_args!("{:?}\n", item)));
             }
@@ -272,6 +272,305 @@ impl AST {
         }
     }
 
+    pub fn optimize(&mut self) -> Result<(), String> {
+        while try!(self.opcombine()) {}
+        while try!(self.jumpreduce()) {}
+        Ok(())
+    }
+
+    pub fn jumpreduce(&mut self) -> Result<bool, String> {
+        // hashmap of sectiontype to (len, jumps_to, jumped_to_from)
+        let mut jumps = HashMap::<SectionType, (usize, Vec<SectionType>, Vec<SectionType>)>::new();
+        let mut visited = HashSet::new();
+        let mut to_visit = vec![];
+        let mut position = SectionType::Run;
+        let mut graphdone = false;
+        let mut changes = false;
+        loop {
+            while visited.contains(&position) {
+                position = match to_visit.pop() {
+                    None => {
+                        graphdone = true;
+                        break;
+                    },
+                    Some(sec) => sec
+                };
+            }
+            if graphdone {
+                // finished visiting everything
+                break;
+            }
+            visited.insert(position);
+            let section = match self.sections.get(&position) {
+                None => return Err(format!("Section not found: {:?}", position)),
+                Some(sec) => sec
+            };
+            if jumps.contains_key(&position) {
+                match jumps.get_mut(&position) {
+                    None => panic!("contains_key and get_mut returned differently"),
+                    Some(sec) => {
+                        sec.0 = section.len();
+                    }
+                }
+            } else {
+                jumps.insert(position, (section.len(), vec![], vec![]));
+            }
+            for item in section.iter() {
+                match item {
+                    &Jump(ref n) => {
+                        if jumps.contains_key(&SectionType::Number(*n)) {
+                            match jumps.get_mut(&SectionType::Number(*n)) {
+                                None => panic!("contains_key and get_mut returned differently"),
+                                Some(sec) => {
+                                    sec.2.push(position);
+                                }
+                            }
+                        } else {
+                            jumps.insert(SectionType::Number(*n),
+                                         (0, vec![], vec![position]));
+                        }
+                        if jumps.contains_key(&position) {
+                            match jumps.get_mut(&position) {
+                                None => panic!("contains_key and get_mut returned differently"),
+                                Some(sec) => {
+                                    sec.1.push(SectionType::Number(*n));
+                                }
+                            }
+                        } else {
+                            jumps.insert(position, (section.len(), vec![SectionType::Number(*n)], vec![]));
+                        }
+                        to_visit.push(SectionType::Number(*n));
+                    },
+                    &Branch(ref n) | &Root(ref n) => {
+                        to_visit.push(SectionType::Number(*n));
+                    },
+                    _ => {}
+                }
+            }
+        }
+        let mut moved = HashMap::<SectionType, SectionType>::new();
+        for (sec, info) in jumps.iter() {
+            if info.0 == 0 {
+                let num = match sec {
+                    &SectionType::Number(ref n) => n,
+                    _ => panic!(".run and .load can't be jumped to")
+                };
+                // this seciton is empty,
+                // remove all jumps to it
+                for sec in info.2.iter() {
+                    let mut t = *sec;
+                    while moved.contains_key(&t) {
+                        t = *(moved.get(&t).unwrap());
+                    }
+                    let destsec = match self.sections.get_mut(&t) {
+                        None => return Err(format!("Pass 0: Destination {:?} not found", t)),
+                        Some(sec) => sec
+                    };
+                    loop {
+                        match destsec.pop_back() {
+                            None => return Err(format!("Pass 0: No jump found in section")),
+                            Some(Jump(ref n)) if n == num => {
+                                // we've found the jump to our section
+                                break;
+                            },
+                            _ => {/* continue */}
+                        }
+                    }
+                }
+                self.sections.remove(sec);
+                changes = true;
+            } else if info.2.len() == 1 {
+                // only jumped to once, so move ourselves to that point in that section
+                let num = match sec {
+                    &SectionType::Number(ref n) => n,
+                    _ => panic!(".run and .load can't be jumped to")
+                };
+                let dest = {
+                    let mut t = (info.2)[0].clone();
+                    while moved.contains_key(&t) {
+                        t = *(moved.get(&t).unwrap());
+                    }
+                    t
+                };
+                if *sec == dest {
+                    // don't move to ourselves
+                    continue;
+                }
+                let mut orig = match self.sections.remove(sec) {
+                    None => return Err(format!("Pass 1: Original {:?} not found", sec)),
+                    Some(sec) => sec
+                };
+                moved.insert(*sec, dest);
+                let destsec = match self.sections.get_mut(&dest) {
+                    None => return Err(format!("Pass 1: Destination {:?} not found", dest)),
+                    Some(sec) => sec
+                };
+                loop {
+                    match destsec.pop_back() {
+                        None => return Err(format!("Pass 1: No jump found in section")),
+                        Some(Jump(ref n)) if n == num => {
+                            // we've found the jump to our section
+                            destsec.append(&mut orig);
+                            break;
+                        },
+                        _ => {/* continue */}
+                    }
+                }
+                changes = true;
+            }
+        }
+        Ok(changes)
+    }
+
+    pub fn opcombine(&mut self) -> Result<bool, String> {
+        let mut visited = HashSet::new();
+        let mut to_visit = vec![];
+        let mut position = SectionType::Run;
+        let mut section; let mut out;
+        let mut cfv_empty = true;
+        let mut changes = false;
+        loop {
+            while visited.contains(&position) {
+                position = match to_visit.pop() {
+                    None => return Ok(changes), // we're done
+                    Some(sec) => sec
+                };
+            }
+            visited.insert(position);
+            section = match self.sections.remove(&position) {
+                None => return Err(format!("Section not found: {:?}", position)),
+                Some(sec) => sec
+            };
+            out = DList::new();
+            loop {
+                let item = match section.pop_front() {
+                    None => break,
+                    Some(item) => item
+                };
+                match item {
+                    Jump(sec) => {
+                        to_visit.push(SectionType::Number(sec));
+                        out.push_back(Jump(sec));
+                        if !section.is_empty() {
+                            changes = true;
+                        }
+                        // any statements after this cannot be run
+                        break;
+                    },
+                    Branch(sec) => {
+                        to_visit.push(SectionType::Number(sec));
+                        if cfv_empty {
+                            changes = true;
+                            // this statement can only succeed
+                            out.push_back(Jump(sec));
+                            // any statements after this are pointless
+                            break;
+                        } else {
+                            out.push_back(Branch(sec));
+                        }
+                    },
+                    Root(sec) => {
+                        to_visit.push(SectionType::Number(sec));
+                        out.push_back(Root(sec));
+                    },
+                    Set(v) => match section.front() {
+                        Some(&Temp) => {
+                            // set followed by a temp can be turned into
+                            // just an insert
+                            out.push_back(Insert(v));
+                            section.pop_front();
+                            cfv_empty = true;
+                            changes = true;
+                        },
+                        _ => {
+                            if v == WashArgs::Empty {
+                                cfv_empty = true;
+                            } else {
+                                cfv_empty = false;
+                            }
+                        }
+                    },
+                    Join(n) => match section.front() {
+                        Some(&Call(_)) => {
+                            // join then call can be turned into proc
+                            // then pull
+                            let name = match section.pop_front() {
+                                Some(Call(n)) => n,
+                                _ => panic!("front and pop_front returned differently")
+                            };
+                            out.push_back(Proc(name, n));
+                            // insert pull as a process step
+                            section.push_front(Pull);
+                            changes = true;
+                        },
+                        _ => {
+                            cfv_empty = false;
+                        }
+                    },
+                    Get => {
+                        if cfv_empty {
+                            // treat like Pull
+                            match section.front() {
+                                Some(&Temp) => {
+                                    // inverse statements
+                                    section.pop_front();
+                                    changes = true;
+                                },
+                                _ => {
+                                    out.push_back(Get);
+                                    cfv_empty = false;
+                                }
+                            }
+                        } else {
+                            out.push_back(Get);
+                            cfv_empty = false;
+                        }
+                    },
+                    Pull => match section.front() {
+                        Some(&Temp) => {
+                            // inverse statements
+                            section.pop_front();
+                            changes = true;
+                        },
+                        Some(&Call(_)) => {
+                            let name = match section.pop_front() {
+                                Some(Call(n)) => n,
+                                _ => panic!("front and pop_front returned differently")
+                            };
+                            out.push_back(Proc(name, 1));
+                            section.push_front(Pull);
+                            changes = true;
+                        },
+                        Some(&Branch(_)) => {
+                            let num = match section.pop_front() {
+                                Some(Branch(n)) => n,
+                                _ => panic!("front and pop_front returned differently")
+                            };
+                            out.push_back(Root(num));
+                            changes = true;
+                        },
+                        _ => {
+                            out.push_back(Pull);
+                            cfv_empty = false;
+                        }
+                    },
+                    Store | Temp => {
+                        out.push_back(item);
+                        cfv_empty = true;
+                    },
+                    Load | Top | Swap => {
+                        out.push_back(item);
+                        cfv_empty = false;
+                    }
+                    v => {
+                        out.push_back(v);
+                    }
+                }
+            }
+            self.sections.insert(position, out);
+        }
+    }
+
     pub fn evaluate(&mut self) -> Result<WashArgs, String> {
         if self.in_block() {
             return Err(format!("Tried to evaluate while in block"));
@@ -295,6 +594,16 @@ impl AST {
                         },
                         Branch(n) => {
                             if cfv.is_empty() {
+                                self.position = SectionType::Number(n);
+                                break;
+                            }
+                        },
+                        Root(n) => {
+                            let top = match vs.pop_back() {
+                                None => WashArgs::Empty,
+                                Some(v) => v
+                            };
+                            if top.is_empty() {
                                 self.position = SectionType::Number(n);
                                 break;
                             }
@@ -324,6 +633,12 @@ impl AST {
                                 Some(v) => v.clone()
                             };
                             cfv = top;
+                        },
+                        Pull => {
+                            match vs.pop_back() {
+                                None => cfv = WashArgs::Empty,
+                                Some(v) => cfv = v
+                            }
                         },
                         Swap => {
                             let top = match vs.pop_back() {

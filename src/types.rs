@@ -86,6 +86,8 @@ pub enum Action {
     Temp,
     // clone the value on top of VS to CFV
     Top,
+    // pop top VS onto CFV
+    Pull,
     // swap CFV and top of VS
     Swap,
     // pop top of VS, append to CFV if CFV is Long
@@ -112,7 +114,9 @@ pub enum Action {
     // load given variable onto VS
     Stack(String, String),
     // copy and insert the top of VS
-    ReInsert
+    ReInsert,
+    // branch from top VS value
+    Root(usize)
 }
 
 
@@ -170,6 +174,10 @@ impl PartialEq for Action {
                 &Top => true,
                 _ => false
             },
+            &Pull => match other {
+                &Pull => true,
+                _ => false
+            },
             &Swap => match other {
                 &Swap => true,
                 _ => false
@@ -203,6 +211,10 @@ impl PartialEq for Action {
             },
             &ReInsert => match other {
                 &ReInsert => true,
+                _ => false
+            },
+            &Root(ref d) => match other {
+                &Root(ref od) if *d == *od => true,
                 _ => false
             },
         }
@@ -242,6 +254,9 @@ impl fmt::Debug for Action {
             &Top => {
                 try!(fmt.write_str("Top"));
             },
+            &Pull => {
+                try!(fmt.write_str("Pull"));
+            },
             &Swap => {
                 try!(fmt.write_str("Swap"));
             },
@@ -265,6 +280,9 @@ impl fmt::Debug for Action {
             },
             &ReInsert => {
                 try!(fmt.write_str("ReInsert"));
+            },
+            &Root(ref d) => {
+                try!(fmt.write_fmt(format_args!("Root({})", d)));
             },
         }
         Ok(())
@@ -296,13 +314,13 @@ impl fmt::Debug for SectionType {
         use self::SectionType::*;
         match self {
             &Load => {
-                try!(fmt.write_str("load"));
+                try!(fmt.write_str(".load"));
             },
             &Run => {
-                try!(fmt.write_str("run"));
+                try!(fmt.write_str(".run"));
             },
             &Number(ref n) => {
-                try!(fmt.write_fmt(format_args!("{}", n)));
+                try!(fmt.write_fmt(format_args!(".{}", n)));
             }
         }
         Ok(())
