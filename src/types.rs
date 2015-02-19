@@ -194,7 +194,6 @@ impl WashArgs {
         }
     }
 
-    #[allow(dead_code)] // this may be used again some day
     pub fn flatten_with_inner(&self, outer:&str, inner:&str) -> String {
         match self {
             &Flat(ref s) => s.clone(),

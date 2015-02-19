@@ -109,7 +109,10 @@ pub fn main() {
                                 }
                                 Err(e) => {
                                     println!("Error: {}", e);
-                                }, _ => {}
+                                },
+                                Ok(v) => {
+                                    println!("{}", v.flatten());
+                                }
                             };
                             ast.clear();
                         }

@@ -437,16 +437,34 @@ impl AST {
             },
             &mut Short(ref s) => {
                 let mut out = DList::new();
-                if VAR_PATH_REGEX.is_match(s.as_slice()) ||
-                    VAR_REGEX.is_match(s.as_slice()) {
+                match VAR_PATH_REGEX.captures(s.as_slice()) {
+                    None => if VAR_REGEX.is_match(s.as_slice()) {
                         out.push_back(Set(WashArgs::Flat(s.clone())));
                         out.push_back(Load);
                     } else {
                         out.push_back(Set(WashArgs::Flat(s.clone())));
+                        if run {
+                            out.push_back(Call(format!("run")));
+                            out.push_back(Call(format!("describe_process_output")));
+                        }
+                    },
+                    Some(caps) => {
+                        if caps.at(2).unwrap().is_empty() {
+                            let path = caps.at(1).unwrap();
+                            if path.is_empty() {
+                                out.push_back(Set(WashArgs::Empty));
+                            } else {
+                                out.push_back(Set(WashArgs::Flat(path.to_string())));
+                            }
+                            out.push_back(Call(format!("getall")));
+                            if run {
+                                out.push_back(Call(format!("flatten_eqlist")));
+                            }
+                        } else {
+                            out.push_back(Set(WashArgs::Flat(s.clone())));
+                            out.push_back(Load);
+                        }
                     }
-                if run {
-                    out.push_back(Call(format!("run")));
-                    out.push_back(Call(format!("describe_process_output")));
                 }
                 Ok(out)
             },
@@ -538,7 +556,7 @@ impl AST {
             let mut iter = section.into_iter();
             loop {
                 match iter.next() {
-                    None => return Ok(WashArgs::Empty),
+                    None => return Ok(cfv),
                     Some(action) => match action {
                         Jump(n) => {
                             self.position = SectionType::Number(n);
@@ -651,7 +669,7 @@ impl AST {
                                     WashArgs::Long(vargs)
                                 }
                             };
-                            vs.push_back(try!(self.env.runf(&n, &cfv)));
+                            vs.push_back(try!(self.env.runf(&n, &args)));
                         },
                         Fail(m) => {
                             return Err(m);

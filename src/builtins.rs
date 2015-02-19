@@ -31,6 +31,18 @@ builtin!(source_func, args, env, {
     env.load_script(Path::new(name), &args.slice(1, -1))
 });
 
+builtin!(getall_func, args, env, {
+    match args {
+        &Empty => env.getall(),
+        &Flat(ref p) => env.getallp(p),
+        _ => Err(format!("Path must be Flat or Empty"))
+    }
+});
+
+builtin!(flatten_eqlist_func, args, _, {
+    Ok(Flat(args.flatten_with_inner("\n", "=")))
+});
+
 builtin!(cd_func, args, _, {
     let newp = {
         if args.len() == 0 {
@@ -473,6 +485,8 @@ pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     try!(env.insf("open_input", open_input_func));
     try!(env.insf("open_output", open_output_func));
     try!(env.insf("run_failed?", run_failed_func));
+    try!(env.insf("getall", getall_func));
+    try!(env.insf("flatten_eqlist", flatten_eqlist_func));
 
     // commands that aren't really meant to be called by users
     try!(env.insf("describe_process_output", describe_process_output));
