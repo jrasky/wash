@@ -1,5 +1,4 @@
 - Fix input issue that prevents deleting spaces after the start of a long
-- Implement getall functionality
 - Implement the optimizer
 - Implement more handlers, like !=
 - Rework functions in env so they can be AST blocks
