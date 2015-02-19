@@ -121,8 +121,8 @@ impl InputLine {
                             self.front = popped.clone().unwrap();
                             if !self.pop_back() {
                                 self.back.push(popped.unwrap());
-                                self.front = Split(SPC.to_string());
-                                return false;
+                                self.front = Short(String::new());
+                                return true;
                             } else {
                                 match self.front {
                                     Literal(_) => {
@@ -1025,4 +1025,18 @@ fn test_input_multiline_literal() {
     // multiline literal test
     assert!(test_input_against("\"literal with\nmultiple lines\"".to_string(),
                                Literal("literal with\nmultiple lines".to_string())));
+}
+
+#[test]
+fn test_input_long_space() {
+    // test spaces at the beginning of longs
+    assert!(test_input_against(format!(" ( ( ( test args)))"),
+                               Long(vec![Split(format!(" ")),
+                                         Long(vec![Split(format!(" ")),
+                                                   Long(vec![Split(format!(" ")),
+                                                             Long(vec![Split(format!(" ")),
+                                                                       Short(format!("test")),
+                                                                       Split(format!(" ")),
+                                                                       Short(format!("args"))
+                                                                       ])])])])));
 }
