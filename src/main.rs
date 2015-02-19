@@ -112,6 +112,9 @@ pub fn main() {
                                 Err(e) => {
                                     println!("Error: {}", e);
                                 },
+                                Ok(WashArgs::Empty) => {
+                                    // print nothing
+                                },
                                 Ok(v) => {
                                     println!("{}", v.flatten());
                                 }
