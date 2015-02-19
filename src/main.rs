@@ -25,8 +25,9 @@ use reader::*;
 use constants::*;
 use builtins::*;
 use types::*;
+use ast::*;
+use handlers::*;
 
-use ast::AST;
 use types::InputValue::*;
 
 mod constants;
@@ -44,6 +45,7 @@ mod types;
 mod env;
 mod ioctl;
 mod ast;
+mod handlers;
 
 // public so no warnings when we run tests
 pub fn main() {
@@ -54,7 +56,7 @@ pub fn main() {
         Err(e) => ast.env.errf(format_args!("Could not load builtings: {}\n", e)),
         _ => {}
     }
-    ast::load_handlers(&mut ast);
+    load_handlers(&mut ast);
     ast.env.update_terminal();
     loop {
         ast.env.flush();

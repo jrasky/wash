@@ -5,6 +5,9 @@ use std::cmp::*;
 use std::fmt;
 
 use self::WashArgs::*;
+use self::Action::*;
+
+pub type AstResult = Result<HandlerResult, String>;
 
 #[derive(Clone)]
 pub enum WashArgs {
@@ -36,6 +39,83 @@ pub struct WashBlock {
     pub content: Vec<InputValue>
 }
 
+
+pub enum HandlerResult {
+    Continue, Stop,
+    More(SectionType)
+}
+
+#[derive(Copy, Clone, Eq, Hash)]
+pub enum SectionType {
+    // Special section types
+    Load, Run,
+    // Other sections are numbered
+    Number(usize)
+}
+
+// Acronyms
+// VS: Variable Stack, a stack containing runtime variables
+// GS: General State, the general environmental state
+// CFV: Current Front Variable, a separate variable temporary
+//      "storage" for function calls and the such.
+
+#[derive(Clone)]
+pub enum Action {
+    // * Basic actions
+    // set CFV to given
+    Set(WashArgs),
+    // call function given name
+    // arguments are on the CFV
+    // store value in CFV
+    Call(String),
+    // fail with the given message
+    Fail(String),
+    // take name, path stored on the top of VS (like $path:name)
+    // store CFV in that name, path
+    Store,
+    // load variable into CFV given name, path on CFV
+    Load,
+    // branch to given section number if the CFV
+    // is not empty
+    // branches do not touch stack
+    Branch(usize),
+    // Unconditional branch
+    Jump(usize),
+    // * VS Specific actions
+    // push CFV onto VS
+    Temp,
+    // clone the value on top of VS to CFV
+    Top,
+    // swap CFV and top of VS
+    Swap,
+    // pop top of VS, append to CFV if CFV is Long
+    // and top of VS is not long, join to CFV if
+    // VS is long, join with CFV in new Long if CFV
+    // is not Empty and top of VS is not Long,
+    // prepend CFV to top of VS and replace CFV with
+    // that if top of VS is Long, replace CFV if it
+    // is Empty
+    Get,
+    // pop last given elements of VS into new
+    // long, put into CFV
+    Join(usize),
+    // * Useful variations of basic actions
+    // given name, path, store CFV
+    DStore(String, String),
+    // push given onto VS
+    Insert(WashArgs),
+    // Same as Call, push result onto VS
+    // given name and # of arguments to pull from VS
+    Proc(String, usize),
+    // pop off VS, store into name, path
+    UnStack(String, String),
+    // load given variable onto VS
+    Stack(String, String),
+    // copy and insert the top of VS
+    ReInsert
+}
+
+
 impl Position {
     pub fn new() -> Position {
         Position {
@@ -44,6 +124,191 @@ impl Position {
         }
     }
 }
+
+
+impl PartialEq for Action {
+    fn eq(&self, other:&Action) -> bool {
+        match self {
+            &Set(ref v) => match other {
+                &Set(ref ov) if *v == *ov => true,
+                _ => false
+            },
+            &Call(ref n) => match other {
+                &Call(ref on) if *n == *on => true,
+                _ => false
+            },
+            &Fail(ref m) => match other {
+                &Fail(ref om) if *m == *om => true,
+                _ => false
+            },
+            &Store => match other {
+                &Store => true,
+                _ => false
+            },
+            &DStore(ref n, ref p) => match other {
+                &DStore(ref on, ref op) if *n == *on &&
+                    *p == *op => true,
+                _ => false
+            },
+            &Load => match other {
+                &Load => true,
+                _ => false
+            },
+            &Branch(ref d) => match other {
+                &Branch(ref od) if *d == *od => true,
+                _ => false
+            },
+            &Jump(ref d) => match other {
+                &Jump(ref od) if *d == *od => true,
+                _ => false
+            },
+            &Temp => match other {
+                &Temp => true,
+                _ => false
+            },
+            &Top => match other {
+                &Top => true,
+                _ => false
+            },
+            &Swap => match other {
+                &Swap => true,
+                _ => false
+            },
+            &Get => match other {
+                &Get => true,
+                _ => false
+            },
+            &Join(ref n) => match other {
+                &Join(ref on) if *n == *on => true,
+                _ => false
+            },
+            &Insert(ref v) => match other {
+                &Insert(ref ov) if *v == *ov => true,
+                _ => false
+            },
+            &Proc(ref n, ref a) => match other {
+                &Proc(ref on, ref oa) if *n == *on &&
+                    *a == *oa => true,
+                _ => false
+            },
+            &UnStack(ref n, ref p) => match other {
+                &UnStack(ref on, ref op) if *n == *on &&
+                    *p == *op => true,
+                _ => false
+            },
+            &Stack(ref n, ref p) => match other {
+                &Stack(ref on, ref op) if *n == *on &&
+                    *p == *op => true,
+                _ => false
+            },
+            &ReInsert => match other {
+                &ReInsert => true,
+                _ => false
+            },
+        }
+    }
+}
+
+impl fmt::Debug for Action {
+    fn fmt(&self, fmt:&mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Set(ref a) => {
+                try!(fmt.write_fmt(format_args!("Set({:?})", a)));
+            },
+            &Call(ref n) => {
+                try!(fmt.write_fmt(format_args!("Call({})", n)));
+            },
+            &Fail(ref m) => {
+                try!(fmt.write_fmt(format_args!("Fail({})", m)));
+            },
+            &Store => {
+                try!(fmt.write_str("Store"));
+            },
+            &DStore(ref n, ref p) => {
+                try!(fmt.write_fmt(format_args!("DStore({}, {})", n, p)));
+            },
+            &Load => {
+                try!(fmt.write_str("Load"));
+            },
+            &Branch(ref d) => {
+                try!(fmt.write_fmt(format_args!("Branch({})", d)));
+            },
+            &Jump(ref d) => {
+                try!(fmt.write_fmt(format_args!("Jump({})", d)));
+            },
+            &Temp => {
+                try!(fmt.write_str("Temp"));
+            },
+            &Top => {
+                try!(fmt.write_str("Top"));
+            },
+            &Swap => {
+                try!(fmt.write_str("Swap"));
+            },
+            &Get => {
+                try!(fmt.write_str("Get"));
+            },
+            &Join(ref n) => {
+                try!(fmt.write_fmt(format_args!("Join({})", n)));
+            },
+            &Insert(ref a) => {
+                try!(fmt.write_fmt(format_args!("Insert({:?})", a)));
+            },
+            &Proc(ref n, ref c) => {
+                try!(fmt.write_fmt(format_args!("Proc({}, {})", n, c)));
+            },
+            &UnStack(ref n, ref p) => {
+                try!(fmt.write_fmt(format_args!("UnStack({}, {})", n, p)));
+            },
+            &Stack(ref n, ref p) => {
+                try!(fmt.write_fmt(format_args!("Stack({}, {})", n, p)));
+            },
+            &ReInsert => {
+                try!(fmt.write_str("ReInsert"));
+            },
+        }
+        Ok(())
+    }
+}
+
+impl PartialEq for SectionType {
+    fn eq(&self, other:&SectionType) -> bool {
+        use self::SectionType::*;
+        match self {
+            &Load => match other {
+                &Load => true,
+                _ => false
+            },
+            &Run => match other {
+                &Run => true,
+                _ => false
+            },
+            &Number(ref n) => match other {
+                &Number(ref on) if *n == *on => true,
+                _ => false
+            }
+        }
+    }
+}
+
+impl fmt::Debug for SectionType {
+    fn fmt(&self, fmt:&mut fmt::Formatter) -> fmt::Result {
+        use self::SectionType::*;
+        match self {
+            &Load => {
+                try!(fmt.write_str("load"));
+            },
+            &Run => {
+                try!(fmt.write_str("run"));
+            },
+            &Number(ref n) => {
+                try!(fmt.write_fmt(format_args!("{}", n)));
+            }
+        }
+        Ok(())
+    }
+}
+
 
 impl InputValue {
     pub fn is_empty(&self) -> bool {
