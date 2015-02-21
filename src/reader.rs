@@ -1,7 +1,6 @@
 use libc::*;
 
-use std::collections::RingBuf;
-
+use std::collections::*;
 use std::num::*;
 
 use input::*;
@@ -20,7 +19,7 @@ pub struct LineReader {
     pub finished: bool,
     pub eof: bool,
     pub restarted: bool,
-    history: RingBuf<InputLine>,
+    history: VecDeque<InputLine>,
     bhistory: Vec<InputLine>,
     first_rsave: bool
 }
@@ -36,7 +35,7 @@ impl LineReader {
             finished: false,
             eof: false,
             restarted: false,
-            history: RingBuf::new(),
+            history: VecDeque::new(),
             bhistory: vec![],
             first_rsave: false
         }

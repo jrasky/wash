@@ -1,13 +1,15 @@
 use libc::*;
 
+// use old io, "The equivalent of InheritFd will be added at a later point"
 use std::old_io::process::{Command, ProcessOutput, ProcessExit,
                            Process, StdioContainer};
 use std::old_io::process::StdioContainer::*;
-use std::old_io::{IoError, IoErrorKind, IoResult};
-use std::old_io::IoErrorKind::*;
 use std::collections::VecMap;
 use std::os::unix::prelude::*;
-use std::old_io::{File, Append, Open, Read, Write};
+
+use std::path;
+use std::io;
+use std::fs;
 
 use controls::*;
 use constants::*;
@@ -53,7 +55,7 @@ unsafe extern fn term_signal(signo:c_int, u_info:*const SigInfo,
             } // failed process spawns cause SIGCHLD before we can put the process into the job table
         },
         SIGTSTP => {
-            // ignore background SIGCHLDS
+            // ignore background SIGTSTP
         },
         _ => term.controls.errf(format_args!("\nTerm caught unexpected signal: {}\n", signo))
     }
@@ -62,12 +64,12 @@ unsafe extern fn term_signal(signo:c_int, u_info:*const SigInfo,
 pub struct Job {
     pub command: String,
     pub process: Process,
-    pub files: Vec<File>,
+    pub files: Vec<fs::File>,
     pub exit: Option<ProcessExit>
 }
 
 impl Job {
-    pub fn wait(&mut self, timeout:Option<usize>) -> IoResult<ProcessExit> {
+    pub fn wait(&mut self, timeout:Option<usize>) -> io::Result<ProcessExit> {
         if self.check_exit() {
             // we're already dead
             return Ok(self.exit.clone().unwrap());
@@ -82,16 +84,14 @@ impl Job {
         return out;
     }
 
-    fn wait_signal(&mut self, timeout:Option<usize>, set:&SigSet) -> IoResult<ProcessExit> {
+    fn wait_signal(&mut self, timeout:Option<usize>, set:&SigSet) -> io::Result<ProcessExit> {
         let mut info; let mut fields;
         loop {
             info = try!(signal_wait_set(set, timeout));
             fields = match info.determine_sigfields() {
                 SigFields::SigChld(f) => f,
-                _ => return Err(IoError {kind: IoErrorKind::OtherIoError,
-                                         desc: "Didn't catch SIGCHLD",
-                                         detail: Some(format!("Caught signal {} instead", info.signo))
-                })
+                _ => return Err(io::Error::new(io::ErrorKind::Other, "Didn't catch SIGCHLD",
+                                               Some(format!("Caught signal {} instead", info.signo))))
             };
             if fields.pid == self.process.id() {
                 // we're dead (or stopped, but that comes later)
@@ -145,7 +145,7 @@ pub struct TermState {
     tios: Termios,
     old_tios: Termios,
     pub jobs: VecMap<Job>,
-    files: VecMap<File>,
+    files: VecMap<fs::File>,
     jobstack: Vec<usize>,
     spawning: bool
 }
@@ -266,18 +266,22 @@ impl TermState {
         return last + 1;
     }
         
-    pub fn output_file(&mut self, path:&Path) -> IoResult<Fd> {
+    pub fn output_file(&mut self, path:&path::Path) -> io::Result<Fd> {
         // files are opened before they are attached to processes
         // this allows the next *job function to attach to the file
         // index, so it can be freed when the job is pruned.
-        let file = try!(File::open_mode(path, Append, Write));
+        let mut options = fs::OpenOptions::new();
+        options.append(true).write(true);
+        let file = try!(options.open(path));
         let fid = file.as_raw_fd();
         self.files.insert(fid as usize, file);
         return Ok(fid);
     }
 
-    pub fn input_file(&mut self, path:&Path) -> IoResult<Fd> {
-        let file = try!(File::open_mode(path, Open, Read));
+    pub fn input_file(&mut self, path:&path::Path) -> io::Result<Fd> {
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        let file = try!(options.open(path));
         let fid = file.as_raw_fd();
         self.files.insert(fid as usize, file);
         return Ok(fid);
@@ -358,11 +362,10 @@ impl TermState {
         loop {
             info = match signal_wait_set(set, None) {
                 Ok(i) => i,
-                Err(IoError{kind:OtherIoError, desc:_, ref detail})
-                    if *detail == Some("interrupted system call".to_string()) => {
-                        // our waiting was interrupted, try again
-                        continue;
-                    },
+                Err(ref err) if err.detail() == Some("interrupted system call".to_string()) => {
+                    // our waiting was interrupted, try again
+                    continue;
+                },
                 Err(e) => return Err(format!("Couldn't wait for child to exit: {}", e))
             };
             match info.signo {

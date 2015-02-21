@@ -4,17 +4,21 @@ use sodiumoxide::crypto::hash::sha256;
 
 use serialize::hex::ToHex;
 
-use std::old_io::process::Command;
-use std::old_io::fs::PathExtensions;
+use std::process::Command;
+use std::fs::{File, PathExt};
+use std::path::{Path, PathBuf};
+use std::io::{Read, Write};
+use std::ffi::AsOsStr;
+use std::os::unix::OsStrExt;
 
-use std::old_io;
 use std::ffi;
-use std::str;
+use std::fs;
+use std::old_io;
 
 use constants::*;
 
 pub struct WashScript {
-    pub path: Path,
+    pub path: PathBuf,
     pub hash: String,
     handle: *const c_void,
     run_ptr: *const c_void,
@@ -34,9 +38,9 @@ impl Drop for WashScript {
 }
 
 impl WashScript {
-    pub fn new(path:Path) -> WashScript {
+    pub fn new(path:&Path) -> WashScript {
         WashScript {
-            path: path,
+            path: path.to_path_buf(),
             hash: String::new(),
             handle: 0 as *const c_void,
             run_ptr: 0 as *const c_void,
@@ -85,7 +89,7 @@ impl WashScript {
                     },
                     _ => {
                         let c = dlerror();
-                        let e = str::from_utf8(ffi::c_str_to_bytes(&c)).unwrap();
+                        let e = String::from_utf8_lossy(ffi::CStr::from_ptr(c).to_bytes());
                         return Err(format!("Couldn't unload wash script: {}\n", e));
                     }
                 }
@@ -105,24 +109,24 @@ impl WashScript {
         if !self.path.exists() {
             return Err(format!("Could not find {}", self.path.display()));
         }
-        let inf = match old_io::File::open(&self.path) {
+        let mut inf = match File::open(&self.path) {
             Ok(f) => f,
             Err(e) => {
                 return Err(format!("File error: {}", e));
             }
         };
-        let mut reader = old_io::BufferedReader::new(inf);
-        let content_s = reader.read_to_end().unwrap();
-        let contents = content_s.as_slice();
+        let mut content_s = String::new();
+        tryf!(inf.read_to_string(&mut content_s), "{err}");
+        let contents = content_s.as_bytes();
         self.hash = sha256::hash(contents).0.to_hex();
         let outp = {
             let mut outname = self.hash.clone();
             outname.push_str(".wo");
-            Path::new(WO_PATH).join(outname)
+            Path::new(WO_PATH).join(Path::new(outname.as_slice()))
         };
         if !outp.exists() {
             // scripts needs to be compiled
-            match old_io::fs::mkdir_recursive(&outp.dir_path(), old_io::USER_RWX) {
+            match fs::create_dir_all(Path::new(WO_PATH)) {
                 Ok(_) => {
                     // nothing
                 },
@@ -131,7 +135,7 @@ impl WashScript {
                 }
             }
             let mut command = Command::new("rustc");
-            command.args(&["-o", outp.as_str().unwrap(), "-"]);
+            command.args(&["-o", outp.as_os_str().to_str().unwrap(), "-"]);
             let mut child = match command.spawn() {
                 Err(e) => {
                     return Err(format!("Couldn't start compiler: {}", e));
@@ -153,20 +157,20 @@ impl WashScript {
                 Ok(o) => {
                     if !o.status.success() {
                         return Err(format!("Couldn't compile script: {}",
-                                           String::from_utf8(o.error).unwrap()));
+                                           String::from_utf8_lossy(o.stderr.as_slice())));
                     }
                 }
             }
         }
 
-        let path_cstr = ffi::CString::from_slice(outp.as_str().unwrap().as_bytes());
-        let run_cstr = ffi::CString::from_slice(WASH_RUN_SYMBOL.as_bytes());
-        let load_cstr = ffi::CString::from_slice(WASH_LOAD_SYMBOL.as_bytes());
+        let path_cstr = outp.as_os_str().to_cstring().ok().unwrap();
+        let run_cstr = tryf!(ffi::CString::new(WASH_RUN_SYMBOL), "{err}");
+        let load_cstr = tryf!(ffi::CString::new(WASH_LOAD_SYMBOL), "{err}");
         unsafe {
             self.handle = dlopen(path_cstr.as_ptr(), RTLD_LAZY|RTLD_LOCAL);
             if self.handle.is_null() {
                 let c = dlerror();
-                let e = str::from_utf8(ffi::c_str_to_bytes(&c)).unwrap();
+                let e = String::from_utf8_lossy(ffi::CStr::from_ptr(c).to_bytes());
                 return Err(format!("Could not load script object: {}", e));
             }
             

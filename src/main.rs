@@ -5,12 +5,16 @@
 #![feature(path)]
 #![feature(env)]
 #![feature(io)]
+#![feature(old_io)]
+#![feature(old_path)]
+#![feature(process)]
+#![feature(fs)]
+#![feature(os)]
 #![feature(libc)]
 #![feature(std_misc)]
 #![feature(unicode)]
 #![feature(rustc_private)]
 #![feature(plugin)]
-#![feature(hash)]
 #![plugin(regex_macros)]
 extern crate sodiumoxide;
 extern crate libc;

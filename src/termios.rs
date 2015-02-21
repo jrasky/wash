@@ -1,6 +1,6 @@
 use libc::{c_uint, c_uchar, c_int};
 
-use std::old_io::*;
+use std::io;
 
 use constants::*;
 
@@ -35,19 +35,19 @@ impl Termios {
         }
     }
 
-    pub fn get() -> IoResult<Termios> {
+    pub fn get() -> io::Result<Termios> {
         let mut tios = Termios::new();
         match unsafe {tcgetattr(STDIN, &mut tios)} {
             0 => Ok(tios),
-            _ => Err(IoError::last_error())
+            _ => Err(io::Error::last_os_error())
         }
 
     }
 
-    pub fn set(tios:&Termios) -> IoResult<()> {
+    pub fn set(tios:&Termios) -> io::Result<()> {
         match unsafe {tcsetattr(STDIN, TCSANOW, tios)} {
             0 => Ok(()),
-            _ => Err(IoError::last_error())
+            _ => Err(io::Error::last_os_error())
         }
     }
 

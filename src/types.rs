@@ -6,10 +6,11 @@ use std::fmt;
 
 use self::WashArgs::*;
 use self::Action::*;
+use self::OpValue::*;
 
 pub type AstResult = Result<HandlerResult, String>;
 
-#[derive(Clone)]
+#[derive(Clone, Eq, Hash)]
 pub enum WashArgs {
     Flat(String),
     Long(Vec<WashArgs>),
@@ -39,7 +40,7 @@ pub struct WashBlock {
     pub content: Vec<InputValue>
 }
 
-
+#[derive(Copy, Clone, Eq, Hash)]
 pub enum HandlerResult {
     Continue, Stop,
     More(SectionType)
@@ -51,6 +52,19 @@ pub enum SectionType {
     Load, Run,
     // Other sections are numbered
     Number(usize)
+}
+
+#[derive(Clone, Eq, Hash)]
+pub enum OpValue {
+    Known(WashArgs),
+    Unknown(usize)
+}
+
+#[derive(Clone, Eq, Hash)]
+pub struct OpTrack {
+    pub val: OpValue,
+    pub from: usize,
+    pub depends: Option<usize>
 }
 
 // Acronyms
@@ -90,14 +104,6 @@ pub enum Action {
     Pull,
     // swap CFV and top of VS
     Swap,
-    // pop top of VS, append to CFV if CFV is Long
-    // and top of VS is not long, join to CFV if
-    // VS is long, join with CFV in new Long if CFV
-    // is not Empty and top of VS is not Long,
-    // prepend CFV to top of VS and replace CFV with
-    // that if top of VS is Long, replace CFV if it
-    // is Empty
-    Get,
     // pop last given elements of VS into new
     // long, put into CFV
     Join(usize),
@@ -119,6 +125,77 @@ pub enum Action {
     Root(usize)
 }
 
+impl PartialEq for HandlerResult {
+    fn eq(&self, other:&HandlerResult) -> bool {
+        use self::HandlerResult::*;
+        match self {
+            &Continue => match other {
+                &Continue => true,
+                _ => false
+            },
+            &Stop => match other {
+                &Stop => true,
+                _ => false
+            },
+            &More(ref st) => match other {
+                &More(ref ost) if st == ost => true,
+                _ => false
+            }
+        }
+    }
+}
+
+impl fmt::Debug for HandlerResult {
+    fn fmt(&self, fmt:&mut fmt::Formatter) -> fmt::Result {
+        use self::HandlerResult::*;
+        match self {
+            &Continue => fmt.write_str("Continue"),
+            &Stop => fmt.write_str("Stop"),
+            &More(ref st) => fmt.write_fmt(format_args!("More({:?})", st))
+        }
+    }
+}
+
+impl PartialEq for OpValue {
+    fn eq(&self, other:&OpValue) -> bool {
+        match self {
+            &Known(ref v) => match other {
+                &Known(ref ov) if v == ov => true,
+                _ => false
+            },
+            &Unknown(ref v) => match other {
+                &Unknown(ref ov) if v == ov => true,
+                _ => false
+            }
+        }
+    }
+}
+
+impl fmt::Debug for OpValue {
+    fn fmt(&self, fmt:&mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Known(ref v) => fmt.write_fmt(format_args!("Known({:?})", v)),
+            &Unknown(ref v) => fmt.write_fmt(format_args!("Unknown({})", v))
+        }
+    }
+}
+
+impl PartialEq for OpTrack {
+    fn eq(&self, other:&OpTrack) -> bool {
+        self.val == other.val
+            && self.from == other.from
+            && self.depends == other.depends
+    }
+}
+
+impl fmt::Debug for OpTrack {
+    fn fmt(&self, fmt:&mut fmt::Formatter) -> fmt::Result {
+        try!(fmt.write_fmt(format_args!("Value: {:?}\n", self.val)));
+        try!(fmt.write_fmt(format_args!("From: {}\n", self.from)));
+        try!(fmt.write_fmt(format_args!("Depends: {:?}", self.depends)));
+        Ok(())
+    }
+}
 
 impl Position {
     pub fn new() -> Position {
@@ -128,7 +205,6 @@ impl Position {
         }
     }
 }
-
 
 impl PartialEq for Action {
     fn eq(&self, other:&Action) -> bool {
@@ -180,10 +256,6 @@ impl PartialEq for Action {
             },
             &Swap => match other {
                 &Swap => true,
-                _ => false
-            },
-            &Get => match other {
-                &Get => true,
                 _ => false
             },
             &Join(ref n) => match other {
@@ -259,9 +331,6 @@ impl fmt::Debug for Action {
             },
             &Swap => {
                 try!(fmt.write_str("Swap"));
-            },
-            &Get => {
-                try!(fmt.write_str("Get"));
             },
             &Join(ref n) => {
                 try!(fmt.write_fmt(format_args!("Join({})", n)));

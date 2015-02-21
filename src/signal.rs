@@ -1,8 +1,8 @@
 use libc::*;
 
-use std::os::unix::prelude::*;
-use std::old_io::*;
+use std::os::unix::*;
 
+use std::io;
 use std::mem;
 
 use constants::*;
@@ -186,10 +186,10 @@ extern {
     fn sigprocmask(how:c_int, set:*const SigSet, old_set:*mut SigSet) -> c_int;
 }
 
-pub fn signal_proc_mask(how:c_int, set:&SigSet) -> IoResult<SigSet> {
+pub fn signal_proc_mask(how:c_int, set:&SigSet) -> io::Result<SigSet> {
     let mut old_set = try!(empty_sigset());
     match unsafe {sigprocmask(how, set, &mut old_set)} {
-        -1 => return Err(IoError::last_error()),
+        -1 => return Err(io::Error::last_os_error()),
         0 => return Ok(old_set),
         _ => panic!("sigprocmask returned unknown value")
     }
@@ -220,7 +220,7 @@ fn fd_is_set(fd:Fd, set:&FdSet) -> bool {
 }
 
 pub fn select(read:&Vec<Fd>, write:&Vec<Fd>, except:&Vec<Fd>,
-              timeout:Option<usize>, sigmask:&SigSet) -> IoResult<Vec<Fd>> {
+              timeout:Option<usize>, sigmask:&SigSet) -> io::Result<Vec<Fd>> {
     let mut readfds = fd_set_empty();
     let mut writefds = fd_set_empty();
     let mut exceptfds = fd_set_empty();
@@ -256,7 +256,7 @@ pub fn select(read:&Vec<Fd>, write:&Vec<Fd>, except:&Vec<Fd>,
                             &mut exceptfds, &time, sigmask)}
         }
     } {
-        -1 => return Err(IoError::last_error()),
+        -1 => return Err(io::Error::last_os_error()),
         v => {
             let mut out = vec![];
             for fd in read.iter() {
@@ -282,19 +282,19 @@ pub fn select(read:&Vec<Fd>, write:&Vec<Fd>, except:&Vec<Fd>,
     }
 }
 
-pub fn signal_fd(set:&SigSet) -> IoResult<Fd> {
+pub fn signal_fd(set:&SigSet) -> io::Result<Fd> {
     match unsafe {signalfd(-1, set, 0)} {
-        -1 => Err(IoError::last_error()),
+        -1 => Err(io::Error::last_os_error()),
         fd => Ok(fd)
     }
 }
 
-pub fn signal_wait_set(set:&SigSet, timeout:Option<usize>) -> IoResult<SigInfo> {
+pub fn signal_wait_set(set:&SigSet, timeout:Option<usize>) -> io::Result<SigInfo> {
     let mut info = SigInfo::new();
     match timeout {
         None => match unsafe {sigwaitinfo(set, &mut info)} {
             v if v > 0 => Ok(info),
-            _ => Err(IoError::last_error())
+            _ => Err(io::Error::last_os_error())
         },
         Some(t) => {
             let time = timespec {
@@ -303,57 +303,57 @@ pub fn signal_wait_set(set:&SigSet, timeout:Option<usize>) -> IoResult<SigInfo> 
             };
             match unsafe {sigtimedwait(set, &mut info, &time)} {
                 v if v > 0 => Ok(info),
-                _ => Err(IoError::last_error())
+                _ => Err(io::Error::last_os_error())
             }
         }
     }
 }
 
-pub fn signal_handle(signal:c_int, action:*const SigAction) -> IoResult<SigAction> {
+pub fn signal_handle(signal:c_int, action:*const SigAction) -> io::Result<SigAction> {
     unsafe {
         let old_act = &mut SigAction::new();
         match  sigaction(signal, action, old_act) {
             0 => Ok(*old_act),
-            _ => Err(IoError::last_error())
+            _ => Err(io::Error::last_os_error())
         }
     }
 }
 
-pub fn signal_ignore(signal:c_int) -> IoResult<SigAction> {
+pub fn signal_ignore(signal:c_int) -> io::Result<SigAction> {
     let action = SigAction::ignore();
     signal_handle(signal, &action)
 }
 
-pub fn signal_default(signal:c_int) -> IoResult<SigAction> {
+pub fn signal_default(signal:c_int) -> io::Result<SigAction> {
     let action = SigAction::new();
     signal_handle(signal, &action)
 }
 
-pub fn full_sigset() -> IoResult<SigSet> {
+pub fn full_sigset() -> io::Result<SigSet> {
     let mut output:SigSet = [0; SIGSET_NWORDS];
     unsafe {
         match sigfillset(&mut output) {
             0 => Ok(output),
-            _ => Err(IoError::last_error())
+            _ => Err(io::Error::last_os_error())
         }
     }
 }
 
-pub fn empty_sigset() -> IoResult<SigSet> {
+pub fn empty_sigset() -> io::Result<SigSet> {
     let mut output:SigSet = [0; SIGSET_NWORDS];
     unsafe {
         match sigemptyset(&mut output) {
             0 => Ok(output),
-            _ => Err(IoError::last_error())
+            _ => Err(io::Error::last_os_error())
         }
     }
 }
 
-pub fn sigset_add(set:&mut SigSet, signal:c_int) -> IoResult<()> {
+pub fn sigset_add(set:&mut SigSet, signal:c_int) -> io::Result<()> {
     unsafe {
         match sigaddset(set, signal) {
             0 => Ok(()),
-            _ => Err(IoError::last_error())
+            _ => Err(io::Error::last_os_error())
         }
     }
 }

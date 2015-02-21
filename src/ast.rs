@@ -8,11 +8,12 @@ use env::*;
 use types::InputValue::*;
 use types::Action::*;
 use types::HandlerResult::*;
+use types::OpValue::*;
 
-pub type SectionTable = HashMap<SectionType, DList<Action>>;
+pub type SectionTable = HashMap<SectionType, LinkedList<Action>>;
 pub type HandlerTable = HashMap<String, AstHandler>;
 
-pub type AstHandler = fn(&mut DList<InputValue>, &mut usize, &mut DList<Action>, &mut AST) -> AstResult;
+pub type AstHandler = fn(&mut LinkedList<InputValue>, &mut usize, &mut LinkedList<Action>, &mut AST) -> AstResult;
 
 pub struct AST {
     pub env: WashEnv,
@@ -20,7 +21,7 @@ pub struct AST {
     handlers: HandlerTable,
     position: SectionType,
     extra_section: usize,
-    endline: DList<Action>,
+    endline: LinkedList<Action>,
     blocks: Vec<SectionType>,
     pub elif: Option<SectionType>,
     pub sec_loop: bool
@@ -53,7 +54,7 @@ impl AST {
             handlers: HashMap::new(),
             position: SectionType::Run,
             extra_section: 0,
-            endline: DList::new(),
+            endline: LinkedList::new(),
             blocks: vec![],
             elif: None,
             sec_loop: false
@@ -86,15 +87,15 @@ impl AST {
         let out = self.position;
         self.position = SectionType::Number(self.extra_section);
         if !self.sections.contains_key(&self.position) {
-            self.sections.insert(self.position, DList::new());
+            self.sections.insert(self.position, LinkedList::new());
         }
         self.extra_section += 1;
         return out;
     }
 
-    pub fn current_section(&mut self) -> &mut DList<Action> {
+    pub fn current_section(&mut self) -> &mut LinkedList<Action> {
         if !self.sections.contains_key(&self.position) {
-            self.sections.insert(self.position, DList::new());
+            self.sections.insert(self.position, LinkedList::new());
         }
         return self.sections.get_mut(&self.position).unwrap();
     }
@@ -102,7 +103,7 @@ impl AST {
     pub fn move_to(&mut self, section:SectionType) {
         self.position = section;
         if !self.sections.contains_key(&self.position) {
-            self.sections.insert(self.position, DList::new());
+            self.sections.insert(self.position, LinkedList::new());
         }
     }
 
@@ -114,7 +115,7 @@ impl AST {
         let mut aclist = try!(self.process(line, true));
         aclist.append(&mut self.endline);
         if !self.sections.contains_key(&self.position) {
-            self.sections.insert(self.position, DList::new());
+            self.sections.insert(self.position, LinkedList::new());
         }
         match self.sections.get_mut(&self.position) {
             None => Err(format!("Position not found in section table")),
@@ -149,15 +150,15 @@ impl AST {
         }
     }
 
-    pub fn process(&mut self, line:&mut InputValue, run:bool) -> Result<DList<Action>, String> {
+    pub fn process(&mut self, line:&mut InputValue, run:bool) -> Result<LinkedList<Action>, String> {
         match line {
-            &mut Split(_) => Ok(DList::new()),
+            &mut Split(_) => Ok(LinkedList::new()),
             &mut Short(ref s) if self.handlers.contains_key(s) => {
                 // since this is a function call we can just clone it
                 // and it's just cloning a usize, so it's pretty fast
                 let callback = self.handlers.get(s).unwrap().clone();
-                let mut out = DList::new();
-                match try!(callback(&mut DList::new(), &mut 0,
+                let mut out = LinkedList::new();
+                match try!(callback(&mut LinkedList::new(), &mut 0,
                                     &mut out, self)) {
                     Continue | Stop => Ok(out),
                     More(section) => {
@@ -167,7 +168,7 @@ impl AST {
                 }
             },
             &mut Short(ref s) => {
-                let mut out = DList::new();
+                let mut out = LinkedList::new();
                 match VAR_PATH_REGEX.captures(s.as_slice()) {
                     None => if VAR_REGEX.is_match(s.as_slice()) {
                         out.push_back(Set(WashArgs::Flat(s.clone())));
@@ -200,14 +201,14 @@ impl AST {
                 Ok(out)
             },
             &mut Literal(ref s) => {
-                let mut out = DList::new();
+                let mut out = LinkedList::new();
                 out.push_back(Set(WashArgs::Flat(s.clone())));
                 Ok(out)
             },
             &mut Long(ref mut v) => {
-                let mut out = DList::new();
+                let mut out = LinkedList::new();
                 let mut count = 0;
-                let mut items:DList<InputValue> = v.drain().collect();
+                let mut items:LinkedList<InputValue> = v.drain().collect();
                 loop {
                     match items.pop_front() {
                         None => break,
@@ -238,7 +239,7 @@ impl AST {
                 }
                 // this code is duplicated in handle_endblock
                 if count == 1 {
-                    out.push_back(Get);
+                    out.push_back(Pull);
                     if run {
                         out.push_back(Call(format!("run")));
                         out.push_back(Call(format!("describe_process_output")));
@@ -256,7 +257,7 @@ impl AST {
                 let mut aclist;
                 let old_blocks = self.blocks.clone();
                 if v.is_empty() {
-                    aclist = DList::new();
+                    aclist = LinkedList::new();
                 } else if v.len() == 1 {
                     aclist = try!(self.process(&mut v[0], false));
                 } else {
@@ -275,6 +276,7 @@ impl AST {
     pub fn optimize(&mut self) -> Result<(), String> {
         try!(self.opcombine());
         try!(self.jumpreduce());
+        try!(self.valtrack());
         Ok(())
     }
 
@@ -456,6 +458,217 @@ impl AST {
         Ok(changes)
     }
 
+    pub fn valtrack(&mut self) -> Result<(), String> {
+        let mut position = SectionType::Run;
+        let mut unknown_number = 0usize;
+        let mut vs = vec![];
+        let mut cfv = OpTrack {
+            val: OpValue::Known(WashArgs::Empty),
+            from: 0,
+            depends: None
+        };
+        let mut to_visit = vec![];
+        let section = match self.sections.get(&position) {
+                None => return Err(format!("Section not found: {:?}", position)),
+                Some(sec) => sec
+            };
+        let mut iter = section.iter().enumerate();
+        loop {
+            match iter.next() {
+                None => break,
+                Some((index, action)) => {
+                    match action {
+                        &Jump(n) => {
+                            to_visit.push((cfv.clone(), vs.clone(), n));
+                        },
+                        &Branch(n) => {
+                            to_visit.push((cfv.clone(), vs.clone(), n));
+                        },
+                        &Root(n) => {
+                            to_visit.push((cfv.clone(), vs.clone(), n));
+                        },
+                        &Set(ref v) => {
+                            cfv.val = OpValue::Known(v.clone());
+                            cfv.depends = None;
+                        },
+                        &Insert(ref v) => {
+                            vs.push(OpTrack {
+                                val: OpValue::Known(v.clone()),
+                                from: index,
+                                depends: None
+                            });
+                        },
+                        &ReInsert => {
+                            let val = match vs.pop() {
+                                None => OpTrack {
+                                    val: OpValue::Known(WashArgs::Empty),
+                                    from: index,
+                                    depends: None
+                                },
+                                Some(mut val) => {
+                                    val.from = index;
+                                    val
+                                }
+                            };
+                            vs.push(val.clone());
+                            vs.push(val);
+                        },
+                        &Temp => {
+                            vs.push(cfv);
+                            cfv = OpTrack {
+                                val: OpValue::Known(WashArgs::Empty),
+                                from: index,
+                                depends: None
+                            };
+                        },
+                        &Top => {
+                            cfv = match vs.pop() {
+                                None => OpTrack {
+                                    val: OpValue::Known(WashArgs::Empty),
+                                    from: index,
+                                    depends: None
+                                },
+                                Some(mut val) => {
+                                    val.from = index;
+                                    vs.push(val.clone());
+                                    val
+                                }
+                            };
+                        },
+                        &Pull => {
+                            cfv = match vs.pop() {
+                                None => OpTrack {
+                                    val: OpValue::Known(WashArgs::Empty),
+                                    from: index,
+                                    depends: None
+                                },
+                                Some(mut val) => {
+                                    val.from = index;
+                                    val
+                                }
+                            };
+                        },
+                        &Swap => {
+                            let val = match vs.pop() {
+                                None => OpTrack {
+                                    val: OpValue::Known(WashArgs::Empty),
+                                    from: index,
+                                    depends: None
+                                },
+                                Some(mut val) => {
+                                    val.from = index;
+                                    val
+                                }
+                            };
+                            vs.push(cfv);
+                            cfv = val;
+                        },
+                        &Join(n) => {
+                            let split_at = {
+                                if vs.len() > n {
+                                    vs.len() - n
+                                } else {
+                                    0
+                                }
+                            };
+                            let items:Vec<OpTrack> = vs.split_off(split_at).into_iter().collect();
+                            let depends = items.iter().map(|item| {item.depends.unwrap_or(item.from)}).min();
+                            let mut val = vec![];
+                            let mut iter = items.iter();
+                            loop {
+                                match iter.next() {
+                                    None => {
+                                        cfv = OpTrack {
+                                            val: OpValue::Known(WashArgs::Long(val)),
+                                            from: index,
+                                            depends: depends
+                                        };
+                                        break;
+                                    }
+                                    Some(ref item) => match item.val {
+                                        Known(ref v) => val.push(v.clone()),
+                                        Unknown(_) => {
+                                            cfv = OpTrack {
+                                                val: OpValue::Unknown(unknown_number),
+                                                from: index,
+                                                depends: depends
+                                            };
+                                            unknown_number += 1;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        &Call(_) => {
+                            cfv = OpTrack {
+                                val: OpValue::Unknown(unknown_number),
+                                from: index,
+                                depends: Some(cfv.depends.unwrap_or(cfv.from))
+                            };
+                            unknown_number += 1;
+                        },
+                        &Proc(_, n) => {
+                            let split_at = {
+                                if vs.len() > n {
+                                    vs.len() - n
+                                } else {
+                                    0
+                                }
+                            };
+                            let items:Vec<OpTrack> = vs.split_off(split_at).into_iter().collect();
+                            let depends = items.iter().map(|item| {item.depends.unwrap_or(item.from)}).min();
+                            vs.push(OpTrack {
+                                val: OpValue::Unknown(unknown_number),
+                                from: index,
+                                depends: depends
+                            });
+                            unknown_number += 1;
+                        },
+                        &Fail(_) => {
+                            // end of this logical path
+                            break;
+                        },
+                        &DStore(_, _) => {
+                            // no effect on CFV or VS
+                        },
+                        &UnStack(_, _) => {
+                            vs.pop();
+                        },
+                        &Stack(_, _) => {
+                            vs.push(OpTrack {
+                                val: OpValue::Unknown(unknown_number),
+                                from: index,
+                                depends: None
+                            });
+                            unknown_number += 1;
+                        },
+                        &Store => {
+                            vs.pop();
+                            vs.push(OpTrack {
+                                val: OpValue::Unknown(unknown_number),
+                                from: index,
+                                depends: Some(cfv.depends.unwrap_or(cfv.from))
+                            });
+                            unknown_number += 1;
+                        },
+                        &Load => {
+                            cfv = OpTrack {
+                                val: OpValue::Unknown(unknown_number),
+                                from: index,
+                                depends: Some(cfv.depends.unwrap_or(cfv.from))
+                            };
+                            unknown_number += 1;
+                        }
+                    }
+                    println!("CFV:\n{:?}\n", cfv);
+                    println!("VS:\n{:?}\n\n", vs);
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn opcombine(&mut self) -> Result<bool, String> {
         let mut visited = HashSet::new();
         let mut to_visit = vec![];
@@ -475,7 +688,7 @@ impl AST {
                 None => return Err(format!("Section not found: {:?}", position)),
                 Some(sec) => sec
             };
-            out = DList::new();
+            out = LinkedList::new();
             loop {
                 let item = match section.pop_front() {
                     None => break,
@@ -540,25 +753,6 @@ impl AST {
                         },
                         _ => {
                             out.push_back(Join(n));
-                            cfv_empty = false;
-                        }
-                    },
-                    Get => {
-                        if cfv_empty {
-                            // treat like Pull
-                            match section.front() {
-                                Some(&Temp) => {
-                                    // inverse statements
-                                    section.pop_front();
-                                    changes = true;
-                                },
-                                _ => {
-                                    out.push_back(Get);
-                                    cfv_empty = false;
-                                }
-                            }
-                        } else {
-                            out.push_back(Get);
                             cfv_empty = false;
                         }
                     },
@@ -649,7 +843,7 @@ impl AST {
         }
         self.position = SectionType::Run;
         let mut cfv = WashArgs::Empty;
-        let mut vs = DList::new();
+        let mut vs = LinkedList::new();
         loop {
             let section = match self.sections.get(&self.position) {
                 None => return Err(format!("Reached unknown section")),
@@ -719,42 +913,6 @@ impl AST {
                             };
                             vs.push_back(cfv);
                             cfv = top;
-                        },
-                        Get => {
-                            match vs.pop_back() {
-                                None | Some(WashArgs::Empty) => {
-                                    cfv = WashArgs::Empty;
-                                },
-                                Some(WashArgs::Long(mut v)) => {
-                                    match cfv {
-                                        WashArgs::Long(ref mut cv) => {
-                                            cv.append(&mut v);
-                                        },
-                                        WashArgs::Flat(s) => {
-                                            v.insert(0, WashArgs::Flat(s));
-                                            cfv = WashArgs::Long(v);
-                                        },
-                                        WashArgs::Empty => {
-                                            cfv = WashArgs::Long(v);
-                                        }
-                                    }
-                                },
-                                Some(WashArgs::Flat(s)) => {
-                                    match cfv {
-                                        WashArgs::Long(ref mut cv) => {
-                                            cv.push(WashArgs::Flat(s));
-                                        },
-                                        WashArgs::Flat(cs) => {
-                                            let v = vec![WashArgs::Flat(cs),
-                                                         WashArgs::Flat(s)];
-                                            cfv = WashArgs::Long(v);
-                                        },
-                                        WashArgs::Empty => {
-                                            cfv = WashArgs::Flat(s);
-                                        }
-                                    }
-                                }
-                            }
                         },
                         Join(n) => {
                             let index = {

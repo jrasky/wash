@@ -11,8 +11,8 @@ use types::InputValue::*;
 macro_rules! handler {
     ($name:ident, $contents:pat, $count:pat,
      $out:pat, $ast:pat, $func:block) => {
-        fn $name($contents:&mut DList<InputValue>, $count:&mut usize,
-                 $out:&mut DList<Action>, $ast:&mut AST) -> AstResult
+        fn $name($contents:&mut LinkedList<InputValue>, $count:&mut usize,
+                 $out:&mut LinkedList<Action>, $ast:&mut AST) -> AstResult
             $func
     }
 }
@@ -38,7 +38,7 @@ handler!(handle_equal, contents, count, out, ast, {
         }
     }
     // now evaluate the value
-    let mut newacs = DList::new();
+    let mut newacs = LinkedList::new();
     if contents.is_empty() {
         newacs.push_back(Set(WashArgs::Empty));
     } else {
@@ -225,11 +225,10 @@ handler!(handle_geq, contents, count, out, ast, {
             return Err(format!("No file name given"));
         }
         out.append(&mut aclist);
-        // the following demonstrates the beauty of Get
         out.push_back(Call(format!("open_output")));
+        out.push_back(Insert(WashArgs::Flat(format!("@out:"))));
         out.push_back(Temp);
-        out.push_back(Set(WashArgs::Flat(format!("@out:"))));
-        out.push_back(Get);
+        out.push_back(Join(2));
         out.push_back(Call(format!("dot")));
         return Ok(Continue);
     }
@@ -253,11 +252,10 @@ handler!(handle_leq, contents, count, out, ast, {
             return Err(format!("No file name given"));
         }
         out.append(&mut aclist);
-        // the following demonstrates the beauty of Get
         out.push_back(Call(format!("open_input")));
+        out.push_back(Insert(WashArgs::Flat(format!("@"))));
         out.push_back(Temp);
-        out.push_back(Set(WashArgs::Flat(format!("@"))));
-        out.push_back(Get);
+        out.push_back(Join(2));
         out.push_back(Call(format!("dot")));
         return Ok(Continue);
     }
@@ -431,7 +429,7 @@ handler!(handle_endblock, _, count, out, ast, {
             if *count > 1 {
                 sec.push_back(Join(*count));
             } else {
-                sec.push_back(Get);
+                sec.push_back(Pull);
             }
             sec.push_back(Call(format!("run")));
             sec.push_back(Call(format!("describe_process_output")));

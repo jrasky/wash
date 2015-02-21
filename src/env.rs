@@ -4,6 +4,7 @@ use std::old_io::process::{ProcessOutput, ProcessExit};
 use std::old_io::process::ProcessExit::*;
 use std::collections::HashMap;
 use std::os::unix::prelude::*;
+use std::path::{Path, PathBuf, AsPath};
 
 use std::num::*;
 use std::mem;
@@ -37,7 +38,7 @@ pub enum FuncEntry {
 // Once it does they'll turn into a more compact structure
 pub type VarTable = HashMap<String, WashArgs>;
 pub type FuncTable = HashMap<String, FuncEntry>;
-pub type ScriptTable = HashMap<Path, WashScript>;
+pub type ScriptTable = HashMap<PathBuf, WashScript>;
 pub type PathTable = HashMap<String, VarTable>;
 
 // WashLoad returns two lists, the first of initialized functions,
@@ -348,7 +349,7 @@ impl WashEnv {
             } else if *name == "scwd" {
                 let cwd = tryf!(env::current_dir(),
                                 "Couldn't get current directory: {err}");
-                return Ok(Flat(format!("{}", condense_path(cwd).display())));
+                return Ok(Flat(format!("{}", condense_path(cwd.as_path().to_path_buf()).display())));
             } else {
                 return Err(format!("System variable not found"));
             }
@@ -466,10 +467,10 @@ impl WashEnv {
         return out;
     }
 
-    pub fn load_script(&mut self, path:Path, args:&WashArgs) -> Result<WashArgs, String> {
+    pub fn load_script(&mut self, path:PathBuf, args:&WashArgs) -> Result<WashArgs, String> {
         let mut script = match self.scripts.remove(&path) {
             Some(script) => script,
-            None => WashScript::new(path.clone())
+            None => WashScript::new(path.as_path())
         };
         if !script.is_compiled() && !try!(script.compile()) {
             return Err("Failed to compile script".to_string());

@@ -2,8 +2,11 @@ use regex::Regex;
 
 use std::old_io::process::ProcessExit::*;
 use std::os::unix::prelude::*;
+use std::path::PathBuf;
+use std::ffi::AsOsStr;
 
 use std::env;
+use std::old_path;
 use std::cmp::*;
 use std::num::*;
 
@@ -28,7 +31,7 @@ builtin!(source_func, args, env, {
         &Long(_) => return Err("Can only source flat names".to_string()),
         &Flat(ref v) => v.clone()
     };
-    env.load_script(Path::new(name), &args.slice(1, -1))
+    env.load_script(PathBuf::new(&name), &args.slice(1, -1))
 });
 
 builtin!(getall_func, args, env, {
@@ -46,15 +49,15 @@ builtin!(flatten_eqlist_func, args, _, {
 builtin!(cd_func, args, _, {
     let newp = {
         if args.len() == 0 {
-            expand_path(Path::new("~"))
+            expand_path(PathBuf::new("~"))
         } else if &args.get_flat(0)[..min(args.get_flat(0).len(), 2)] == "./" {
             // this specifical case can't be put through expand_path
-            Path::new(&args.get_flat(0))
+            PathBuf::new(&args.get_flat(0))
         } else {
-            expand_path(Path::new(&args.get_flat(0)))
+            expand_path(PathBuf::new(&args.get_flat(0)))
         }
     };
-    match env::set_current_dir(&newp) {
+    match env::set_current_dir(&old_path::Path::new(newp.as_os_str().to_str().unwrap())) {
         Err(e) => return Err(e.desc.to_string()),
         Ok(_) => return Ok(Empty)
     }
@@ -433,7 +436,7 @@ builtin!(open_output_func, args, env, {
         &Flat(ref s) => s.clone(),
         _ => return Err(format!("File name must be flat"))
     };
-    let fpath = expand_path(Path::new(fname));
+    let fpath = expand_path(PathBuf::new(&fname));
     let fid = try!(env.output_file(&fpath));
     Ok(Flat(format!("{}", fid)))
 });
@@ -443,7 +446,7 @@ builtin!(open_input_func, args, env, {
         &Flat(ref s) => s.clone(),
         _ => return Err(format!("File name must be flat"))
     };
-    let fpath = expand_path(Path::new(fname));
+    let fpath = expand_path(PathBuf::new(&fname));
     let fid = try!(env.input_file(&fpath));
     Ok(Flat(format!("{}", fid)))
 });

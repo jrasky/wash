@@ -1,7 +1,8 @@
 use libc::*;
 
-use std::os::unix::prelude::*;
-use std::old_io::*;
+use std::os::unix::*;
+
+use std::io;
 use std::ffi;
 
 use constants::*;
@@ -53,30 +54,30 @@ extern {
     fn localtime(timep:*const time_t) -> *const TM;
 }
 
-pub fn term_winsize() -> IoResult<WinSize> {
+pub fn term_winsize() -> io::Result<WinSize> {
     let mut size = WinSize::new();
     match unsafe {ioctl(STDIN, TIOCGWINSZ, &mut size)} {
         0 => Ok(size),
-        _ => Err(IoError::last_error())
+        _ => Err(io::Error::last_os_error())
     }
 }
 
-pub fn get_hostname() -> IoResult<String> {
+pub fn get_hostname() -> io::Result<String> {
     let mut name = [1; HOST_NAME_MAX];
     match unsafe {gethostname(name.as_mut_ptr(), HOST_NAME_MAX as u64)} {
         0 => Ok(String::from_utf8_lossy(unsafe {
-            ffi::c_str_to_bytes(&name.as_ptr())}).into_owned()),
-        _ => Err(IoError::last_error())
+            ffi::CStr::from_ptr(name.as_ptr()).to_bytes()}).into_owned()),
+        _ => Err(io::Error::last_os_error())
     }
 }
 
-pub fn get_login() -> IoResult<String> {
+pub fn get_login() -> io::Result<String> {
     let name = unsafe {getlogin()};
     if name.is_null() {
-        return Err(IoError::last_error())
+        return Err(io::Error::last_os_error())
     } else {
         return Ok(String::from_utf8_lossy(unsafe {
-            ffi::c_str_to_bytes(&name)}).into_owned());
+            ffi::CStr::from_ptr(name).to_bytes()}).into_owned());
     }
 }
 
@@ -91,12 +92,15 @@ pub fn get_time() -> Option<TM> {
 
 pub fn strf_time(format:&String, time:&TM) -> String {
     let mut out = [1; STRF_BUF_SIZE];
-    let format_cstr = ffi::CString::from_slice(format.as_bytes());
+    let format_cstr = match ffi::CString::new(format.as_slice()) {
+        Err(e) => panic!("Could not create CString from format: {}", e),
+        Ok(s) => s
+    };
     match unsafe {strftime(out.as_mut_ptr(), STRF_BUF_SIZE as u64,
                            format_cstr.as_ptr(), time)} {
         0 => return String::new(), // contents of out may be undefined
         _ => return String::from_utf8_lossy(unsafe {
-            ffi::c_str_to_bytes(&out.as_ptr())}).into_owned()
+            ffi::CStr::from_ptr(out.as_ptr()).to_bytes()}).into_owned()
     }
     
 }

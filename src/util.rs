@@ -1,4 +1,5 @@
-use std::cmp::*;
+use std::path::{Path, PathBuf, AsPath};
+
 use std::env;
 
 #[macro_export]
@@ -24,7 +25,7 @@ macro_rules! tryf {
 // work around lack of DST
 pub fn build_string(ch:char, count:usize) -> String {
     let mut s = String::new();
-    let mut i = 0us;
+    let mut i = 0usize;
     loop {
         if i == count {
             return s;
@@ -34,29 +35,23 @@ pub fn build_string(ch:char, count:usize) -> String {
     }
 }
 
-pub fn expand_path(path:Path) -> Path {
-    if Path::new("~").is_ancestor_of(&path) {
-        return match env::home_dir() {
-            None => Path::new("/"),
-            Some(val) => Path::new(val)
-        }.join(Path::new(&path.as_vec()[min(path.as_vec().len(), 2)..]));
-    } else {
-        return path;
+pub fn expand_path(path:PathBuf) -> PathBuf {
+    match path.clone().relative_from(Path::new("~")) {
+        None => path,
+        Some(part) => match env::home_dir() {
+            None => PathBuf::new("/"),
+            Some(val) => PathBuf::new(val.as_path())
+        }.join(part)
     }
 }
 
-pub fn condense_path(path:Path) -> Path {
-    let homep = Path::new(match env::home_dir() {
-            None => return path,
-            Some(val) => val
-    });
-    if homep.is_ancestor_of(&path) {
-        match path.path_relative_from(&homep) {
+pub fn condense_path(path:PathBuf) -> PathBuf {
+    match env::home_dir() {
+        None => path,
+        Some(homep) => match path.clone().relative_from(homep.as_path()) {
             None => path,
-            Some(path) => Path::new("~").join(path)
+            Some(ref part) => PathBuf::new("~").join(part)
         }
-    } else {
-        return path;
     }
 }
 
