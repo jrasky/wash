@@ -460,7 +460,7 @@ impl AST {
 
     pub fn valtrack(&mut self) -> Result<(), String> {
         let mut position = SectionType::Run;
-        let mut unknown_number = 0usize;
+        let mut unknown_number:usize = 0;
         let mut vs = vec![];
         let mut cfv = OpTrack {
             val: OpValue::Known(WashArgs::Empty),

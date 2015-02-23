@@ -8,7 +8,6 @@
 - Rework functions in env so they can be AST blocks
 - Implement runtime-defined functions
  - think about function arguments, how to access them
-- Implement function output redirection
 - Implement conversion to IR
 - find way to pass environment variables for jobs
   in special way so they aren't ever set for the
@@ -20,19 +19,22 @@
  - pre-caching
  - startup scripts
 - Implement running functions as jobs
+ - implement function output redirection here
  - do what bash does an run them in a new wash process
 - Re-write functions and handlers in scripts where possible
 - put various settings and things into settings variables
 - improve passing of environment variables to new jobs
 - clean up controls à la input
+- completion
+ - generalize search functionality
+  - infers from actions, content, other things
+ - hook into bash completion
+ - Parameter expansion, based around regex
+  - automatically fix bash-style patterns
 - Polish history implementation
  - is a type of completion
  - maybe a separate object class
  - combine previous commands, lines, exit statuses and the such?
-- completion
- - hook into bash completion
- - Parameter expansion, based around regex
-  - automatically fix bash-style patterns
 - bash integration
 
 future:
@@ -42,12 +44,39 @@ future:
 - terminal client to match
 - wash_start entry points
 
-Thoughts on completion:
+Thoughts on completion
 
 Implement as a graph, where each node has info like line, time, etc
 completion are weight functions
  => two major classes of completions:
   - min-complete
-  - max complete
+  - max-complete
  where each selects either the min-weighted or max-weighted neighbor
- => things like history are simple functions of time, min-weighted
+ => things like history are simple functions of time, min-complete
+
+do it flx-style, so input of characters that all appear in that order
+in the completion, but maybe not right next to each other
+
+Some thoughts on valtrack
+
+Instead of having depends be Option<usize>, have it be Vec<usize>
+that list is the direct list of lines that that line depends on
+no chaining, so those lines might have dependencies.
+When moving statements, gather all those lines, and move them in of
+dependence, as a block
+
+On vs combinator steps (join and proc), check that all the inputs
+are in order which they were created (from)
+
+If they aren't, move the furthest forward ones to the right place
+
+Optimization in general
+
+Once fully implemented, only run on entire scripts, maybe only ones
+beyond a certain size
+It's almost certainly not worth it to optimize single lines of input
+from the reader
+
+We could also cache the input lines from reader, up to a certain number
+so if you run the same command a few times, it doesn't need to regenerate
+the ast again, it can just directly interpret it again
