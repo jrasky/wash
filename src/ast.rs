@@ -463,9 +463,9 @@ impl AST {
         let mut unknown_number:usize = 0;
         let mut vs = vec![];
         let mut cfv = OpTrack {
-            val: OpValue::Known(WashArgs::Empty),
+            val: OpValue::Clear(WashArgs::Empty),
             from: 0,
-            depends: None
+            depends: vec![]
         };
         let mut to_visit = vec![];
         let section = match self.sections.get(&position) {
@@ -488,49 +488,51 @@ impl AST {
                             to_visit.push((cfv.clone(), vs.clone(), n));
                         },
                         &Set(ref v) => {
-                            cfv.val = OpValue::Known(v.clone());
-                            cfv.depends = None;
+                            cfv.val = OpValue::Clear(v.clone());
+                            cfv.depends.clear();
                         },
                         &Insert(ref v) => {
                             vs.push(OpTrack {
-                                val: OpValue::Known(v.clone()),
+                                val: OpValue::Clear(v.clone()),
                                 from: index,
-                                depends: None
+                                depends: vec![]
                             });
                         },
                         &ReInsert => {
-                            let val = match vs.pop() {
+                            let mut val = match vs.pop() {
                                 None => OpTrack {
-                                    val: OpValue::Known(WashArgs::Empty),
+                                    val: OpValue::Clear(WashArgs::Empty),
                                     from: index,
-                                    depends: None
+                                    depends: vec![]
                                 },
-                                Some(mut val) => {
-                                    val.from = index;
-                                    val
-                                }
+                                Some(val) => val
                             };
                             vs.push(val.clone());
+                            val.depends.push(val.from);
+                            val.from = index;
                             vs.push(val);
                         },
                         &Temp => {
+                            cfv.depends.push(cfv.from);
+                            cfv.from = index;
                             vs.push(cfv);
                             cfv = OpTrack {
-                                val: OpValue::Known(WashArgs::Empty),
+                                val: OpValue::Clear(WashArgs::Empty),
                                 from: index,
-                                depends: None
+                                depends: vec![]
                             };
                         },
                         &Top => {
                             cfv = match vs.pop() {
                                 None => OpTrack {
-                                    val: OpValue::Known(WashArgs::Empty),
+                                    val: OpValue::Clear(WashArgs::Empty),
                                     from: index,
-                                    depends: None
+                                    depends: vec![]
                                 },
                                 Some(mut val) => {
-                                    val.from = index;
                                     vs.push(val.clone());
+                                    val.depends.push(val.from);
+                                    val.from = index;
                                     val
                                 }
                             };
@@ -538,11 +540,12 @@ impl AST {
                         &Pull => {
                             cfv = match vs.pop() {
                                 None => OpTrack {
-                                    val: OpValue::Known(WashArgs::Empty),
+                                    val: OpValue::Clear(WashArgs::Empty),
                                     from: index,
-                                    depends: None
+                                    depends: vec![]
                                 },
                                 Some(mut val) => {
+                                    val.depends.push(val.from);
                                     val.from = index;
                                     val
                                 }
@@ -551,15 +554,18 @@ impl AST {
                         &Swap => {
                             let val = match vs.pop() {
                                 None => OpTrack {
-                                    val: OpValue::Known(WashArgs::Empty),
+                                    val: OpValue::Clear(WashArgs::Empty),
                                     from: index,
-                                    depends: None
+                                    depends: vec![]
                                 },
                                 Some(mut val) => {
+                                    val.depends.push(val.from);
                                     val.from = index;
                                     val
                                 }
                             };
+                            cfv.depends.push(cfv.from);
+                            cfv.from = index;
                             vs.push(cfv);
                             cfv = val;
                         },
@@ -572,39 +578,26 @@ impl AST {
                                 }
                             };
                             let items:Vec<OpTrack> = vs.split_off(split_at).into_iter().collect();
-                            let depends = items.iter().map(|item| {item.depends.unwrap_or(item.from)}).min();
-                            let mut val = vec![];
-                            let mut iter = items.iter();
-                            loop {
-                                match iter.next() {
-                                    None => {
-                                        cfv = OpTrack {
-                                            val: OpValue::Known(WashArgs::Long(val)),
-                                            from: index,
-                                            depends: depends
-                                        };
-                                        break;
-                                    }
-                                    Some(ref item) => match item.val {
-                                        Known(ref v) => val.push(v.clone()),
-                                        Unknown(_) => {
-                                            cfv = OpTrack {
-                                                val: OpValue::Unknown(unknown_number),
-                                                from: index,
-                                                depends: depends
-                                            };
-                                            unknown_number += 1;
-                                            break;
-                                        }
-                                    }
-                                }
+                            let values:Vec<OpValue> = items.iter().map(|item| {item.val.clone()}).collect();
+                            let mut depends = vec![];
+                            for mut item in items {
+                                depends.append(&mut item.depends);
+                                depends.push(item.from);
                             }
+                            cfv = OpTrack {
+                                val: OpValue::Deep(values),
+                                from: index,
+                                depends: depends
+                            };
                         },
                         &Call(_) => {
                             cfv = OpTrack {
-                                val: OpValue::Unknown(unknown_number),
+                                val: OpValue::Opaque(unknown_number),
                                 from: index,
-                                depends: Some(cfv.depends.unwrap_or(cfv.from))
+                                depends: {
+                                    cfv.depends.push(cfv.from);
+                                    cfv.depends
+                                }
                             };
                             unknown_number += 1;
                         },
@@ -617,9 +610,13 @@ impl AST {
                                 }
                             };
                             let items:Vec<OpTrack> = vs.split_off(split_at).into_iter().collect();
-                            let depends = items.iter().map(|item| {item.depends.unwrap_or(item.from)}).min();
+                            let mut depends = vec![];
+                            for mut item in items {
+                                depends.append(&mut item.depends);
+                                depends.push(item.from);
+                            }
                             vs.push(OpTrack {
-                                val: OpValue::Unknown(unknown_number),
+                                val: OpValue::Opaque(unknown_number),
                                 from: index,
                                 depends: depends
                             });
@@ -637,26 +634,28 @@ impl AST {
                         },
                         &Stack(_, _) => {
                             vs.push(OpTrack {
-                                val: OpValue::Unknown(unknown_number),
+                                val: OpValue::Opaque(unknown_number),
                                 from: index,
-                                depends: None
+                                depends: vec![]
                             });
                             unknown_number += 1;
                         },
                         &Store => {
                             vs.pop();
-                            vs.push(OpTrack {
-                                val: OpValue::Unknown(unknown_number),
+                            cfv = OpTrack {
+                                val: OpValue::Clear(WashArgs::Empty),
                                 from: index,
-                                depends: Some(cfv.depends.unwrap_or(cfv.from))
-                            });
-                            unknown_number += 1;
+                                depends: vec![]
+                            };
                         },
                         &Load => {
                             cfv = OpTrack {
-                                val: OpValue::Unknown(unknown_number),
+                                val: OpValue::Opaque(unknown_number),
                                 from: index,
-                                depends: Some(cfv.depends.unwrap_or(cfv.from))
+                                depends: {
+                                    cfv.depends.push(cfv.from);
+                                    cfv.depends
+                                }
                             };
                             unknown_number += 1;
                         }

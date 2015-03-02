@@ -47,7 +47,6 @@ pub struct TM {
 extern {
     fn ioctl(d:Fd, request:c_ulong, ...) -> c_int;
     fn gethostname(name:*mut c_char, len:size_t) -> c_int;
-    fn getlogin() -> *const c_char;
     fn strftime(s:*mut c_char, max:size_t, format:*const c_char,
                 tm:*const TM) -> size_t;
     fn time(t:*mut time_t) -> time_t;

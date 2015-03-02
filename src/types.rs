@@ -56,15 +56,16 @@ pub enum SectionType {
 
 #[derive(Clone, Eq, Hash)]
 pub enum OpValue {
-    Known(WashArgs),
-    Unknown(usize)
+    Opaque(usize),
+    Clear(WashArgs),
+    Deep(Vec<OpValue>)
 }
 
 #[derive(Clone, Eq, Hash)]
 pub struct OpTrack {
     pub val: OpValue,
     pub from: usize,
-    pub depends: Option<usize>
+    pub depends: Vec<usize>
 }
 
 // Acronyms
@@ -159,12 +160,16 @@ impl fmt::Debug for HandlerResult {
 impl PartialEq for OpValue {
     fn eq(&self, other:&OpValue) -> bool {
         match self {
-            &Known(ref v) => match other {
-                &Known(ref ov) if v == ov => true,
+            &Clear(ref v) => match other {
+                &Clear(ref ov) if v == ov => true,
                 _ => false
             },
-            &Unknown(ref v) => match other {
-                &Unknown(ref ov) if v == ov => true,
+            &Opaque(ref v) => match other {
+                &Opaque(ref ov) if v == ov => true,
+                _ => false
+            },
+            &Deep(ref v) => match other {
+                &Deep(ref ov) if v == ov => true,
                 _ => false
             }
         }
@@ -174,8 +179,9 @@ impl PartialEq for OpValue {
 impl fmt::Debug for OpValue {
     fn fmt(&self, fmt:&mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Known(ref v) => fmt.write_fmt(format_args!("Known({:?})", v)),
-            &Unknown(ref v) => fmt.write_fmt(format_args!("Unknown({})", v))
+            &Clear(ref v) => fmt.write_fmt(format_args!("Clear({:?})", v)),
+            &Opaque(ref v) => fmt.write_fmt(format_args!("Opaque({})", v)),
+            &Deep(ref v) => fmt.write_fmt(format_args!("Deep({:?})", v))
         }
     }
 }

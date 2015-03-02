@@ -58,7 +58,7 @@ builtin!(cd_func, args, _, {
         }
     };
     match env::set_current_dir(&old_path::Path::new(newp.as_os_str().to_str().unwrap())) {
-        Err(e) => return Err(e.desc.to_string()),
+        Err(e) => return Err(format!("{}", e)),
         Ok(_) => return Ok(Empty)
     }
 });
