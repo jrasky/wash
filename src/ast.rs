@@ -8,7 +8,6 @@ use env::*;
 use types::InputValue::*;
 use types::Action::*;
 use types::HandlerResult::*;
-use types::OpValue::*;
 
 pub type SectionTable = HashMap<SectionType, LinkedList<Action>>;
 pub type HandlerTable = HashMap<String, AstHandler>;
@@ -276,7 +275,6 @@ impl AST {
     pub fn optimize(&mut self) -> Result<(), String> {
         try!(self.opcombine());
         try!(self.jumpreduce());
-        try!(self.valtrack());
         Ok(())
     }
 
@@ -373,7 +371,7 @@ impl AST {
                 continue;
             }
             let info = match jumps.remove(&position) {
-                None => return Err(format!("Section not found: {:?}", position)),
+                None => continue, // this section has already been dealth with
                 Some(v) => v
             };
             if info.0 == 0 {
@@ -456,216 +454,6 @@ impl AST {
             }
         }
         Ok(changes)
-    }
-
-    pub fn valtrack(&mut self) -> Result<(), String> {
-        let mut position = SectionType::Run;
-        let mut unknown_number:usize = 0;
-        let mut vs = vec![];
-        let mut cfv = OpTrack {
-            val: OpValue::Clear(WashArgs::Empty),
-            from: 0,
-            depends: vec![]
-        };
-        let mut to_visit = vec![];
-        let section = match self.sections.get(&position) {
-                None => return Err(format!("Section not found: {:?}", position)),
-                Some(sec) => sec
-            };
-        let mut iter = section.iter().enumerate();
-        loop {
-            match iter.next() {
-                None => break,
-                Some((index, action)) => {
-                    match action {
-                        &Jump(n) => {
-                            to_visit.push((cfv.clone(), vs.clone(), n));
-                        },
-                        &Branch(n) => {
-                            to_visit.push((cfv.clone(), vs.clone(), n));
-                        },
-                        &Root(n) => {
-                            to_visit.push((cfv.clone(), vs.clone(), n));
-                        },
-                        &Set(ref v) => {
-                            cfv.val = OpValue::Clear(v.clone());
-                            cfv.depends.clear();
-                        },
-                        &Insert(ref v) => {
-                            vs.push(OpTrack {
-                                val: OpValue::Clear(v.clone()),
-                                from: index,
-                                depends: vec![]
-                            });
-                        },
-                        &ReInsert => {
-                            let mut val = match vs.pop() {
-                                None => OpTrack {
-                                    val: OpValue::Clear(WashArgs::Empty),
-                                    from: index,
-                                    depends: vec![]
-                                },
-                                Some(val) => val
-                            };
-                            vs.push(val.clone());
-                            val.depends.push(val.from);
-                            val.from = index;
-                            vs.push(val);
-                        },
-                        &Temp => {
-                            cfv.depends.push(cfv.from);
-                            cfv.from = index;
-                            vs.push(cfv);
-                            cfv = OpTrack {
-                                val: OpValue::Clear(WashArgs::Empty),
-                                from: index,
-                                depends: vec![]
-                            };
-                        },
-                        &Top => {
-                            cfv = match vs.pop() {
-                                None => OpTrack {
-                                    val: OpValue::Clear(WashArgs::Empty),
-                                    from: index,
-                                    depends: vec![]
-                                },
-                                Some(mut val) => {
-                                    vs.push(val.clone());
-                                    val.depends.push(val.from);
-                                    val.from = index;
-                                    val
-                                }
-                            };
-                        },
-                        &Pull => {
-                            cfv = match vs.pop() {
-                                None => OpTrack {
-                                    val: OpValue::Clear(WashArgs::Empty),
-                                    from: index,
-                                    depends: vec![]
-                                },
-                                Some(mut val) => {
-                                    val.depends.push(val.from);
-                                    val.from = index;
-                                    val
-                                }
-                            };
-                        },
-                        &Swap => {
-                            let val = match vs.pop() {
-                                None => OpTrack {
-                                    val: OpValue::Clear(WashArgs::Empty),
-                                    from: index,
-                                    depends: vec![]
-                                },
-                                Some(mut val) => {
-                                    val.depends.push(val.from);
-                                    val.from = index;
-                                    val
-                                }
-                            };
-                            cfv.depends.push(cfv.from);
-                            cfv.from = index;
-                            vs.push(cfv);
-                            cfv = val;
-                        },
-                        &Join(n) => {
-                            let split_at = {
-                                if vs.len() > n {
-                                    vs.len() - n
-                                } else {
-                                    0
-                                }
-                            };
-                            let items:Vec<OpTrack> = vs.split_off(split_at).into_iter().collect();
-                            let values:Vec<OpValue> = items.iter().map(|item| {item.val.clone()}).collect();
-                            let mut depends = vec![];
-                            for mut item in items {
-                                depends.append(&mut item.depends);
-                                depends.push(item.from);
-                            }
-                            cfv = OpTrack {
-                                val: OpValue::Deep(values),
-                                from: index,
-                                depends: depends
-                            };
-                        },
-                        &Call(_) => {
-                            cfv = OpTrack {
-                                val: OpValue::Opaque(unknown_number),
-                                from: index,
-                                depends: {
-                                    cfv.depends.push(cfv.from);
-                                    cfv.depends
-                                }
-                            };
-                            unknown_number += 1;
-                        },
-                        &Proc(_, n) => {
-                            let split_at = {
-                                if vs.len() > n {
-                                    vs.len() - n
-                                } else {
-                                    0
-                                }
-                            };
-                            let items:Vec<OpTrack> = vs.split_off(split_at).into_iter().collect();
-                            let mut depends = vec![];
-                            for mut item in items {
-                                depends.append(&mut item.depends);
-                                depends.push(item.from);
-                            }
-                            vs.push(OpTrack {
-                                val: OpValue::Opaque(unknown_number),
-                                from: index,
-                                depends: depends
-                            });
-                            unknown_number += 1;
-                        },
-                        &Fail(_) => {
-                            // end of this logical path
-                            break;
-                        },
-                        &DStore(_, _) => {
-                            // no effect on CFV or VS
-                        },
-                        &UnStack(_, _) => {
-                            vs.pop();
-                        },
-                        &Stack(_, _) => {
-                            vs.push(OpTrack {
-                                val: OpValue::Opaque(unknown_number),
-                                from: index,
-                                depends: vec![]
-                            });
-                            unknown_number += 1;
-                        },
-                        &Store => {
-                            vs.pop();
-                            cfv = OpTrack {
-                                val: OpValue::Clear(WashArgs::Empty),
-                                from: index,
-                                depends: vec![]
-                            };
-                        },
-                        &Load => {
-                            cfv = OpTrack {
-                                val: OpValue::Opaque(unknown_number),
-                                from: index,
-                                depends: {
-                                    cfv.depends.push(cfv.from);
-                                    cfv.depends
-                                }
-                            };
-                            unknown_number += 1;
-                        }
-                    }
-                    println!("CFV:\n{:?}\n", cfv);
-                    println!("VS:\n{:?}\n\n", vs);
-                }
-            }
-        }
-        Ok(())
     }
 
     pub fn opcombine(&mut self) -> Result<bool, String> {
@@ -775,7 +563,7 @@ impl AST {
                                 Some(Branch(n)) => n,
                                 _ => panic!("front and pop_front returned differently")
                             };
-                            out.push_back(Root(num));
+                            section.push_front(Root(num));
                             changes = true;
                         },
                         _ => {

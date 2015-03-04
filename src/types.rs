@@ -6,7 +6,6 @@ use std::fmt;
 
 use self::WashArgs::*;
 use self::Action::*;
-use self::OpValue::*;
 
 pub type AstResult = Result<HandlerResult, String>;
 
@@ -52,20 +51,6 @@ pub enum SectionType {
     Load, Run,
     // Other sections are numbered
     Number(usize)
-}
-
-#[derive(Clone, Eq, Hash)]
-pub enum OpValue {
-    Opaque(usize),
-    Clear(WashArgs),
-    Deep(Vec<OpValue>)
-}
-
-#[derive(Clone, Eq, Hash)]
-pub struct OpTrack {
-    pub val: OpValue,
-    pub from: usize,
-    pub depends: Vec<usize>
 }
 
 // Acronyms
@@ -154,52 +139,6 @@ impl fmt::Debug for HandlerResult {
             &Stop => fmt.write_str("Stop"),
             &More(ref st) => fmt.write_fmt(format_args!("More({:?})", st))
         }
-    }
-}
-
-impl PartialEq for OpValue {
-    fn eq(&self, other:&OpValue) -> bool {
-        match self {
-            &Clear(ref v) => match other {
-                &Clear(ref ov) if v == ov => true,
-                _ => false
-            },
-            &Opaque(ref v) => match other {
-                &Opaque(ref ov) if v == ov => true,
-                _ => false
-            },
-            &Deep(ref v) => match other {
-                &Deep(ref ov) if v == ov => true,
-                _ => false
-            }
-        }
-    }
-}
-
-impl fmt::Debug for OpValue {
-    fn fmt(&self, fmt:&mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Clear(ref v) => fmt.write_fmt(format_args!("Clear({:?})", v)),
-            &Opaque(ref v) => fmt.write_fmt(format_args!("Opaque({})", v)),
-            &Deep(ref v) => fmt.write_fmt(format_args!("Deep({:?})", v))
-        }
-    }
-}
-
-impl PartialEq for OpTrack {
-    fn eq(&self, other:&OpTrack) -> bool {
-        self.val == other.val
-            && self.from == other.from
-            && self.depends == other.depends
-    }
-}
-
-impl fmt::Debug for OpTrack {
-    fn fmt(&self, fmt:&mut fmt::Formatter) -> fmt::Result {
-        try!(fmt.write_fmt(format_args!("Value: {:?}\n", self.val)));
-        try!(fmt.write_fmt(format_args!("From: {}\n", self.from)));
-        try!(fmt.write_fmt(format_args!("Depends: {:?}", self.depends)));
-        Ok(())
     }
 }
 

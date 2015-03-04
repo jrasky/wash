@@ -3,11 +3,9 @@
 #![feature(collections)]
 #![feature(core)]
 #![feature(path)]
-#![feature(env)]
 #![feature(io)]
 #![feature(old_io)]
 #![feature(old_path)]
-#![feature(process)]
 #![feature(fs)]
 #![feature(os)]
 #![feature(libc)]
@@ -109,13 +107,13 @@ pub fn main() {
                     },
                     Ok(_) => {
                         if !ast.in_block() {
-                            println!("{:?}", ast);
+                            //println!("{:?}", ast);
                             match ast.optimize() {
                                 Err(e) => {
                                     println!("Optimization error: {}", e);
                                 },
                                 Ok(_) => {
-                                    println!("{:?}", ast);
+                                    //println!("{:?}", ast);
                                 }
                             }
                             match ast.evaluate() {

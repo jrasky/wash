@@ -1,9 +1,3 @@
-- Implement the optimizer
- - Unused results pass
- - inter-section optimization
- - create instruction for pull-load-temp pattern
- - cfv and vs tracking in the optimizer
- - Make final optimization call O(n)
 - Implement more handlers, like !=
 - Rework functions in env so they can be AST blocks
 - Implement runtime-defined functions
@@ -56,27 +50,3 @@ completion are weight functions
 
 do it flx-style, so input of characters that all appear in that order
 in the completion, but maybe not right next to each other
-
-Some thoughts on valtrack
-
-Instead of having depends be Option<usize>, have it be Vec<usize>
-that list is the direct list of lines that that line depends on
-no chaining, so those lines might have dependencies.
-When moving statements, gather all those lines, and move them in of
-dependence, as a block
-
-On vs combinator steps (join and proc), check that all the inputs
-are in order which they were created (from)
-
-If they aren't, move the furthest forward ones to the right place
-
-Optimization in general
-
-Once fully implemented, only run on entire scripts, maybe only ones
-beyond a certain size
-It's almost certainly not worth it to optimize single lines of input
-from the reader
-
-We could also cache the input lines from reader, up to a certain number
-so if you run the same command a few times, it doesn't need to regenerate
-the ast again, it can just directly interpret it again
