@@ -9,13 +9,11 @@ use types::InputValue::*;
 use types::Action::*;
 use types::HandlerResult::*;
 
-pub type SectionTable = HashMap<SectionType, LinkedList<Action>>;
 pub type HandlerTable = HashMap<String, AstHandler>;
 
 pub type AstHandler = fn(&mut LinkedList<InputValue>, &mut usize, &mut LinkedList<Action>, &mut AST) -> AstResult;
 
 pub struct AST {
-    pub env: WashEnv,
     sections: SectionTable,
     handlers: HandlerTable,
     position: SectionType,
@@ -48,7 +46,6 @@ impl fmt::Debug for AST {
 impl AST {
     pub fn new() -> AST {
         AST {
-            env: WashEnv::new(),
             sections: HashMap::new(),
             handlers: HashMap::new(),
             position: SectionType::Run,
@@ -70,6 +67,12 @@ impl AST {
         self.sec_loop = false;
     }
 
+    pub fn into_runner(&mut self) -> ASTRunner {
+        let sections = self.sections.clone();
+        self.clear();
+        ASTRunner::new(sections)
+    }
+    
     pub fn in_block(&self) -> bool {
         !self.blocks.is_empty()
     }
@@ -624,194 +627,5 @@ impl AST {
         }
     }
 
-    pub fn evaluate(&mut self) -> Result<WashArgs, String> {
-        if self.in_block() {
-            return Err(format!("Tried to evaluate while in block"));
-        }
-        self.position = SectionType::Run;
-        let mut cfv = WashArgs::Empty;
-        let mut vs = LinkedList::new();
-        loop {
-            let section = match self.sections.get(&self.position) {
-                None => return Err(format!("Reached unknown section")),
-                Some(sec) => sec.clone()
-            };
-            let mut iter = section.into_iter();
-            loop {
-                match iter.next() {
-                    None => return Ok(cfv),
-                    Some(action) => match action {
-                        Jump(n) => {
-                            self.position = SectionType::Number(n);
-                            break;
-                        },
-                        Branch(n) => {
-                            if cfv.is_empty() {
-                                self.position = SectionType::Number(n);
-                                break;
-                            }
-                        },
-                        Root(n) => {
-                            let top = match vs.pop_back() {
-                                None => WashArgs::Empty,
-                                Some(v) => v
-                            };
-                            if top.is_empty() {
-                                self.position = SectionType::Number(n);
-                                break;
-                            }
-                        },
-                        Set(v) => {
-                            cfv = v;
-                        },
-                        Insert(v) => {
-                            vs.push_back(v);
-                        },
-                        ReInsert => {
-                            match vs.pop_back() {
-                                None => {},
-                                Some(v) => {
-                                    vs.push_back(v.clone());
-                                    vs.push_back(v);
-                                }
-                            }
-                        },
-                        Temp => {
-                            vs.push_back(cfv);
-                            cfv = WashArgs::Empty;
-                        },
-                        Top => {
-                            let top = match vs.back() {
-                                None => WashArgs::Empty,
-                                Some(v) => v.clone()
-                            };
-                            cfv = top;
-                        },
-                        Pull => {
-                            match vs.pop_back() {
-                                None => cfv = WashArgs::Empty,
-                                Some(v) => cfv = v
-                            }
-                        },
-                        Swap => {
-                            let top = match vs.pop_back() {
-                                None => WashArgs::Empty,
-                                Some(v) => v
-                            };
-                            vs.push_back(cfv);
-                            cfv = top;
-                        },
-                        Join(n) => {
-                            let index = {
-                                if vs.len() > n {
-                                    vs.len() - n
-                                } else {
-                                    0
-                                }
-                            };
-                            cfv = WashArgs::Long(vs.split_off(index).into_iter().collect());
-                        },
-                        Call(n) => {
-                            cfv = try!(self.env.runf(&n, &cfv));
-                        },
-                        Proc(n, c) => {
-                            let index = {
-                                if vs.len() > c {
-                                    vs.len() - c
-                                } else {
-                                    0
-                                }
-                            };
-                            let mut vargs:Vec<WashArgs> = vs.split_off(index).into_iter().collect();
-                            let args = {
-                                if vargs.is_empty() {
-                                    WashArgs::Empty
-                                } else if vargs.len() == 1 {
-                                    vargs.pop().unwrap()
-                                } else {
-                                    WashArgs::Long(vargs)
-                                }
-                            };
-                            vs.push_back(try!(self.env.runf(&n, &args)));
-                        },
-                        Fail(m) => {
-                            return Err(m);
-                        },
-                        DStore(n, p) => {
-                            if p.is_empty() {
-                                try!(self.env.insv(n, cfv));
-                                cfv = WashArgs::Empty;
-                            } else {
-                                try!(self.env.insvp(n, p, cfv));
-                                cfv = WashArgs::Empty;
-                            }
-                        },
-                        UnStack(n, p) => {
-                            let top = match vs.pop_back() {
-                                None => WashArgs::Empty,
-                                Some(v) => v
-                            };
-                            if p.is_empty() {
-                                try!(self.env.insv(n, top));
-                            } else {
-                                try!(self.env.insvp(n, p, top));
-                            }
-                        },
-                        Stack(n, p) => {
-                            if p.is_empty() {
-                                vs.push_back(try!(self.env.getv(&n)));
-                            } else {
-                                vs.push_back(try!(self.env.getvp(&n, &p)));
-                            }
-                        },
-                        Store => {
-                            let com_name = match vs.pop_back() {
-                                None => return Err(format!("No variable name found")),
-                                Some(WashArgs::Flat(s)) => s,
-                                Some(_) => return Err(format!("Variable names must be flat"))
-                            };
-                            match VAR_PATH_REGEX.captures(com_name.as_slice()) {
-                                None => match VAR_REGEX.captures(com_name.as_slice()) {
-                                    None => return Err(format!("Variable name {} could not be resolved into $path:name",
-                                                               com_name)),
-                                    Some(caps) => {
-                                        let name = caps.at(1).unwrap();
-                                        try!(self.env.insv(name.to_string(), cfv));
-                                        cfv = WashArgs::Empty;
-                                    }
-                                },
-                                Some(caps) => {
-                                    let path = caps.at(1).unwrap();
-                                    let name = caps.at(2).unwrap();
-                                    try!(self.env.insvp(name.to_string(), path.to_string(), cfv));
-                                    cfv = WashArgs::Empty;
-                                }
-                            }
-                        },
-                        Load => {
-                            let com_name = match cfv {
-                                WashArgs::Flat(s) => s,
-                                _ => return Err(format!("Variable names must be flat"))
-                            };
-                            match VAR_PATH_REGEX.captures(com_name.as_slice()) {
-                                None => match VAR_REGEX.captures(com_name.as_slice()) {
-                                    None => return Err(format!("Variable name {} could not be resolved into $path:name",
-                                                               com_name)),
-                                    Some(caps) => {
-                                        let name = caps.at(1).unwrap();
-                                        cfv = try!(self.env.getv(&name.to_string()));
-                                    }
-                                },
-                                Some(caps) => {
-                                    let path = caps.at(1).unwrap();
-                                    let name = caps.at(2).unwrap();
-                                    cfv = try!(self.env.getvp(&name.to_string(), &path.to_string()));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+
 }

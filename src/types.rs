@@ -1,5 +1,6 @@
 // Simple types that rely mainly on themselves
 // Useful in many places
+use std::collections::*;
 use std::cmp::*;
 
 use std::fmt;
@@ -8,6 +9,7 @@ use self::WashArgs::*;
 use self::Action::*;
 
 pub type AstResult = Result<HandlerResult, String>;
+pub type SectionTable = HashMap<SectionType, LinkedList<Action>>;
 
 #[derive(Clone, Eq, Hash)]
 pub enum WashArgs {

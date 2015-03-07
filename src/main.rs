@@ -1,5 +1,6 @@
 #![feature(box_syntax)]
 #![feature(unsafe_destructor)]
+#![feature(unboxed_closures)]
 #![feature(collections)]
 #![feature(core)]
 #![feature(path)]
@@ -28,6 +29,7 @@ use constants::*;
 use builtins::*;
 use types::*;
 use ast::*;
+use env::*;
 use handlers::*;
 
 use types::InputValue::*;
@@ -52,32 +54,33 @@ mod handlers;
 // public so no warnings when we run tests
 pub fn main() {
     let mut reader = LineReader::new();
+    let mut env = WashEnv::new();
     let mut ast = AST::new();
     let mut cleaned_jobs;
-    match load_builtins(&mut ast.env) {
-        Err(e) => ast.env.errf(format_args!("Could not load builtings: {}\n", e)),
+    match load_builtins(&mut env) {
+        Err(e) => env.errf(format_args!("Could not load builtings: {}\n", e)),
         _ => {}
     }
     load_handlers(&mut ast);
-    ast.env.update_terminal();
+    env.update_terminal();
     loop {
-        ast.env.flush();
-        cleaned_jobs = ast.env.clean_jobs();
+        env.flush();
+        cleaned_jobs = env.clean_jobs();
         match cleaned_jobs {
             WashArgs::Long(v) => {
                 for status in v.iter() {
-                    ast.env.outf(format_args!("{}\n", status.flatten()));
+                    env.outf(format_args!("{}\n", status.flatten()));
                 }
             },
             _ => {/* nothing */}
         }
         if ast.in_block() {
-            match ast.env.runf(&format!("subprompt"), &WashArgs::Empty) {
+            match env.runf(&format!("subprompt"), &WashArgs::Empty) {
                 Err(_) => reader.controls.outs("prompt failed => run("),
                 Ok(v) => reader.controls.outs(v.flatten().as_slice())
             }
         } else {
-            match ast.env.runf(&format!("prompt"), &WashArgs::Empty) {
+            match env.runf(&format!("prompt"), &WashArgs::Empty) {
                 Err(_) => reader.controls.outs("prompt failed => run("),
                 Ok(v) => reader.controls.outs(v.flatten().as_slice())
             }
@@ -87,15 +90,15 @@ pub fn main() {
                 if reader.eof {
                     break;
                 } else if !reader.line.is_empty() {
-                    ast.env.outc(BEL);
+                    env.outc(BEL);
                     reader.restart();
                 } else {
-                    ast.env.outc(NL);
+                    env.outc(NL);
                     reader.clear();
                 }
             },
             Some(mut line) => {
-                ast.env.outc(NL);
+                env.outc(NL);
                 match ast.add_line(&mut line) {
                     Err(ref e) if *e == STOP => {
                         // the silent error
@@ -116,7 +119,7 @@ pub fn main() {
                                     //println!("{:?}", ast);
                                 }
                             }
-                            match ast.evaluate() {
+                            match ast.into_runner().evaluate(&WashArgs::Empty, &mut env) {
                                 Err(ref e) if *e == STOP => {
                                     // the silent error
                                 }
@@ -130,7 +133,6 @@ pub fn main() {
                                     println!("{}", v.flatten());
                                 }
                             };
-                            ast.clear();
                         }
                     }
                 }
@@ -138,6 +140,6 @@ pub fn main() {
             }
         }
     }
-    ast.env.outs("\nExiting\n");
-    ast.env.flush();
+    env.outs("\nExiting\n");
+    env.flush();
 }

@@ -2,16 +2,17 @@ use libc::*;
 
 use std::old_io::process::{ProcessOutput, ProcessExit};
 use std::old_io::process::ProcessExit::*;
-use std::collections::HashMap;
 use std::os::unix::prelude::*;
 use std::path::{Path, PathBuf, AsPath};
 
+use std::collections::*;
 use std::num::*;
 use std::mem;
 use std::env;
 use std::fmt;
 
 use types::WashArgs::*;
+use types::Action::*;
 
 use command::*;
 use types::*;
@@ -28,9 +29,7 @@ use self::FuncEntry::*;
 pub type WashFunc = fn(&WashArgs, &mut WashEnv) -> Result<WashArgs, String>;
 pub enum FuncEntry {
     Direct(WashFunc),
-    #[allow(dead_code)]
-    // TODO: rewrite this to be AST-aware
-    Indirect(WashBlock)
+    Indirect(SectionTable)
 }
 
 // >Dat pointer indirection
@@ -71,6 +70,11 @@ unsafe extern fn env_sigint(_:c_int, _:*const SigInfo,
     uexec_stop = true;
 }
 
+pub struct ASTRunner {
+    sections: SectionTable,
+    position: SectionType,
+}
+
 pub struct WashEnv {
     pub paths: PathTable,
     pub variables: String,
@@ -86,6 +90,218 @@ impl Drop for WashEnv {
         self.restore_terminal();
     }
 }
+
+impl fmt::Debug for ASTRunner {
+    fn fmt(&self, fmt:&mut fmt::Formatter) -> fmt::Result {
+        try!(fmt.write_fmt(format_args!("\nPosition: {:?}\n", self.position)));
+        for section in self.sections.keys() {
+            try!(fmt.write_fmt(format_args!("{:?}\n", section)));
+            for item in self.sections.get(section).unwrap().iter() {
+                try!(fmt.write_fmt(format_args!("{:?}\n", item)));
+            }
+            try!(fmt.write_str("\n"));
+        }
+        Ok(())
+    }
+}
+
+impl ASTRunner {
+    pub fn new(sections:SectionTable) -> ASTRunner {
+        ASTRunner {
+            sections: sections,
+            position: SectionType::Run
+        }
+    }
+
+    pub fn evaluate(&mut self, args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
+        self.position = SectionType::Run;
+        let mut cfv = args.clone();
+        let mut vs = LinkedList::new();
+        loop {
+            let section = match self.sections.get(&self.position) {
+                None => return Err(format!("Reached unknown section")),
+                Some(sec) => sec.clone()
+            };
+            let mut iter = section.into_iter();
+            loop {
+                match iter.next() {
+                    None => return Ok(cfv),
+                    Some(action) => match action {
+                        Jump(n) => {
+                            self.position = SectionType::Number(n);
+                            break;
+                        },
+                        Branch(n) => {
+                            if cfv.is_empty() {
+                                self.position = SectionType::Number(n);
+                                break;
+                            }
+                        },
+                        Root(n) => {
+                            let top = match vs.pop_back() {
+                                None => WashArgs::Empty,
+                                Some(v) => v
+                            };
+                            if top.is_empty() {
+                                self.position = SectionType::Number(n);
+                                break;
+                            }
+                        },
+                        Set(v) => {
+                            cfv = v;
+                        },
+                        Insert(v) => {
+                            vs.push_back(v);
+                        },
+                        ReInsert => {
+                            match vs.pop_back() {
+                                None => {},
+                                Some(v) => {
+                                    vs.push_back(v.clone());
+                                    vs.push_back(v);
+                                }
+                            }
+                        },
+                        Temp => {
+                            vs.push_back(cfv);
+                            cfv = WashArgs::Empty;
+                        },
+                        Top => {
+                            let top = match vs.back() {
+                                None => WashArgs::Empty,
+                                Some(v) => v.clone()
+                            };
+                            cfv = top;
+                        },
+                        Pull => {
+                            match vs.pop_back() {
+                                None => cfv = WashArgs::Empty,
+                                Some(v) => cfv = v
+                            }
+                        },
+                        Swap => {
+                            let top = match vs.pop_back() {
+                                None => WashArgs::Empty,
+                                Some(v) => v
+                            };
+                            vs.push_back(cfv);
+                            cfv = top;
+                        },
+                        Join(n) => {
+                            let index = {
+                                if vs.len() > n {
+                                    vs.len() - n
+                                } else {
+                                    0
+                                }
+                            };
+                            cfv = WashArgs::Long(vs.split_off(index).into_iter().collect());
+                        },
+                        Call(n) => {
+                            cfv = try!(env.runf(&n, &cfv));
+                        },
+                        Proc(n, c) => {
+                            let index = {
+                                if vs.len() > c {
+                                    vs.len() - c
+                                } else {
+                                    0
+                                }
+                            };
+                            let mut vargs:Vec<WashArgs> = vs.split_off(index).into_iter().collect();
+                            let args = {
+                                if vargs.is_empty() {
+                                    WashArgs::Empty
+                                } else if vargs.len() == 1 {
+                                    vargs.pop().unwrap()
+                                } else {
+                                    WashArgs::Long(vargs)
+                                }
+                            };
+                            vs.push_back(try!(env.runf(&n, &args)));
+                        },
+                        Fail(m) => {
+                            return Err(m);
+                        },
+                        DStore(n, p) => {
+                            if p.is_empty() {
+                                try!(env.insv(n, cfv));
+                                cfv = WashArgs::Empty;
+                            } else {
+                                try!(env.insvp(n, p, cfv));
+                                cfv = WashArgs::Empty;
+                            }
+                        },
+                        UnStack(n, p) => {
+                            let top = match vs.pop_back() {
+                                None => WashArgs::Empty,
+                                Some(v) => v
+                            };
+                            if p.is_empty() {
+                                try!(env.insv(n, top));
+                            } else {
+                                try!(env.insvp(n, p, top));
+                            }
+                        },
+                        Stack(n, p) => {
+                            if p.is_empty() {
+                                vs.push_back(try!(env.getv(&n)));
+                            } else {
+                                vs.push_back(try!(env.getvp(&n, &p)));
+                            }
+                        },
+                        Store => {
+                            let com_name = match vs.pop_back() {
+                                None => return Err(format!("No variable name found")),
+                                Some(WashArgs::Flat(s)) => s,
+                                Some(_) => return Err(format!("Variable names must be flat"))
+                            };
+                            match VAR_PATH_REGEX.captures(com_name.as_slice()) {
+                                None => match VAR_REGEX.captures(com_name.as_slice()) {
+                                    None => return Err(format!("Variable name {} could not be resolved into $path:name",
+                                                               com_name)),
+                                    Some(caps) => {
+                                        let name = caps.at(1).unwrap();
+                                        try!(env.insv(name.to_string(), cfv));
+                                        cfv = WashArgs::Empty;
+                                    }
+                                },
+                                Some(caps) => {
+                                    let path = caps.at(1).unwrap();
+                                    let name = caps.at(2).unwrap();
+                                    try!(env.insvp(name.to_string(), path.to_string(), cfv));
+                                    cfv = WashArgs::Empty;
+                                }
+                            }
+                        },
+                        Load => {
+                            let com_name = match cfv {
+                                WashArgs::Flat(s) => s,
+                                _ => return Err(format!("Variable names must be flat"))
+                            };
+                            match VAR_PATH_REGEX.captures(com_name.as_slice()) {
+                                None => match VAR_REGEX.captures(com_name.as_slice()) {
+                                    None => return Err(format!("Variable name {} could not be resolved into $path:name",
+                                                               com_name)),
+                                    Some(caps) => {
+                                        let name = caps.at(1).unwrap();
+                                        cfv = try!(env.getv(&name.to_string()));
+                                    }
+                                },
+                                Some(caps) => {
+                                    let path = caps.at(1).unwrap();
+                                    let name = caps.at(2).unwrap();
+                                    cfv = try!(env.getvp(&name.to_string(), &path.to_string()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 impl WashEnv {
     pub fn new() -> WashEnv {
@@ -445,10 +661,15 @@ impl WashEnv {
     }
 
     pub fn runf(&mut self, name:&String, args:&WashArgs) -> Result<WashArgs, String> {
-        let func = match self.functions.get(name) {
+        let mut func = None; let mut runner = None;
+        match self.functions.get(name) {
             None => return Err("Function not found".to_string()),
-            Some(&Direct(ref func)) => func.clone(),
-            Some(_) => return Err(format!("Cannot run indirect functions this way"))
+            Some(&Direct(ref f)) => {
+                func = Some(f.clone());
+            },
+            Some(&Indirect(ref sections)) => {
+                runner = Some(ASTRunner::new(sections.clone()));
+            }
         };
         self.handle_sigint();
         // in the case a function calls other functions
@@ -459,7 +680,15 @@ impl WashEnv {
         } else {
             do_unhandle = false;
         }
-        let out = func(args, self);
+        let out = {
+            if func.is_some() {
+                func.unwrap()(args, self)
+            } else if runner.is_some() {
+                runner.unwrap().evaluate(args, self)
+            } else {
+                panic!("Both runner and func were None")
+            }
+        };
         if do_unhandle {
             self.catch_sigint = true;
             self.unhandle_sigint();
