@@ -1,14 +1,16 @@
 #![feature(box_syntax)]
+// we have to use the old process module, because the new one doesn't support
+// inheritfd, which is needed for process piping
+#![allow(deprecated)]
 #![feature(unsafe_destructor)]
 #![feature(unboxed_closures)]
 #![feature(collections)]
 #![feature(core)]
+#![feature(path_ext)]
 #![feature(path)]
 #![feature(io)]
 #![feature(old_io)]
 #![feature(old_path)]
-#![feature(fs)]
-#![feature(os)]
 #![feature(libc)]
 #![feature(std_misc)]
 #![feature(unicode)]
