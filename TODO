@@ -1,7 +1,6 @@
-- Implement more handlers, like !=
-- Rework functions in env so they can be AST blocks
-- Implement runtime-defined functions
- - think about function arguments, how to access them
+- Implement Long deconstruction
+ - this is useful beyond just function arguments, useful in the case of
+   deconstructing results from function, and other things
 - Implement conversion to IR
 - find way to pass environment variables for jobs
   in special way so they aren't ever set for the
