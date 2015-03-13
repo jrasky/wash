@@ -161,6 +161,13 @@ handler!(handle_dot, contents, count, out, ast, {
     return Ok(Continue);
 });
 
+handler!(handle_dollarat, _, count, out, _, {
+    out.push_back(Args);
+    out.push_back(Temp);
+    *count += 1;
+    Ok(Continue)
+});
+
 handler!(handle_semiamper, _, count, out, _, {
     if *count > 0 {
         out.push_back(Join(*count));
@@ -469,13 +476,14 @@ pub fn load_handlers(ast:&mut AST) {
     ast.add_handler("=", handle_equal);
     ast.add_handler("==", handle_equalequal);
     ast.add_handler("~=", handle_tildaequal);
-    ast.add_handler(".", handle_dot);
+    ast.add_handler("+", handle_dot);
     ast.add_handler("&;", handle_semiamper);
     ast.add_handler("&", handle_amper);
     ast.add_handler("&&", handle_amperamper);
     ast.add_handler("|", handle_bar);
     ast.add_handler(">", handle_geq);
     ast.add_handler("<", handle_leq);
+    ast.add_handler("$@", handle_dollarat);
 
     ast.add_handler("act!", handle_act);
     ast.add_handler("if!", handle_if);

@@ -115,7 +115,7 @@ impl ASTRunner {
 
     pub fn evaluate(&mut self, args:&WashArgs, env:&mut WashEnv) -> Result<WashArgs, String> {
         self.position = SectionType::Run;
-        let mut cfv = args.clone();
+        let mut cfv = WashArgs::Empty;
         let mut vs = LinkedList::new();
         loop {
             let section = match self.sections.get(&self.position) {
@@ -199,6 +199,9 @@ impl ASTRunner {
                         },
                         Call(n) => {
                             cfv = try!(env.runf(&n, &cfv));
+                        },
+                        Args => {
+                            cfv = args.clone();
                         },
                         Proc(n, c) => {
                             let index = {

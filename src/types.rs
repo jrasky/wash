@@ -113,7 +113,9 @@ pub enum Action {
     Root(usize),
     // take function name from CFV
     // section number given is entry point
-    Save(usize)
+    Save(usize),
+    // set CFV to the function arguments
+    Args
 }
 
 impl PartialEq for HandlerResult {
@@ -242,6 +244,10 @@ impl PartialEq for Action {
             &Save(ref d) => match other {
                 &Save(ref od) if *d == *od => true,
                 _ => false
+            },
+            &Args => match other {
+                &Args => true,
+                _ => false
             }
         }
     }
@@ -309,6 +315,9 @@ impl fmt::Debug for Action {
             },
             &Save(ref d) => {
                 try!(fmt.write_fmt(format_args!("Save({})", d)));
+            },
+            &Args => {
+                try!(fmt.write_fmt(format_args!("Args")));
             }
         }
         Ok(())
