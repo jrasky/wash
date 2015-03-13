@@ -112,7 +112,7 @@ pub fn main() {
                     },
                     Ok(_) => {
                         if !ast.in_block() {
-                            println!("{:?}", ast);
+                            //println!("{:?}", ast);
                             match ast.optimize() {
                                 Err(e) => {
                                     println!("Optimization error: {}", e);
