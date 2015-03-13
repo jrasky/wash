@@ -1,6 +1,9 @@
 - Implement Long deconstruction
  - this is useful beyond just function arguments, useful in the case of
    deconstructing results from function, and other things
+ - Maybe something like Split?
+   - puts the number of split elements onto CFV?
+   - Index function is of the first element on VS
 - Implement conversion to IR
 - find way to pass environment variables for jobs
   in special way so they aren't ever set for the
