@@ -414,7 +414,10 @@ handler!(handle_func, contents, count, out, ast, {
     ast.move_to(old_sec);
     aclist.push_back(Save(newsec));
     ast.current_section().append(&mut aclist);
-    return Err(format!("Not implemented yet"));
+    ast.move_to(SectionType::Number(newsec));
+    *count = 0;
+    ast.no_jump = true;
+    return Ok(More(old_sec));
 });
 
 handler!(handle_act, contents, count, out, ast, {
@@ -479,5 +482,6 @@ pub fn load_handlers(ast:&mut AST) {
     ast.add_handler("elif!", handle_elif);
     ast.add_handler("else!", handle_else);
     ast.add_handler("while!", handle_while);
+    ast.add_handler("func!", handle_func);
     ast.add_handler("}", handle_endblock);
 }

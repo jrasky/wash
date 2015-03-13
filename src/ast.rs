@@ -21,7 +21,8 @@ pub struct AST {
     endline: LinkedList<Action>,
     blocks: Vec<SectionType>,
     pub elif: Option<SectionType>,
-    pub sec_loop: bool
+    pub sec_loop: bool,
+    pub no_jump: bool
 }
 
 impl fmt::Debug for AST {
@@ -53,7 +54,8 @@ impl AST {
             endline: LinkedList::new(),
             blocks: vec![],
             elif: None,
-            sec_loop: false
+            sec_loop: false,
+            no_jump: false
         }
     }
 
@@ -65,6 +67,7 @@ impl AST {
         self.blocks.clear();
         self.elif = None;
         self.sec_loop = false;
+        self.no_jump = false;
     }
 
     pub fn into_runner(&mut self) -> ASTRunner {
@@ -139,8 +142,10 @@ impl AST {
                             self.sec_loop = false;
                         }, _ => panic!("Cannot loop .run")
                     }
-                } else {
+                } else if !self.no_jump {
                     self.current_section().push_back(Jump(n));
+                } else {
+                    self.no_jump = false;
                 }
                 self.move_to(SectionType::Number(n));
                 Ok(())

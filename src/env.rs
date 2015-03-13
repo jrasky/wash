@@ -295,8 +295,24 @@ impl ASTRunner {
                                 }
                             }
                         },
-                        Save(_) => {
-                            return Err(format!("Save not implementet yet"));
+                        Save(s) => {
+                            let name = cfv.get_flat(0);
+                            if name.is_empty() {
+                                return Err(format!("Function names cannot be empty"));
+                            }
+                            // TODO: this is not very efficient, it just copies all the sections
+                            // we have into the function's section, replacing .run with the given
+                            // section.
+                            // The right thing to do would be to track new section creation for
+                            // functions and including just those sections.
+                            let mut sections = self.sections.clone();
+                            let runsec = match sections.remove(&SectionType::Number(s)) {
+                                None => return Err(format!("Function section not found")),
+                                Some(s) => s
+                            };
+                            sections.insert(SectionType::Run, runsec);
+                            try!(env.insf(name, Indirect(sections)));
+                            cfv = WashArgs::Empty;
                         }
                     }
                 }
@@ -473,11 +489,14 @@ impl WashEnv {
         return Ok(Empty);
     }
 
-    pub fn insf(&mut self, name:&str, func:WashFunc) -> Result<WashArgs, String> {
-        self.functions.insert(name.to_string(), Direct(func));
+    pub fn insf(&mut self, name:String, func:FuncEntry) -> Result<WashArgs, String> {
+        self.functions.insert(name, func);
         return Ok(Empty);
     }
 
+    pub fn insfd(&mut self, name:&str, func:WashFunc) -> Result<WashArgs, String> {
+        self.insf(name.to_string(), Direct(func))
+    }
 
     pub fn getv(&self, name:&String) -> Result<WashArgs, String> {
         return match self.getvp(name, &self.variables) {

@@ -467,32 +467,32 @@ builtin!(builtins_func, _, _, {
 
 pub fn load_builtins(env:&mut WashEnv) -> Result<WashArgs, String> {
     // functions
-    try!(env.insf("source", source_func));
-    try!(env.insf("cd", cd_func));
-    try!(env.insf("builtins", builtins_func));
-    try!(env.insf("outs", outs_func));
-    try!(env.insf("$", directed_job_func));
-    try!(env.insf("run", run_func));
-    try!(env.insf("get", get_func));
-    try!(env.insf("setp", setp_func));
-    try!(env.insf("jobs", jobs_func));
-    try!(env.insf("job", job_func));
-    try!(env.insf("fg", fg_func));
-    try!(env.insf("ftime", ftime_func));
-    try!(env.insf("dot", dot_func));
-    try!(env.insf("prompt", prompt_func));
-    try!(env.insf("subprompt", subprompt_func));
-    try!(env.insf("equal?", equal_func));
-    try!(env.insf("not?", not_func));
-    try!(env.insf("re_equal?", re_equal_func));
-    try!(env.insf("open_input", open_input_func));
-    try!(env.insf("open_output", open_output_func));
-    try!(env.insf("run_failed?", run_failed_func));
-    try!(env.insf("getall", getall_func));
-    try!(env.insf("flatten_eqlist", flatten_eqlist_func));
+    try!(env.insfd("source", source_func));
+    try!(env.insfd("cd", cd_func));
+    try!(env.insfd("builtins", builtins_func));
+    try!(env.insfd("outs", outs_func));
+    try!(env.insfd("$", directed_job_func));
+    try!(env.insfd("run", run_func));
+    try!(env.insfd("get", get_func));
+    try!(env.insfd("setp", setp_func));
+    try!(env.insfd("jobs", jobs_func));
+    try!(env.insfd("job", job_func));
+    try!(env.insfd("fg", fg_func));
+    try!(env.insfd("ftime", ftime_func));
+    try!(env.insfd("dot", dot_func));
+    try!(env.insfd("prompt", prompt_func));
+    try!(env.insfd("subprompt", subprompt_func));
+    try!(env.insfd("equal?", equal_func));
+    try!(env.insfd("not?", not_func));
+    try!(env.insfd("re_equal?", re_equal_func));
+    try!(env.insfd("open_input", open_input_func));
+    try!(env.insfd("open_output", open_output_func));
+    try!(env.insfd("run_failed?", run_failed_func));
+    try!(env.insfd("getall", getall_func));
+    try!(env.insfd("flatten_eqlist", flatten_eqlist_func));
 
     // commands that aren't really meant to be called by users
-    try!(env.insf("describe_process_output", describe_process_output));
+    try!(env.insfd("describe_process_output", describe_process_output));
 
     return Ok(Empty);
 }
