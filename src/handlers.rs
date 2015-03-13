@@ -395,6 +395,28 @@ handler!(handle_while, contents, count, out, ast, {
     return Ok(More(SectionType::Number(finalsec)));
 });
 
+handler!(handle_func, contents, count, out, ast, {
+    ast.current_section().append(out);
+    let mut values = vec![];
+    loop {
+        match contents.pop_front() {
+            None => break,
+            Some(Short(ref s)) if *s == "{" => break,
+            Some(v) => values.push(v)
+        }
+    }
+    let mut aclist = try!(ast.process(&mut Long(values), false));
+    let old_sec = ast.new_section();
+    let newsec = match ast.get_position() {
+        SectionType::Number(n) => n,
+        _ => panic!("New section wasn't numbered")
+    };
+    ast.move_to(old_sec);
+    aclist.push_back(Save(newsec));
+    ast.current_section().append(&mut aclist);
+    return Err(format!("Not implemented yet"));
+});
+
 handler!(handle_act, contents, count, out, ast, {
     ast.current_section().append(out);
     loop {

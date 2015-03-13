@@ -110,7 +110,10 @@ pub enum Action {
     // copy and insert the top of VS
     ReInsert,
     // branch from top VS value
-    Root(usize)
+    Root(usize),
+    // take function name from CFV
+    // section number given is entry point
+    Save(usize)
 }
 
 impl PartialEq for HandlerResult {
@@ -236,6 +239,10 @@ impl PartialEq for Action {
                 &Root(ref od) if *d == *od => true,
                 _ => false
             },
+            &Save(ref d) => match other {
+                &Save(ref od) if *d == *od => true,
+                _ => false
+            }
         }
     }
 }
@@ -300,6 +307,9 @@ impl fmt::Debug for Action {
             &Root(ref d) => {
                 try!(fmt.write_fmt(format_args!("Root({})", d)));
             },
+            &Save(ref d) => {
+                try!(fmt.write_fmt(format_args!("Save({})", d)));
+            }
         }
         Ok(())
     }

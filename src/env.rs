@@ -294,6 +294,9 @@ impl ASTRunner {
                                     cfv = try!(env.getvp(&name.to_string(), &path.to_string()));
                                 }
                             }
+                        },
+                        Save(_) => {
+                            return Err(format!("Save not implementet yet"));
                         }
                     }
                 }

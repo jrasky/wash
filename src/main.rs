@@ -2,12 +2,12 @@
 // we have to use the old process module, because the new one doesn't support
 // inheritfd, which is needed for process piping
 #![allow(deprecated)]
+#![feature(path_relative_from)]
 #![feature(unsafe_destructor)]
 #![feature(unboxed_closures)]
 #![feature(collections)]
 #![feature(core)]
 #![feature(path_ext)]
-#![feature(path)]
 #![feature(io)]
 #![feature(old_io)]
 #![feature(old_path)]
