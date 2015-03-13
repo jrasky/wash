@@ -115,7 +115,10 @@ pub enum Action {
     // section number given is entry point
     Save(usize),
     // set CFV to the function arguments
-    Args
+    Args,
+    // index on the first element in VS
+    // index is stored on the CFV
+    Index
 }
 
 impl PartialEq for HandlerResult {
@@ -248,6 +251,10 @@ impl PartialEq for Action {
             &Args => match other {
                 &Args => true,
                 _ => false
+            },
+            &Index => match other {
+                &Index => true,
+                _ => false
             }
         }
     }
@@ -318,6 +325,9 @@ impl fmt::Debug for Action {
             },
             &Args => {
                 try!(fmt.write_fmt(format_args!("Args")));
+            },
+            &Index => {
+                try!(fmt.write_fmt(format_args!("Index")));
             }
         }
         Ok(())

@@ -173,6 +173,22 @@ impl ASTRunner {
                             };
                             cfv = top;
                         },
+                        Index => {
+                            let top = match vs.back() {
+                                None => vec![],
+                                Some(&WashArgs::Long(ref v)) => v.clone(),
+                                Some(_) => return Err(format!("Did not find a list"))
+                            };
+                            let index:usize = match from_str_radix(cfv.get_flat(0).as_slice(), 10) {
+                                Err(_) => return Err(format!("Could not turn \"{}\" into a number", cfv.get_flat(0))),
+                                Ok(v) => v
+                            };
+                            if index > top.len() {
+                                return Err(format!("{} outside list range", index));
+                            } else {
+                                cfv = top[index].clone();
+                            }
+                        },
                         Pull => {
                             match vs.pop_back() {
                                 None => cfv = WashArgs::Empty,
